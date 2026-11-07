@@ -99,3 +99,4 @@ npm test
 Saat kasir dijalankan terpisah di port 3001, isi URL sync di Pengaturan kasir dengan
 `http://localhost:3000/api/sync`. Untuk mencoba gabungan seperti di Vercel:
 `cd admin-dashboard && npm run build && npm start`, lalu buka `http://localhost:3000/kasir/`.
+# kasir-warung-kopi
