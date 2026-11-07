@@ -24,6 +24,8 @@ import {
   getExpenses,
   performCloudSync,
   getUnsyncedCount,
+  pruneSyncedTransactions,
+  KEEP_SYNCED_DAYS,
 } from './storage';
 import { verifyPin, hashPin, isValidPin, sha256Hex } from './security';
 import { can } from './permissions';
@@ -369,3 +371,46 @@ describe('sync pengeluaran', () => {
     expect(getUnsyncedCount()).toBe(1);
   });
 });
+
+describe('penyimpanan & sync bertahap', () => {
+  it('sync dikirim per batch dan semua transaksi akhirnya tersinkron', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    const old = Array.from({ length: 450 }, (_, i) => ({
+      id: `T-${i}`,
+      timestamp: new Date().toISOString(),
+      paymentType: 'tunai',
+      status: 'completed',
+      items: [],
+      isSynced: false,
+    }));
+    localStorage.setItem('warkop_pos_transactions', JSON.stringify(old));
+    const sizes: number[] = [];
+    const withProducts: boolean[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: any) => {
+      const body = JSON.parse(init.body);
+      sizes.push(body.transactions.length);
+      withProducts.push(Array.isArray(body.products));
+      return { ok: true, text: async () => '' };
+    });
+    const res = await performCloudSync();
+    expect(res.success).toBe(true);
+    expect(sizes).toEqual([200, 200, 50]);
+    expect(withProducts).toEqual([true, false, false]);
+    expect(getUnsyncedCount()).toBe(0);
+  });
+
+  it('membersihkan transaksi lama yang sudah tersinkron, kecuali bon belum lunas & yang belum terkirim', () => {
+    const now = new Date('2026-11-07T10:00:00Z');
+    const daysAgo = (d: number) => new Date(now.getTime() - d * 86400000).toISOString();
+    const txs = [
+      { id: 'old-synced', timestamp: daysAgo(100), paymentType: 'tunai', status: 'completed', isSynced: true, items: [] },
+      { id: 'old-unsynced', timestamp: daysAgo(100), paymentType: 'tunai', status: 'completed', isSynced: false, items: [] },
+      { id: 'old-bon', timestamp: daysAgo(100), paymentType: 'hutang', debtStatus: 'unpaid', status: 'completed', isSynced: true, items: [] },
+      { id: 'new-synced', timestamp: daysAgo(3), paymentType: 'tunai', status: 'completed', isSynced: true, items: [] },
+    ];
+    localStorage.setItem('warkop_pos_transactions', JSON.stringify(txs));
+    expect(pruneSyncedTransactions(KEEP_SYNCED_DAYS, now)).toBe(1);
+    expect(getTransactions().map((t) => t.id)).toEqual(['old-unsynced', 'old-bon', 'new-synced']);
+  });
+});
+

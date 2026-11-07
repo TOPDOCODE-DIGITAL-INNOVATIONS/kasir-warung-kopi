@@ -9,6 +9,11 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 );
 
+// Minta browser tidak menghapus data kasir (localStorage) saat ruang disk menipis.
+if (navigator.storage?.persist) {
+  navigator.storage.persisted().then((ok) => (ok ? true : navigator.storage.persist())).catch(() => {});
+}
+
 // Service worker hanya di build produksi; di mode dev akan menyajikan file lama dari cache.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {

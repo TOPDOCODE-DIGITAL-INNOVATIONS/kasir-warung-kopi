@@ -162,3 +162,61 @@ begin
     );
   end loop;
 end $$;
+
+-- ---------------------------------------------------------------------
+-- Ringkasan dashboard (dihitung di database, tidak terkena batas 1000 baris API)
+-- security invoker: tetap tunduk pada RLS, jadi owner hanya melihat cabangnya.
+-- ---------------------------------------------------------------------
+create or replace function public.dashboard_summary(p_business uuid, p_days integer default 7)
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  with params as (
+    select
+      (now() at time zone 'Asia/Jakarta')::date as today,
+      (now() at time zone 'Asia/Jakarta')::date - (greatest(p_days, 1) - 1) as first_day
+  ),
+  tx as (
+    select t.*, (t.created_at at time zone 'Asia/Jakarta')::date as day
+    from public.transactions t, params
+    where t.status = 'completed'
+      and (p_business is null or t.business_id = p_business)
+      and t.created_at >= (params.first_day::timestamp at time zone 'Asia/Jakarta')
+  ),
+  days as (
+    select d::date as day from params, generate_series(params.first_day, params.today, interval '1 day') d
+  ),
+  daily as (
+    select days.day, coalesce(sum(tx.grand_total), 0) as sales, count(tx.id) as count
+    from days left join tx on tx.day = days.day
+    group by days.day
+  ),
+  top as (
+    select coalesce(item->'product'->>'name', 'Lainnya') as name, sum(coalesce((item->>'quantity')::numeric, 0)) as qty
+    from tx, jsonb_array_elements(tx.items) item
+    group by 1
+    order by 2 desc
+    limit 5
+  )
+  select jsonb_build_object(
+    'today', (select today from params),
+    'daily', (select coalesce(jsonb_agg(jsonb_build_object('day', day, 'sales', sales, 'count', count) order by day), '[]'::jsonb) from daily),
+    'top_products', (select coalesce(jsonb_agg(jsonb_build_object('name', name, 'qty', qty)), '[]'::jsonb) from top),
+    'unpaid_debt', (
+      select coalesce(sum(grand_total), 0) from public.transactions
+      where payment_type = 'hutang' and debt_status = 'unpaid' and status = 'completed'
+        and (p_business is null or business_id = p_business)
+    ),
+    'month_expenses', (
+      select coalesce(sum(amount), 0) from public.expenses, params
+      where date like to_char(params.today, 'YYYY-MM') || '%'
+        and (p_business is null or business_id = p_business)
+    )
+  )
+$$;
+
+revoke execute on function public.dashboard_summary(uuid, integer) from public, anon;
+grant execute on function public.dashboard_summary(uuid, integer) to authenticated;

@@ -51,8 +51,64 @@ function readJSON<T>(key: string, fallback: T): T {
   }
 }
 
+function isQuotaError(err: unknown): boolean {
+  return (
+    err instanceof DOMException &&
+    (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED' || err.code === 22)
+  );
+}
+
 function writeJSON(key: string, value: unknown): void {
-  localStorage.setItem(key, JSON.stringify(value));
+  const json = JSON.stringify(value);
+  try {
+    localStorage.setItem(key, json);
+  } catch (err) {
+    if (!isQuotaError(err)) throw err;
+    // Penyimpanan penuh: buang transaksi lama yang sudah tersinkron, lalu coba sekali lagi.
+    if (pruneSyncedTransactions(PRUNE_EMERGENCY_DAYS) > 0) {
+      try {
+        localStorage.setItem(key, json);
+        return;
+      } catch (retryErr) {
+        if (!isQuotaError(retryErr)) throw retryErr;
+      }
+    }
+    throw new Error(
+      'Penyimpanan perangkat penuh. Sambungkan ke internet dan lakukan Sync agar transaksi lama bisa dibersihkan, ' +
+        'atau unduh backup lalu hapus data lama.'
+    );
+  }
+}
+
+/** Transaksi tersinkron yang lebih tua dari ini dihapus dari perangkat (datanya tetap ada di dashboard). */
+export const KEEP_SYNCED_DAYS = 62;
+const PRUNE_EMERGENCY_DAYS = 7;
+
+/**
+ * Hapus dari perangkat transaksi yang SUDAH tersinkron dan lebih tua dari `days` hari.
+ * Transaksi belum tersinkron dan bon yang belum lunas tidak pernah dihapus.
+ * Mengembalikan jumlah transaksi yang dihapus.
+ */
+export function pruneSyncedTransactions(days: number = KEEP_SYNCED_DAYS, now: Date = new Date()): number {
+  const cutoff = now.getTime() - days * 86400000;
+  const all = readJSON<Transaction[]>(STORAGE_KEYS.TRANSACTIONS, []);
+  const kept = all.filter(
+    (t) =>
+      !t.isSynced ||
+      (t.paymentType === 'hutang' && t.debtStatus !== 'paid' && t.status !== 'cancelled') ||
+      new Date(t.timestamp).getTime() >= cutoff
+  );
+  const removed = all.length - kept.length;
+  if (removed > 0) localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(kept));
+  return removed;
+}
+
+/** Simpan hanya data produk yang dibutuhkan struk/laporan, agar transaksi tidak memakan banyak ruang. */
+function compactCartItems(items: CartItem[]): CartItem[] {
+  return items.map((item) => {
+    const { options: _o, description: _d, imageUrl: _i, colorBg: _c, ...product } = item.product;
+    return { ...item, product };
+  });
 }
 
 // Format IDR Helper
@@ -357,6 +413,7 @@ export function saveTransaction(tx: Transaction): Transaction {
 
   const saved: Transaction = {
     ...tx,
+    items: compactCartItems(tx.items),
     shiftId: shift.id,
     isSynced: false,
     ...(tx.paymentType === 'hutang' ? { debtStatus: 'unpaid' as const } : {}),
@@ -698,6 +755,7 @@ export function markTransactionsAsSynced(txIds: string[], sent?: Transaction[]):
     return { ...t, isSynced: true, syncedAt: now };
   });
   writeTransactions(updated);
+  pruneSyncedTransactions();
 
   const settings = getStoreSettings();
   settings.lastSyncedAt = now;
@@ -778,58 +836,80 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
     };
   }
 
+  // Kirim bertahap agar request tidak melebihi batas ukuran body server (Vercel: 4,5 MB).
+  let sentTx = 0;
+  let sentExp = 0;
+  let sentDel = 0;
   try {
-    const payload = {
-      storeName: settings.storeName,
-      deviceCode: getDeviceCode(),
-      timestamp: new Date().toISOString(),
-      transactions: unsyncedTx,
-      expenses: unsyncedExpenses,
-      deletedExpenseIds,
-      products: getProducts(),
-      shift: getActiveShift(),
-      shifts: getRecentShifts(),
-    };
+    for (let batch = 0; ; batch++) {
+      const txBatch = getUnsyncedTransactions().slice(0, SYNC_BATCH_TX);
+      const expBatch = getUnsyncedExpenses().slice(0, SYNC_BATCH_EXPENSES);
+      const delBatch = getDeletedExpenseIds().slice(0, SYNC_BATCH_EXPENSES);
+      // Batch pertama selalu dikirim (membawa katalog & shift); berikutnya hanya jika masih ada sisa.
+      if (batch > 0 && txBatch.length + expBatch.length + delBatch.length === 0) break;
+      if (batch >= SYNC_MAX_BATCHES) break;
 
-    const res = await fetch(syncUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(settings.syncApiKey
-          ? { 'x-api-key': settings.syncApiKey, Authorization: `Bearer ${settings.syncApiKey}` }
-          : {}),
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (res.ok) {
-      markExpensesAsSynced(unsyncedExpenses, deletedExpenseIds);
-      markTransactionsAsSynced(
-        unsyncedTx.map((t) => t.id),
-        unsyncedTx
-      );
-      const parts = [
-        unsyncedTx.length ? `${unsyncedTx.length} transaksi` : '',
-        unsyncedExpenses.length ? `${unsyncedExpenses.length} pengeluaran` : '',
-        deletedExpenseIds.length ? `${deletedExpenseIds.length} hapus pengeluaran` : '',
-      ].filter(Boolean);
-      return {
-        success: true,
-        message: `Berhasil menyinkronkan ${parts.join(', ')}.`,
-        syncedCount: total,
+      const payload = {
+        storeName: settings.storeName,
+        deviceCode: getDeviceCode(),
+        timestamp: new Date().toISOString(),
+        transactions: txBatch,
+        expenses: expBatch,
+        deletedExpenseIds: delBatch,
+        ...(batch === 0 ? { products: getProducts(), shift: getActiveShift(), shifts: getRecentShifts() } : {}),
       };
+
+      const res = await fetch(syncUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': settings.syncApiKey,
+          Authorization: `Bearer ${settings.syncApiKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        const message = `Gagal Sync (HTTP ${res.status}): ${errorText || 'Respon server tidak valid'}`;
+        recordSyncError(message);
+        return { success: false, message: withProgress(message, sentTx, sentExp), syncedCount: sentTx + sentExp + sentDel };
+      }
+
+      markExpensesAsSynced(expBatch, delBatch);
+      markTransactionsAsSynced(
+        txBatch.map((t) => t.id),
+        txBatch
+      );
+      sentTx += txBatch.length;
+      sentExp += expBatch.length;
+      sentDel += delBatch.length;
     }
 
-    const errorText = await res.text().catch(() => '');
-    const message = `Gagal Sync (HTTP ${res.status}): ${errorText || 'Respon server tidak valid'}`;
-    recordSyncError(message);
-    return { success: false, message, syncedCount: 0 };
+    const parts = [
+      sentTx ? `${sentTx} transaksi` : '',
+      sentExp ? `${sentExp} pengeluaran` : '',
+      sentDel ? `${sentDel} hapus pengeluaran` : '',
+    ].filter(Boolean);
+    return {
+      success: true,
+      message: `Berhasil menyinkronkan ${parts.join(', ') || 'data'}.`,
+      syncedCount: sentTx + sentExp + sentDel,
+    };
   } catch (err: any) {
     console.error('Cloud Sync error:', err);
     const message = `Gagal terhubung ke server: ${err?.message || 'Koneksi jaringan terputus'}`;
     recordSyncError(message);
-    return { success: false, message, syncedCount: 0 };
+    return { success: false, message: withProgress(message, sentTx, sentExp), syncedCount: sentTx + sentExp + sentDel };
   }
+}
+
+const SYNC_BATCH_TX = 200;
+const SYNC_BATCH_EXPENSES = 500;
+const SYNC_MAX_BATCHES = 50;
+
+function withProgress(message: string, tx: number, exp: number): string {
+  return tx || exp ? `${message} (sebagian sudah terkirim: ${tx} transaksi, ${exp} pengeluaran)` : message;
 }
 
 /** Sync otomatis di latar belakang jika diaktifkan, online, dan ada data yang belum terkirim. */
