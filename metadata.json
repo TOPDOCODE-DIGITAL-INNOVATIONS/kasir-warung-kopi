@@ -1,0 +1,6 @@
+{
+  "name": "Kasir Warung Kopi",
+  "description": "Aplikasi Kasir (POS) offline untuk warung kopi dengan input transaksi, switch kasir, tipe pembayaran lengkap, cetak struk, dan laporan penjualan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

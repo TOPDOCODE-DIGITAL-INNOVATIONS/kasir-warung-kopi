@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* ---------- Cetak struk thermal (lihat ThermalReceiptPrintPortal) ---------- */
+/* Di layar: tetap ter-render (agar tingginya bisa diukur) tapi tak terlihat */
+.receipt-print-root {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media print {
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+  /* Sembunyikan seluruh aplikasi, cetak hanya struk */
+  body > *:not(.receipt-print-root) {
+    display: none !important;
+  }
+  .receipt-print-root {
+    display: block !important;
+    position: static !important;
+    visibility: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
