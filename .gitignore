@@ -9,5 +9,3 @@ coverage/
 *.tsbuildinfo
 .env*
 !.env.example
-# hasil build kasir yang disalin ke dashboard saat deploy
-admin-dashboard/public/kasir/

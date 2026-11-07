@@ -6,12 +6,14 @@ Satu repo, satu deploy Vercel, database Supabase.
 kasir-warung-kopi/
 ├── app-kasir/         Aplikasi kasir (Vite + React, PWA offline) → disajikan di /kasir/
 ├── admin-dashboard/   Dashboard owner + API sync (Next.js)       → /, /dashboard, /api/sync
-└── supabase/
-    └── schema.sql     Skema database (jalankan sekali di Supabase)
+├── supabase/
+│   └── schema.sql     Skema database (jalankan sekali di Supabase)
+└── vercel.json        Konfigurasi Vercel Services (2 service, 1 domain)
 ```
 
-Saat build, `admin-dashboard` ikut membangun `app-kasir` ke `admin-dashboard/public/kasir/`, jadi
-cukup **satu project Vercel**:
+Repo ini dideploy sebagai **satu project Vercel dengan 2 service**
+([Vercel Services](https://vercel.com/docs/services)). Masing-masing di-build terpisah, lalu
+`vercel.json` mengarahkan URL ke service yang tepat:
 
 | URL                              | Isi                                          |
 |----------------------------------|----------------------------------------------|
@@ -37,9 +39,8 @@ Jika nanti `schema.sql` diperbarui, cukup jalankan ulang seluruh isinya (aman, t
 
 1. Push repo ini ke GitHub/GitLab.
 2. Vercel → **Add New → Project** → import repo.
-3. **Root Directory: `admin-dashboard`** (Framework: Next.js terdeteksi otomatis).
-   Biarkan opsi *Include files outside the root directory* aktif (default), karena build
-   membutuhkan folder `app-kasir`.
+3. **Root Directory: biarkan kosong (root repo)**. Vercel membaca `vercel.json` dan mendeteksi
+   2 service: `admin-dashboard` (Next.js) dan `app-kasir` (Vite).
 4. **Environment Variables**:
 
    | Nama                              | Nilai                       |
@@ -80,7 +81,13 @@ perangkat sehingga tidak bentrok. Jika token bocor, tekan **Ganti** di dashboard
 
 ## Pengembangan lokal
 
-Butuh Node.js 20+.
+Butuh Node.js 20+. Cara paling mirip produksi (semua service sekaligus, satu port):
+
+```bash
+npx vercel dev -L    # http://localhost:3000 → /, /dashboard, /kasir/, /api/sync
+```
+
+Atau jalankan per aplikasi:
 
 ```bash
 # Dashboard + API (http://localhost:3000)
@@ -97,6 +104,5 @@ npm test
 ```
 
 Saat kasir dijalankan terpisah di port 3001, isi URL sync di Pengaturan kasir dengan
-`http://localhost:3000/api/sync`. Untuk mencoba gabungan seperti di Vercel:
-`cd admin-dashboard && npm run build && npm start`, lalu buka `http://localhost:3000/kasir/`.
+`http://localhost:3000/api/sync`.
 # kasir-warung-kopi

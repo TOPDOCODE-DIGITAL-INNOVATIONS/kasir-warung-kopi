@@ -1,0 +1,30 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "admin-dashboard": {
+      "root": "admin-dashboard",
+      "framework": "nextjs"
+    },
+    "app-kasir": {
+      "root": "app-kasir",
+      "framework": "vite",
+      "outputDirectory": "dist",
+      "trailingSlash": true,
+      "headers": [
+        {
+          "source": "/kasir/(sw\\.js|manifest\\.json|index\\.html)?",
+          "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+        },
+        {
+          "source": "/kasir/assets/(.*)",
+          "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+        }
+      ]
+    }
+  },
+  "rewrites": [
+    { "source": "/kasir", "destination": { "service": "app-kasir" } },
+    { "source": "/kasir/(.*)", "destination": { "service": "app-kasir" } },
+    { "source": "/(.*)", "destination": { "service": "admin-dashboard" } }
+  ]
+}

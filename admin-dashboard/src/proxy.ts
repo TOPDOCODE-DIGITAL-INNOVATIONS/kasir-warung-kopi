@@ -1,16 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-// Menyegarkan sesi Supabase (cookie), melindungi /dashboard, dan mengarahkan /kasir -> /kasir/.
+// Menyegarkan sesi Supabase (cookie) dan melindungi /dashboard.
 export async function proxy(request: NextRequest) {
-  // Aplikasi kasir harus dibuka di /kasir/ (dengan garis miring) agar scope service worker cocok.
-  if (request.nextUrl.pathname === '/kasir') {
-    // URL biasa (bukan nextUrl.clone) karena nextUrl membuang garis miring di akhir.
-    const url = new URL('/kasir/', request.url)
-    url.search = request.nextUrl.search
-    return NextResponse.redirect(url, 308)
-  }
-
   let response = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -45,5 +37,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/login', '/kasir'],
+  matcher: ['/dashboard/:path*', '/login'],
 }

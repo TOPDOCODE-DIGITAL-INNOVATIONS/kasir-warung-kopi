@@ -5,8 +5,13 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    // Disajikan di https://<domain>/kasir/ (lihat admin-dashboard/next.config.ts)
+    // Disajikan di https://<domain>/kasir/ sebagai service Vercel terpisah (lihat ../vercel.json).
+    // Vercel meneruskan path asli (/kasir/...) ke service, jadi file build ditaruh di dist/kasir/.
     base: '/kasir/',
+    build: {
+      outDir: 'dist/kasir',
+      emptyOutDir: true,
+    },
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
