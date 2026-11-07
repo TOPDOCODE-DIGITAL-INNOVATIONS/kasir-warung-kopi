@@ -113,6 +113,8 @@ export interface Transaction {
   debtPaidMethod?: 'tunai' | 'nontunai';
   debtPaidShiftId?: string;
   notes?: string;
+  /** Kode perangkat asal (diisi untuk transaksi dari perangkat lain hasil sync) */
+  deviceCode?: string;
   isSynced?: boolean;
   syncedAt?: string;
 }

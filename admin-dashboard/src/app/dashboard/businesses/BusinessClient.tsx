@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { addBusiness, updateBusiness, deleteBusiness, regenerateSyncToken } from './actions'
-import { Plus, Edit, Trash2, Copy, Eye, EyeOff, RotateCw, Check } from 'lucide-react'
+import { Plus, Edit, Trash2, Copy, Eye, EyeOff, RotateCw, Check, Link2 } from 'lucide-react'
 import { formatDateTime } from '@/lib/format'
 
 type Business = {
@@ -14,7 +14,7 @@ type Business = {
   last_device_code: string | null
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyButton({ text, label }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false)
   return (
     <button
@@ -25,9 +25,10 @@ function CopyButton({ text }: { text: string }) {
         setCopied(true)
         setTimeout(() => setCopied(false), 1500)
       }}
-      className="p-1.5 rounded hover:bg-gray-200 text-gray-600"
+      className="p-1.5 rounded hover:bg-gray-200 text-gray-600 flex items-center gap-1 text-xs"
     >
-      {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+      {copied ? <Check className="w-4 h-4 text-green-600" /> : label ? <Link2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+      {label && <span>{copied ? 'Tersalin' : label}</span>}
     </button>
   )
 }
@@ -35,9 +36,11 @@ function CopyButton({ text }: { text: string }) {
 export default function BusinessClient({
   initialBusinesses,
   syncUrl,
+  kasirUrl,
 }: {
   initialBusinesses: Business[]
   syncUrl: string
+  kasirUrl: string
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isAdding, setIsAdding] = useState(initialBusinesses.length === 0)
@@ -216,6 +219,16 @@ export default function BusinessClient({
                     >
                       <RotateCw className="w-4 h-4" /> Ganti
                     </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1 text-sm">
+                    <span className="text-gray-600 mr-1">Link kasir:</span>
+                    {/* Token di bagian # tidak terkirim ke server/log; kasir menyimpannya lalu menghapusnya dari URL. */}
+                    <CopyButton text={`${kasirUrl}#token=${b.sync_token}`} label="Salin link kasir" />
+                    <span className="text-xs text-gray-500 w-full">
+                      Buka link ini di HP mana pun: menu, kasir, pengaturan, dan transaksi cabang ini langsung ikut
+                      tersinkron. Bagikan hanya ke kasir yang dipercaya (link berisi token).
+                    </span>
                   </div>
                 </li>
               )

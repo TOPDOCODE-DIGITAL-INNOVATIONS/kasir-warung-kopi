@@ -175,6 +175,32 @@ create table if not exists public.book_period_rules (
 );
 
 -- ---------------------------------------------------------------------
+-- Sync dua arah antar perangkat kasir
+--   * pos_config: data master bersama (menu, kategori, kasir, pengaturan toko),
+--     versi terakhir diubah = pos_config_updated_at (yang terbaru menang).
+--   * deleted_records: catatan hapus agar perangkat lain ikut menghapus.
+--   * index synced_at: perangkat menarik data yang berubah sejak tarikan terakhir.
+-- ---------------------------------------------------------------------
+alter table public.businesses add column if not exists pos_config jsonb;
+alter table public.businesses add column if not exists pos_config_updated_at timestamptz;
+alter table public.transactions add column if not exists debt_paid_shift_id text;
+
+create table if not exists public.deleted_records (
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  kind text not null, -- expense
+  id text not null,
+  deleted_at timestamptz not null default now(),
+  primary key (business_id, kind, id)
+);
+create index if not exists deleted_records_business_deleted_idx on public.deleted_records(business_id, deleted_at);
+-- Hanya diakses server (service role); tanpa policy = tertutup untuk klien biasa.
+alter table public.deleted_records enable row level security;
+
+create index if not exists transactions_business_synced_idx on public.transactions(business_id, synced_at);
+create index if not exists expenses_business_synced_idx on public.expenses(business_id, synced_at);
+create index if not exists shifts_business_synced_idx on public.shifts(business_id, synced_at);
+
+-- ---------------------------------------------------------------------
 -- Row Level Security
 -- Penulisan dari kasir lewat /api/sync memakai service role (melewati RLS).
 -- ---------------------------------------------------------------------

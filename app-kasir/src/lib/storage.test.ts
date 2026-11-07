@@ -27,6 +27,11 @@ import {
   getUnsyncedCount,
   pruneSyncedTransactions,
   KEEP_SYNCED_DAYS,
+  applyPulledData,
+  getAllShifts,
+  saveCategories,
+  consumeSyncLinkFromUrl,
+  hasPendingPush,
 } from './storage';
 import { verifyPin, hashPin, isValidPin, sha256Hex } from './security';
 import { can } from './permissions';
@@ -54,6 +59,22 @@ beforeEach(() => {
   vi.stubGlobal('window', { dispatchEvent: () => true });
   __resetStorageStateForTests();
 });
+
+const EMPTY_PULL = { configUpdatedAt: null, config: null, transactions: [], expenses: [], shifts: [], deletedExpenseIds: [], hasMore: false };
+
+/** fetch palsu: POST memanggil onPost, GET (tarik data) mengembalikan `pull`. */
+function stubServer(onPost: (body: any) => any = () => ({}), pull: any = { ...EMPTY_PULL, configUpdatedAt: '2026-01-01T00:00:00.000Z' }) {
+  const gets: string[] = [];
+  vi.stubGlobal('fetch', async (url: string, init: any) => {
+    if (init?.method === 'GET') {
+      gets.push(url);
+      return { ok: true, json: async () => (typeof pull === 'function' ? pull(url) : pull), text: async () => '' };
+    }
+    const data = onPost(JSON.parse(init.body)) ?? {};
+    return { ok: true, json: async () => ({ success: true, data }), text: async () => '' };
+  });
+  return gets;
+}
 
 function makeTx(paymentType: PaymentType, qty = 1, productId?: string): Transaction {
   const product = productId ? getProducts().find((p) => p.id === productId)! : getProducts()[0];
@@ -377,9 +398,8 @@ describe('sync pengeluaran', () => {
   it('mengirim pengeluaran baru & ID yang dihapus, lalu menandainya terkirim', async () => {
     saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
     const bodies: any[] = [];
-    vi.stubGlobal('fetch', async (_url: string, init: any) => {
-      bodies.push(JSON.parse(init.body));
-      return { ok: true, text: async () => '' };
+    stubServer((b) => {
+      bodies.push(b);
     });
 
     const exp = addExpense({ scope: 'monthly', date: '2026-11', category: 'Sewa', amount: 100, createdBy: 'O' });
@@ -434,17 +454,15 @@ describe('penyimpanan & sync bertahap', () => {
     }));
     localStorage.setItem('warkop_pos_transactions', JSON.stringify(old));
     const sizes: number[] = [];
-    const withProducts: boolean[] = [];
-    vi.stubGlobal('fetch', async (_url: string, init: any) => {
-      const body = JSON.parse(init.body);
+    const withShift: boolean[] = [];
+    stubServer((body) => {
       sizes.push(body.transactions.length);
-      withProducts.push(Array.isArray(body.products));
-      return { ok: true, text: async () => '' };
+      withShift.push('shift' in body);
     });
     const res = await performCloudSync();
     expect(res.success).toBe(true);
     expect(sizes).toEqual([200, 200, 50]);
-    expect(withProducts).toEqual([true, false, false]);
+    expect(withShift).toEqual([true, false, false]);
     expect(getUnsyncedCount()).toBe(0);
   });
 
@@ -463,3 +481,118 @@ describe('penyimpanan & sync bertahap', () => {
   });
 });
 
+describe('sync dua arah antar perangkat', () => {
+  const remoteTx = (id: string, extra: Partial<Transaction> = {}): Transaction => ({
+    id,
+    timestamp: '2026-11-07T03:00:00.000Z',
+    cashierId: 'c-2',
+    cashierName: 'Wulan',
+    orderType: 'Dine In',
+    items: [],
+    subtotal: 10000,
+    discountAmount: 0,
+    taxAmount: 0,
+    grandTotal: 10000,
+    paymentType: 'tunai',
+    amountPaid: 10000,
+    changeAmount: 0,
+    status: 'completed',
+    deviceCode: 'B22',
+    ...extra,
+  });
+
+  it('transaksi dari perangkat lain masuk; perubahan lokal yang belum terkirim tidak ditimpa', () => {
+    startNewShift('c-1', 0);
+    const mine = saveTransaction(makeTx('tunai'));
+    expect(applyPulledData({ transactions: [remoteTx('R-1'), remoteTx(mine.id, { status: 'cancelled' })] })).toBe(1);
+    const txs = getTransactions();
+    expect(txs.map((t) => t.id).sort()).toEqual([mine.id, 'R-1'].sort());
+    expect(txs.find((t) => t.id === 'R-1')!.isSynced).toBe(true);
+    expect(txs.find((t) => t.id === mine.id)!.status).toBe('completed');
+
+    // Setelah terkirim, perubahan dari perangkat lain (mis. dibatalkan) ikut masuk
+    markTransactionsAsSynced([mine.id]);
+    applyPulledData({ transactions: [{ ...getTransactions().find((t) => t.id === mine.id)!, status: 'cancelled' }] });
+    expect(getTransactions().find((t) => t.id === mine.id)!.status).toBe('cancelled');
+    // Data yang sama tidak dihitung sebagai perubahan
+    expect(applyPulledData({ transactions: [remoteTx('R-1')] })).toBe(0);
+  });
+
+  it('menu/kasir/pengaturan dari server dipakai, pengaturan khusus perangkat tetap', () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiKey: 'tok', printerMethod: 'rawbt' });
+    const cfg = {
+      products: [{ id: 'x-1', name: 'Kopi Remote', categoryId: 'kopi', price: 15000, stock: -1, isAvailable: true }],
+      categories: [{ id: 'kopi', name: 'Kopi', iconName: 'coffee' }],
+      cashiers: [{ id: 'c-9', name: 'Owner Remote', role: 'Owner' as const }],
+      settings: { storeName: 'TOKO REMOTE' },
+    };
+    // Perubahan lokal yang lebih baru menang
+    saveCategories([{ id: 'lokal', name: 'Lokal', iconName: 'x' }]);
+    applyPulledData({ config: cfg, configUpdatedAt: '2020-01-01T00:00:00.000Z' });
+    expect(getProducts()[0].name).not.toBe('Kopi Remote');
+    expect(hasPendingPush()).toBe(true);
+
+    applyPulledData({ config: cfg, configUpdatedAt: '2999-01-01T00:00:00.000Z' });
+    expect(getProducts().map((p) => p.name)).toEqual(['Kopi Remote']);
+    expect(getCashiers().map((c) => c.name)).toEqual(['Owner Remote']);
+    const s = getStoreSettings();
+    expect(s.storeName).toBe('TOKO REMOTE');
+    expect(s.syncApiKey).toBe('tok');
+    expect(s.printerMethod).toBe('rawbt');
+    expect(hasPendingPush()).toBe(false);
+  });
+
+  it('pengeluaran yang dihapus di perangkat lain ikut terhapus', () => {
+    const exp = addExpense({ scope: 'monthly', date: '2026-11', category: 'Sewa', amount: 100, createdBy: 'O' });
+    applyPulledData({ expenses: [{ ...exp, id: 'EXP-B' }] });
+    expect(getExpenses().map((e) => e.id).sort()).toEqual([exp.id, 'EXP-B'].sort());
+    applyPulledData({ deletedExpenseIds: ['EXP-B'] });
+    expect(getExpenses().map((e) => e.id)).toEqual([exp.id]);
+  });
+
+  it('shift perangkat lain ikut di rekap, shift sendiri tidak dobel', () => {
+    const own = startNewShift('c-1', 50000);
+    const other = { ...own, id: 'SHIFT-B', cashierName: 'Wulan' };
+    applyPulledData({ shifts: [own, other] });
+    expect(getAllShifts().map((s) => s.id)).toEqual([own.id, 'SHIFT-B']);
+  });
+
+  it('perangkat lama: server belum punya data master -> menu perangkat ini dikirim', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    const configs: any[] = [];
+    stubServer(
+      (b) => {
+        if (b.config) configs.push(b.config);
+        return { configAccepted: !!b.config, configUpdatedAt: b.configEditedAt ?? null };
+      },
+      { ...EMPTY_PULL }
+    );
+    const res = await performCloudSync();
+    expect(res.success).toBe(true);
+    expect(configs).toHaveLength(1);
+    expect(configs[0].products.length).toBeGreaterThan(0);
+    expect(configs[0].settings.syncApiKey).toBeUndefined();
+    expect(hasPendingPush()).toBe(false);
+  });
+
+  it('link kasir: simpan token, hapus dari URL, perangkat baru menunggu data master server', async () => {
+    const replace = vi.fn();
+    vi.stubGlobal('window', {
+      dispatchEvent: () => true,
+      location: { href: 'https://kopi.test/kasir/#token=abc123', protocol: 'https:', origin: 'https://kopi.test' },
+      history: { replaceState: replace },
+      confirm: () => true,
+    });
+    expect(consumeSyncLinkFromUrl()).toBe(true);
+    expect(getStoreSettings().syncApiKey).toBe('abc123');
+    expect(replace).toHaveBeenCalledWith(null, '', 'https://kopi.test/kasir/');
+
+    // Server belum punya data master: perangkat baru TIDAK mengirim menu bawaan
+    const posts: any[] = [];
+    const gets = stubServer((b) => posts.push(b), { ...EMPTY_PULL });
+    expect((await performCloudSync()).success).toBe(true);
+    expect(posts).toHaveLength(0);
+    expect(gets[0]).toContain('init=1');
+    expect(gets[0]).toMatch(/^https:\/\/kopi\.test\/api\/sync/);
+  });
+});

@@ -2,9 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Calculator, ChevronDown, ChevronUp, Copy, Check, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import {
   formatIDR,
-  getActiveShift,
+  getAllShifts,
   getExpenses,
-  getShiftHistory,
   getTransactions,
   POS_UPDATE_EVENT,
 } from '../lib/storage';
@@ -53,9 +52,8 @@ export const DailyClosingPanel: React.FC<DailyClosingPanelProps> = ({ date, stor
   }, []);
 
   const c = useMemo(() => {
-    const active = getActiveShift();
-    const shifts = active ? [active, ...getShiftHistory()] : getShiftHistory();
-    return computeDailyClosing(date, getTransactions(), getExpenses(), shifts);
+    // Termasuk shift & transaksi dari perangkat lain di cabang yang sama (hasil sync).
+    return computeDailyClosing(date, getTransactions(), getExpenses(), getAllShifts());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, tick]);
 

@@ -472,8 +472,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
           </h3>
 
           <p className="text-xs text-stone-600">
-            Isi token cabang dari Dashboard Owner (menu <em>Cabang &amp; Token</em>) agar transaksi, pengeluaran, shift,
-            dan katalog produk otomatis terkirim ke database.
+            Isi token cabang dari Dashboard Owner (menu <em>Cabang &amp; Token</em>), atau buka <em>Link Kasir</em> dari
+            sana. Semua HP dengan token yang sama memakai menu, kasir, pengaturan, dan data transaksi yang sama.
           </p>
 
           {settings.lastSyncError && (
@@ -524,7 +524,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
                   className="rounded text-[#3E2723] focus:ring-[#3E2723]"
                 />
                 <label htmlFor="autoSyncOnline" className="text-xs font-bold text-[#2C2420]">
-                  Otomatis sync saat online (setiap ada perubahan & tiap 5 menit)
+                  Otomatis sync saat online (langsung saat ada perubahan & ambil data perangkat lain tiap 30 detik)
                 </label>
               </div>
 

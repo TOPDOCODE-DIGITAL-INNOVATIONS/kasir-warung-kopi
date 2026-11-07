@@ -31,6 +31,19 @@ const STORAGE_KEYS = {
   EXPENSES: 'warkop_pos_expenses',
   /** ID pengeluaran yang sudah pernah terkirim lalu dihapus, agar server ikut menghapusnya */
   EXPENSES_DELETED: 'warkop_pos_expenses_deleted',
+  /** Versi data master (menu/kasir/pengaturan) dari server yang sudah ada di perangkat ini */
+  CONFIG_VERSION: 'warkop_pos_config_version',
+  /** Waktu data master terakhir diubah di perangkat ini dan belum terkirim (kosong = tidak ada perubahan) */
+  CONFIG_DIRTY_AT: 'warkop_pos_config_dirty_at',
+  /** Perangkat baru dari link kasir: tunggu data master dari server, jangan kirim data bawaan */
+  CONFIG_WAIT_REMOTE: 'warkop_pos_config_wait_remote',
+  /** Ada perubahan shift yang belum terkirim (buka/tutup shift) */
+  SHIFT_DIRTY_AT: 'warkop_pos_shift_dirty_at',
+  /** Cursor tarik data per jenis: { tx, exp, shift, del } */
+  PULL_CURSORS: 'warkop_pos_pull_cursors',
+  PULL_INIT_DONE: 'warkop_pos_pull_init_done',
+  /** Shift dari perangkat lain (untuk rekap closing harian) */
+  REMOTE_SHIFTS: 'warkop_pos_remote_shifts',
 };
 
 // Custom event name for instant reactive updates
@@ -272,6 +285,7 @@ export function getProducts(): Product[] {
 
 export function saveProducts(products: Product[]): void {
   writeJSON(STORAGE_KEYS.PRODUCTS, products);
+  markConfigDirty();
   notifyUpdate();
 }
 
@@ -282,6 +296,7 @@ export function getCategories(): Category[] {
 
 export function saveCategories(categories: Category[]): void {
   writeJSON(STORAGE_KEYS.CATEGORIES, categories);
+  markConfigDirty();
   notifyUpdate();
 }
 
@@ -324,6 +339,7 @@ export function getCashiers(): Cashier[] {
 
 export function saveCashiers(cashiers: Cashier[]): void {
   writeJSON(STORAGE_KEYS.CASHIERS, cashiers);
+  markConfigDirty();
   notifyUpdate();
 }
 
@@ -359,7 +375,10 @@ export function getStoreSettings(): StoreSettings {
 }
 
 export function saveStoreSettings(settings: StoreSettings): void {
+  const prev = getStoreSettings();
   writeJSON(STORAGE_KEYS.SETTINGS, settings);
+  if (JSON.stringify(sharedSettings(prev)) !== JSON.stringify(sharedSettings(settings))) markConfigDirty();
+  if ((prev.syncApiKey ?? '').trim() !== (settings.syncApiKey ?? '').trim()) resetPullState();
   notifyUpdate();
 }
 
@@ -375,6 +394,7 @@ export function getActiveShift(): Shift | null {
 
 export function saveActiveShift(shift: Shift): void {
   writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift);
+  markShiftDirty();
   notifyUpdate();
 }
 
@@ -425,6 +445,7 @@ export function closeCurrentShift(endingCashActual: number): Shift | null {
   writeJSON(STORAGE_KEYS.SHIFT_HISTORY, history);
 
   localStorage.removeItem(STORAGE_KEYS.ACTIVE_SHIFT);
+  markShiftDirty();
   notifyUpdate();
   return currentShift;
 }
@@ -679,6 +700,11 @@ export function resetDataToDefaults(): void {
   writeJSON(STORAGE_KEYS.EXPENSES_DELETED, []);
   localStorage.removeItem(STORAGE_KEYS.ACTIVE_SHIFT);
   localStorage.removeItem(STORAGE_KEYS.RECEIPT_SEQ);
+  localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+  localStorage.removeItem(STORAGE_KEYS.SHIFT_DIRTY_AT);
+  localStorage.removeItem(STORAGE_KEYS.REMOTE_SHIFTS);
+  // Data bersama akan ditarik ulang dari server (jika token sync masih terisi).
+  resetPullState();
 
   migrationDone = false;
   runMigrations();
@@ -745,6 +771,7 @@ export function importDataFromJSON(jsonString: string): { ok: boolean; message: 
 
   migrationDone = false;
   runMigrations();
+  if (data.products || data.categories || data.cashiers || data.settings) markConfigDirty();
   notifyUpdate();
   return { ok: true, message: 'Import data berhasil.' };
 }
@@ -768,6 +795,15 @@ export function getDeletedExpenseIds(): string[] {
 /** Jumlah data (transaksi + pengeluaran + hapus pengeluaran) yang belum terkirim ke server. */
 export function getUnsyncedCount(): number {
   return getUnsyncedTransactions().length + getUnsyncedExpenses().length + getDeletedExpenseIds().length;
+}
+
+/** Ada sesuatu yang perlu dikirim ke server (data, perubahan menu/kasir/pengaturan, atau shift). */
+export function hasPendingPush(): boolean {
+  return (
+    getUnsyncedCount() > 0 ||
+    !!localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT) ||
+    !!localStorage.getItem(STORAGE_KEYS.SHIFT_DIRTY_AT)
+  );
 }
 
 /** Tandai pengeluaran terkirim; hanya yang isinya tidak berubah sejak dikirim. */
@@ -847,22 +883,38 @@ function getRecentShifts(): Shift[] {
   return getShiftHistory().filter((s) => new Date(s.startTime).getTime() >= cutoff);
 }
 
-let syncInFlight: Promise<{ success: boolean; message: string; syncedCount: number }> | null = null;
+type SyncResult = { success: boolean; message: string; syncedCount: number };
 
-export function performCloudSync(): Promise<{
-  success: boolean;
-  message: string;
-  syncedCount: number;
-}> {
-  // Cegah dua sync berjalan bersamaan (manual + otomatis)
-  if (syncInFlight) return syncInFlight;
+let syncInFlight: Promise<SyncResult> | null = null;
+let syncQueued = false;
+
+/** Kirim perubahan ke server lalu tarik perubahan dari perangkat lain. */
+export function performCloudSync(): Promise<SyncResult> {
+  // Cegah dua sync berjalan bersamaan (manual + otomatis). Perubahan yang masuk saat sync
+  // sedang berjalan dikirim di putaran berikutnya.
+  if (syncInFlight) {
+    syncQueued = true;
+    return syncInFlight;
+  }
   syncInFlight = doCloudSync().finally(() => {
     syncInFlight = null;
+    if (syncQueued) {
+      syncQueued = false;
+      if (hasPendingPush()) void performCloudSync();
+    }
   });
   return syncInFlight;
 }
 
-async function doCloudSync(): Promise<{ success: boolean; message: string; syncedCount: number }> {
+function syncHeaders(apiKey: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    Authorization: `Bearer ${apiKey}`,
+  };
+}
+
+async function doCloudSync(): Promise<SyncResult> {
   const settings = getStoreSettings();
   const syncUrl = getSyncUrl(settings);
   if (!syncUrl) {
@@ -872,7 +924,8 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
       syncedCount: 0,
     };
   }
-  if (!settings.syncApiKey?.trim()) {
+  const apiKey = settings.syncApiKey?.trim();
+  if (!apiKey) {
     return {
       success: false,
       message: 'Token sync belum diisi. Salin token cabang dari Dashboard Owner → Cabang & Token.',
@@ -880,28 +933,53 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
     };
   }
 
-  const unsyncedTx = getUnsyncedTransactions();
-  const unsyncedExpenses = getUnsyncedExpenses();
-  const deletedExpenseIds = getDeletedExpenseIds();
-  const total = unsyncedTx.length + unsyncedExpenses.length + deletedExpenseIds.length;
-  if (total === 0) {
-    return {
-      success: true,
-      message: 'Semua transaksi & pengeluaran sudah tersinkronisasi.',
-      syncedCount: 0,
-    };
+  let push = hasPendingPush() ? await pushToCloud(syncUrl, apiKey) : null;
+  if (push && !push.success) return push;
+
+  const pull = await pullFromCloud(syncUrl, apiKey);
+  if (!pull.success) {
+    recordSyncError(pull.message);
+    return { success: false, message: pull.message, syncedCount: push?.syncedCount ?? 0 };
   }
+  if (pull.needConfigPush) {
+    // Server belum punya data master: perangkat yang sudah dipakai ini jadi sumber pertamanya.
+    markConfigDirty();
+    const extra = await pushToCloud(syncUrl, apiKey);
+    if (!extra.success) return extra;
+    push = push ?? extra;
+  }
+
+  const current = getStoreSettings();
+  writeJSON(STORAGE_KEYS.SETTINGS, { ...current, lastSyncedAt: new Date().toISOString(), lastSyncError: undefined });
+  notifyUpdate();
+
+  const parts = [push?.sent, pull.received ? `menerima ${pull.received} perubahan dari perangkat lain` : '']
+    .filter(Boolean)
+    .join(', ');
+  return {
+    success: true,
+    message: parts ? `Berhasil: ${parts}.` : 'Semua data sudah sinkron.',
+    syncedCount: (push?.syncedCount ?? 0) + pull.received,
+  };
+}
+
+/** Kirim transaksi, pengeluaran, shift, dan data master yang berubah. */
+async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult & { sent?: string }> {
+  const settings = getStoreSettings();
+  const shiftDirtyAt = localStorage.getItem(STORAGE_KEYS.SHIFT_DIRTY_AT);
+  const configDirtyAt = localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
 
   // Kirim bertahap agar request tidak melebihi batas ukuran body server (Vercel: 4,5 MB).
   let sentTx = 0;
   let sentExp = 0;
   let sentDel = 0;
+  let configSent = false;
   try {
     for (let batch = 0; ; batch++) {
       const txBatch = getUnsyncedTransactions().slice(0, SYNC_BATCH_TX);
       const expBatch = getUnsyncedExpenses().slice(0, SYNC_BATCH_EXPENSES);
       const delBatch = getDeletedExpenseIds().slice(0, SYNC_BATCH_EXPENSES);
-      // Batch pertama selalu dikirim (membawa katalog & shift); berikutnya hanya jika masih ada sisa.
+      // Batch pertama selalu dikirim (membawa data master & shift); berikutnya hanya jika masih ada sisa.
       if (batch > 0 && txBatch.length + expBatch.length + delBatch.length === 0) break;
       if (batch >= SYNC_MAX_BATCHES) break;
 
@@ -912,16 +990,18 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
         transactions: txBatch,
         expenses: expBatch,
         deletedExpenseIds: delBatch,
-        ...(batch === 0 ? { products: getProducts(), shift: getActiveShift(), shifts: getRecentShifts() } : {}),
+        ...(batch === 0
+          ? {
+              shift: getActiveShift(),
+              shifts: getRecentShifts(),
+              ...(configDirtyAt ? { config: getSharedConfig(), configEditedAt: configDirtyAt } : {}),
+            }
+          : {}),
       };
 
       const res = await fetch(syncUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': settings.syncApiKey,
-          Authorization: `Bearer ${settings.syncApiKey}`,
-        },
+        headers: syncHeaders(apiKey),
         body: JSON.stringify(payload),
       });
 
@@ -930,6 +1010,24 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
         const message = `Gagal Sync (HTTP ${res.status}): ${errorText || 'Respon server tidak valid'}`;
         recordSyncError(message);
         return { success: false, message: withProgress(message, sentTx, sentExp), syncedCount: sentTx + sentExp + sentDel };
+      }
+
+      if (batch === 0) {
+        const body = await res.json().catch(() => null);
+        const data = body?.data;
+        if (configDirtyAt && data?.configAccepted) {
+          configSent = true;
+          // Hanya bersihkan jika tidak ada perubahan baru selama request berjalan.
+          if (localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT) === configDirtyAt) {
+            localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+            if (typeof data.configUpdatedAt === 'string') {
+              localStorage.setItem(STORAGE_KEYS.CONFIG_VERSION, data.configUpdatedAt);
+            }
+          }
+        }
+        if (shiftDirtyAt && localStorage.getItem(STORAGE_KEYS.SHIFT_DIRTY_AT) === shiftDirtyAt) {
+          localStorage.removeItem(STORAGE_KEYS.SHIFT_DIRTY_AT);
+        }
       }
 
       markExpensesAsSynced(expBatch, delBatch);
@@ -946,10 +1044,12 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
       sentTx ? `${sentTx} transaksi` : '',
       sentExp ? `${sentExp} pengeluaran` : '',
       sentDel ? `${sentDel} hapus pengeluaran` : '',
+      configSent ? 'menu/kasir/pengaturan' : '',
     ].filter(Boolean);
     return {
       success: true,
-      message: `Berhasil menyinkronkan ${parts.join(', ') || 'data'}.`,
+      message: '',
+      sent: parts.length ? `mengirim ${parts.join(', ')}` : '',
       syncedCount: sentTx + sentExp + sentDel,
     };
   } catch (err: any) {
@@ -963,18 +1063,351 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
 const SYNC_BATCH_TX = 200;
 const SYNC_BATCH_EXPENSES = 500;
 const SYNC_MAX_BATCHES = 50;
+const PULL_MAX_PAGES = 20;
+/** Tarik ulang sedikit ke belakang dari cursor, untuk data yang ditulis server bersamaan dengan tarikan sebelumnya. */
+const PULL_OVERLAP_MS = 2 * 60 * 1000;
 
 function withProgress(message: string, tx: number, exp: number): string {
   return tx || exp ? `${message} (sebagian sudah terkirim: ${tx} transaksi, ${exp} pengeluaran)` : message;
 }
 
-/** Sync otomatis di latar belakang jika diaktifkan, online, dan ada data yang belum terkirim. */
-export function maybeAutoSync(): void {
+// -------------------------------------------------------------
+// TARIK DATA DARI SERVER (perangkat lain)
+// -------------------------------------------------------------
+
+type PullCursors = { tx: string; exp: string; shift: string; del: string };
+
+export interface PullResponse {
+  configUpdatedAt?: string | null;
+  config?: SharedConfig | null;
+  transactions?: Transaction[];
+  expenses?: Expense[];
+  shifts?: Shift[];
+  deletedExpenseIds?: string[];
+  cursors?: PullCursors;
+  hasMore?: boolean;
+}
+
+export interface SharedConfig {
+  products: Product[];
+  categories: Category[];
+  cashiers: Cashier[];
+  settings: Partial<StoreSettings>;
+}
+
+/** Pengaturan yang khusus perangkat ini (tidak ikut dibagi ke perangkat lain). */
+const DEVICE_SETTING_KEYS = [
+  'syncApiUrl',
+  'syncApiKey',
+  'autoSyncOnline',
+  'lastSyncedAt',
+  'lastSyncError',
+  'printerMethod',
+  'printerPaperWidth',
+  'autoPrintAfterPayment',
+  'printerFeedLines',
+  'receiptCompact',
+] as const;
+
+function sharedSettings(s: StoreSettings): Partial<StoreSettings> {
+  const copy: Partial<StoreSettings> = { ...s };
+  DEVICE_SETTING_KEYS.forEach((k) => delete copy[k]);
+  return copy;
+}
+
+function deviceSettings(s: StoreSettings): Partial<StoreSettings> {
+  const out: Partial<StoreSettings> = {};
+  DEVICE_SETTING_KEYS.forEach((k) => {
+    if (s[k] !== undefined) (out as any)[k] = s[k];
+  });
+  return out;
+}
+
+export function getSharedConfig(): SharedConfig {
+  return {
+    products: getProducts(),
+    categories: getCategories(),
+    cashiers: getCashiers(),
+    settings: sharedSettings(getStoreSettings()),
+  };
+}
+
+function markConfigDirty(): void {
+  localStorage.setItem(STORAGE_KEYS.CONFIG_DIRTY_AT, new Date().toISOString());
+  // Perubahan sengaja dari pengguna: perangkat ini boleh mengirim data masternya.
+  localStorage.removeItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE);
+}
+
+function markShiftDirty(): void {
+  localStorage.setItem(STORAGE_KEYS.SHIFT_DIRTY_AT, new Date().toISOString());
+}
+
+/** Lupakan posisi tarik data, sehingga tarikan berikutnya mengambil ulang data terbaru dari server. */
+function resetPullState(): void {
+  localStorage.removeItem(STORAGE_KEYS.PULL_CURSORS);
+  localStorage.removeItem(STORAGE_KEYS.PULL_INIT_DONE);
+  localStorage.removeItem(STORAGE_KEYS.CONFIG_VERSION);
+}
+
+/** JSON dengan urutan key tetap (jsonb di server mengubah urutan key). */
+function stableStringify(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v as object)
+      .filter((k) => (v as any)[k] !== undefined && (v as any)[k] !== null)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableStringify((v as any)[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+
+function contentPrint(o: object): string {
+  const { isSynced: _a, syncedAt: _b, deviceCode: _c, ...rest } = o as any;
+  return stableStringify(rest);
+}
+
+function applyRemoteConfig(cfg: SharedConfig): void {
+  if (Array.isArray(cfg.products)) writeJSON(STORAGE_KEYS.PRODUCTS, cfg.products);
+  if (Array.isArray(cfg.categories)) writeJSON(STORAGE_KEYS.CATEGORIES, cfg.categories);
+  if (Array.isArray(cfg.cashiers) && cfg.cashiers.length > 0) writeJSON(STORAGE_KEYS.CASHIERS, cfg.cashiers);
+  if (cfg.settings && typeof cfg.settings === 'object') {
+    const local = getStoreSettings();
+    writeJSON(STORAGE_KEYS.SETTINGS, { ...local, ...cfg.settings, ...deviceSettings(local) });
+  }
+}
+
+/** Gabungkan data dari server ke perangkat ini. Mengembalikan jumlah perubahan. */
+export function applyPulledData(data: PullResponse): number {
+  let changed = 0;
+  const now = new Date().toISOString();
+
+  // Data master: yang terakhir diubah yang menang.
+  if (data.config && data.configUpdatedAt) {
+    const dirtyAt = localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+    if (!dirtyAt || data.configUpdatedAt >= dirtyAt) {
+      applyRemoteConfig(data.config);
+      localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+      localStorage.removeItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE);
+      localStorage.setItem(STORAGE_KEYS.CONFIG_VERSION, data.configUpdatedAt);
+      changed++;
+    }
+  }
+
+  // Transaksi: perubahan lokal yang belum terkirim tidak ditimpa.
+  const remoteTx = (data.transactions ?? []).filter((t) => t && typeof t.id === 'string' && t.timestamp);
+  if (remoteTx.length) {
+    const local = getTransactions();
+    const index = new Map(local.map((t, i) => [t.id, i]));
+    let txChanged = 0;
+    remoteTx.forEach((r) => {
+      const incoming: Transaction = { ...r, isSynced: true, syncedAt: now };
+      const i = index.get(r.id);
+      if (i === undefined) {
+        index.set(r.id, local.push(incoming) - 1);
+        txChanged++;
+      } else if (local[i].isSynced && contentPrint(local[i]) !== contentPrint(incoming)) {
+        local[i] = incoming;
+        txChanged++;
+      }
+    });
+    if (txChanged) {
+      local.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      writeTransactions(local);
+      pruneSyncedTransactions();
+      changed += txChanged;
+    }
+  }
+
+  // Pengeluaran
+  const deleted = new Set(data.deletedExpenseIds ?? []);
+  const remoteExp = (data.expenses ?? []).filter((e) => e && typeof e.id === 'string' && !deleted.has(e.id));
+  if (remoteExp.length || deleted.size) {
+    const local = getExpenses();
+    let list = local;
+    let expChanged = 0;
+    if (deleted.size) {
+      list = local.filter((e) => !deleted.has(e.id));
+      expChanged += local.length - list.length;
+    }
+    const index = new Map(list.map((e, i) => [e.id, i]));
+    remoteExp.forEach((r) => {
+      const incoming: Expense = { ...r, isSynced: true, syncedAt: now };
+      const i = index.get(r.id);
+      if (i === undefined) {
+        index.set(r.id, list.push(incoming) - 1);
+        expChanged++;
+      } else if (list[i].isSynced && contentPrint(list[i]) !== contentPrint(incoming)) {
+        list[i] = incoming;
+        expChanged++;
+      }
+    });
+    if (expChanged) {
+      list.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+      writeJSON(STORAGE_KEYS.EXPENSES, list);
+      changed += expChanged;
+    }
+  }
+
+  // Shift perangkat lain (shift milik perangkat ini sudah ada di lokal)
+  const remoteShifts = (data.shifts ?? []).filter((s) => s && typeof s.id === 'string' && s.startTime);
+  if (remoteShifts.length) {
+    const own = new Set([getActiveShift()?.id, ...getShiftHistory().map((s) => s.id)]);
+    const cutoff = Date.now() - KEEP_SYNCED_DAYS * 86400000;
+    const byId = new Map(getRemoteShifts().map((s) => [s.id, s]));
+    let shiftChanged = 0;
+    remoteShifts.forEach((s) => {
+      if (own.has(s.id)) return;
+      const cur = byId.get(s.id);
+      if (!cur || stableStringify(cur) !== stableStringify(s)) {
+        byId.set(s.id, s);
+        shiftChanged++;
+      }
+    });
+    if (shiftChanged) {
+      const kept = [...byId.values()].filter((s) => new Date(s.startTime).getTime() >= cutoff);
+      writeJSON(STORAGE_KEYS.REMOTE_SHIFTS, kept);
+      changed += shiftChanged;
+    }
+  }
+
+  if (changed) notifyUpdate();
+  return changed;
+}
+
+function getRemoteShifts(): Shift[] {
+  return readJSON<Shift[]>(STORAGE_KEYS.REMOTE_SHIFTS, []);
+}
+
+/** Semua shift (perangkat ini + perangkat lain), untuk rekap closing harian toko. */
+export function getAllShifts(): Shift[] {
+  const active = getActiveShift();
+  const own = active ? [active, ...getShiftHistory()] : getShiftHistory();
+  const ownIds = new Set(own.map((s) => s.id));
+  return [...own, ...getRemoteShifts().filter((s) => !ownIds.has(s.id))];
+}
+
+async function pullFromCloud(
+  syncUrl: string,
+  apiKey: string
+): Promise<{ success: boolean; message: string; received: number; needConfigPush: boolean }> {
+  const saved = readJSON<PullCursors | null>(STORAGE_KEYS.PULL_CURSORS, null);
+  let cursors: PullCursors | null = saved
+    ? (Object.fromEntries(
+        Object.entries(saved).map(([k, v]) => {
+          const t = new Date(v).getTime();
+          return [k, Number.isNaN(t) ? v : new Date(t - PULL_OVERLAP_MS).toISOString()];
+        })
+      ) as PullCursors)
+    : null;
+  let received = 0;
+  let needConfigPush = false;
+
+  try {
+    for (let page = 0; page < PULL_MAX_PAGES; page++) {
+      const base = (typeof window !== 'undefined' && window.location?.href) || 'http://localhost/';
+      const url = new URL(syncUrl, base);
+      if (cursors) (Object.keys(cursors) as (keyof PullCursors)[]).forEach((k) => url.searchParams.set(k, cursors![k]));
+      if (!localStorage.getItem(STORAGE_KEYS.PULL_INIT_DONE)) url.searchParams.set('init', '1');
+      const version = localStorage.getItem(STORAGE_KEYS.CONFIG_VERSION);
+      if (version) url.searchParams.set('config', version);
+
+      const res = await fetch(url.toString(), { method: 'GET', headers: syncHeaders(apiKey), cache: 'no-store' });
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => '');
+        return {
+          success: false,
+          message: `Gagal mengambil data (HTTP ${res.status}): ${errorText || 'Respon server tidak valid'}`,
+          received,
+          needConfigPush,
+        };
+      }
+      const data = (await res.json()) as PullResponse;
+
+      if (
+        page === 0 &&
+        !data.configUpdatedAt &&
+        !version &&
+        !localStorage.getItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE) &&
+        !localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT)
+      ) {
+        needConfigPush = true;
+      }
+
+      received += applyPulledData(data);
+      if (data.cursors) {
+        cursors = data.cursors;
+        writeJSON(STORAGE_KEYS.PULL_CURSORS, cursors);
+      }
+      if (!data.hasMore) {
+        localStorage.setItem(STORAGE_KEYS.PULL_INIT_DONE, '1');
+        break;
+      }
+    }
+    return { success: true, message: '', received, needConfigPush };
+  } catch (err: any) {
+    console.error('Cloud pull error:', err);
+    return {
+      success: false,
+      message: `Gagal mengambil data dari server: ${err?.message || 'Koneksi jaringan terputus'}`,
+      received,
+      needConfigPush,
+    };
+  }
+}
+
+/**
+ * Link kasir dari dashboard: https://domain/kasir/#token=XXXX
+ * Simpan token ke perangkat ini lalu hapus dari address bar. Perangkat baru akan mengambil
+ * menu, kasir, pengaturan, dan transaksi dari server. Mengembalikan true jika token dipakai.
+ */
+export function consumeSyncLinkFromUrl(): boolean {
+  if (typeof window === 'undefined') return false;
+  const url = new URL(window.location.href);
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ''));
+  const token = (hash.get('token') || url.searchParams.get('token') || '').trim();
+  if (!token) return false;
+
+  hash.delete('token');
+  url.searchParams.delete('token');
+  const rest = hash.toString();
+  url.hash = rest ? `#${rest}` : '';
+  window.history.replaceState(null, '', url.toString());
+
+  initLocalStorage();
+  const settings = getStoreSettings();
+  const current = settings.syncApiKey?.trim();
+  if (current === token) return false;
+  if (
+    current &&
+    getUnsyncedCount() > 0 &&
+    !window.confirm(
+      'Perangkat ini masih punya data yang belum terkirim ke cabang lama. Tetap ganti ke cabang dari link ini?'
+    )
+  ) {
+    return false;
+  }
+
+  writeJSON(STORAGE_KEYS.SETTINGS, { ...settings, syncApiKey: token, autoSyncOnline: true, lastSyncError: undefined });
+  resetPullState();
+  localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+  // Perangkat yang belum pernah bertransaksi memakai menu/kasir dari server, bukan data bawaan.
+  if (getTransactions().length === 0) localStorage.setItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE, '1');
+  notifyUpdate();
+  return true;
+}
+
+/**
+ * Sync otomatis jika diaktifkan dan online.
+ * Tanpa `pull`, hanya berjalan bila ada data yang perlu dikirim (dipicu oleh perubahan).
+ * Dengan `pull`, selalu jalan untuk menarik perubahan dari perangkat lain.
+ */
+export function maybeAutoSync(opts: { pull?: boolean } = {}): void {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   const settings = getStoreSettings();
   if (settings.autoSyncOnline === false) return;
   if (!getSyncUrl(settings) || !settings.syncApiKey?.trim()) return;
-  if (getUnsyncedCount() === 0) return;
+  if (!opts.pull && !hasPendingPush()) return;
   void performCloudSync();
 }
 

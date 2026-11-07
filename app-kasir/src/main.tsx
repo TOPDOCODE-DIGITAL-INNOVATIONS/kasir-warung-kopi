@@ -1,7 +1,11 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import { consumeSyncLinkFromUrl } from './lib/storage';
 import './index.css';
+
+// Link kasir dari dashboard (…/kasir/#token=…): hubungkan perangkat ini ke cabang sebelum app tampil.
+consumeSyncLinkFromUrl();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

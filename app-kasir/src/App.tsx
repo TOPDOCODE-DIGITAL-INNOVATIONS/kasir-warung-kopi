@@ -3,6 +3,7 @@ import {
   getActiveCashier,
   getActiveShift,
   getStoreSettings,
+  hasPendingPush,
   initLocalStorage,
   maybeAutoSync,
   POS_UPDATE_EVENT,
@@ -31,7 +32,10 @@ export const TAB_PERMISSION: Record<AppTab, Permission> = {
   settings: 'settings',
 };
 
-const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+/** Tarik perubahan dari perangkat lain secara berkala selama aplikasi terbuka & online. */
+const PULL_INTERVAL_MS = 30 * 1000;
+/** Jeda singkat setelah perubahan, agar beberapa perubahan beruntun terkirim sekaligus. */
+const PUSH_DEBOUNCE_MS = 800;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('pos');
@@ -56,29 +60,37 @@ export default function App() {
     initLocalStorage();
     syncStorage();
 
-    // Debounce auto-sync agar tidak terpicu berkali-kali untuk satu aksi
+    // Kirim segera setelah ada perubahan (dengan jeda singkat agar satu aksi = satu request)
     let syncTimer: ReturnType<typeof setTimeout> | undefined;
-    const scheduleAutoSync = () => {
+    const scheduleSync = (pull = false) => {
       clearTimeout(syncTimer);
-      syncTimer = setTimeout(maybeAutoSync, 3000);
+      syncTimer = setTimeout(() => maybeAutoSync({ pull }), pull ? 0 : PUSH_DEBOUNCE_MS);
     };
 
     const handlePosUpdate = () => {
       syncStorage();
-      scheduleAutoSync();
+      // Hanya perubahan lokal yang perlu dikirim; data hasil tarikan tidak memicu sync lagi.
+      if (hasPendingPush()) scheduleSync();
     };
 
     const handleOnlineStatus = () => {
       setIsOnline(navigator.onLine);
-      if (navigator.onLine) scheduleAutoSync();
+      if (navigator.onLine) scheduleSync(true);
     };
 
-    const interval = setInterval(maybeAutoSync, AUTO_SYNC_INTERVAL_MS);
-    scheduleAutoSync();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') scheduleSync(true);
+    };
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') maybeAutoSync({ pull: true });
+    }, PULL_INTERVAL_MS);
+    scheduleSync(true);
 
     window.addEventListener(POS_UPDATE_EVENT, handlePosUpdate);
     window.addEventListener('online', handleOnlineStatus);
     window.addEventListener('offline', handleOnlineStatus);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       clearTimeout(syncTimer);
@@ -86,6 +98,7 @@ export default function App() {
       window.removeEventListener(POS_UPDATE_EVENT, handlePosUpdate);
       window.removeEventListener('online', handleOnlineStatus);
       window.removeEventListener('offline', handleOnlineStatus);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 

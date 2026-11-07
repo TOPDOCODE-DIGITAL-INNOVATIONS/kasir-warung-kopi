@@ -12,7 +12,11 @@ export default async function BusinessesPage() {
           Setiap cabang punya token sync sendiri. Isi token ini di aplikasi kasir cabang tersebut.
         </p>
       </div>
-      <BusinessClient initialBusinesses={businesses ?? []} syncUrl={`${siteUrl}/api/sync`} />
+      <BusinessClient
+        initialBusinesses={businesses ?? []}
+        syncUrl={`${siteUrl}/api/sync`}
+        kasirUrl={`${siteUrl}/kasir/`}
+      />
     </div>
   )
 }
