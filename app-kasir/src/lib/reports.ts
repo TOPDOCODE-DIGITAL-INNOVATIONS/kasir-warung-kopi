@@ -311,3 +311,186 @@ export function monthlyRecapToTSV(recap: MonthlyRecap): string {
   lines.push(['LABA BERSIH', '', '', '', '', '', bookNum(recap.netProfit)].join('\t'));
   return lines.join('\n') + '\n';
 }
+
+// -------------------------------------------------------------
+// CLOSING HARIAN: rekap per metode bayar + pengeluaran + uang laci, untuk mencocokkan uang
+// -------------------------------------------------------------
+
+export const CLOSING_METHODS = ['tunai', 'qris', 'transfer', 'ewallet', 'debit'] as const;
+export type ClosingMethod = (typeof CLOSING_METHODS)[number];
+
+export const CLOSING_METHOD_LABELS: Record<ClosingMethod, string> = {
+  tunai: 'Tunai / Cash',
+  qris: 'QRIS',
+  transfer: 'Transfer Bank',
+  ewallet: 'E-Wallet',
+  debit: 'EDC Debit',
+};
+
+export interface ClosingShiftRow {
+  id: string;
+  cashierName: string;
+  startTime: string;
+  endTime?: string;
+  open: boolean;
+  startingCash: number;
+  expectedCash: number;
+  actualCash?: number;
+  difference?: number; // fisik - seharusnya (+ lebih, - kurang)
+}
+
+export interface DailyClosing {
+  date: string; // YYYY-MM-DD
+  orders: number; // nota selesai
+  cancelled: number;
+  /** Omset: semua penjualan selesai termasuk bon (nilai nota) */
+  sales: number;
+  byMethod: Record<ClosingMethod, { count: number; total: number }>;
+  debtNew: { count: number; total: number }; // bon dibuat hari ini (belum jadi uang)
+  debtCollectedCash: number; // pelunasan bon hari ini (tunai)
+  debtCollectedNonCash: number;
+  overpay: number; // kelebihan (kembalian permen)
+  expensesDrawer: number; // pengeluaran diambil dari laci
+  expensesOther: number; // pengeluaran harian di luar laci
+  expenses: { category: string; note?: string; amount: number; fromDrawer: boolean }[];
+  /** Uang tunai masuk: penjualan tunai + kelebihan + pelunasan bon tunai */
+  cashIn: number;
+  /** Uang non-tunai masuk (harus cocok dengan mutasi QRIS/bank) */
+  nonCashIn: number;
+  startingCash: number; // modal awal shift yang dibuka hari ini
+  expectedCash: number; // modal + tunai masuk - pengeluaran dari laci
+  shifts: ClosingShiftRow[];
+  /** Total selisih shift yang sudah ditutup hari ini (null jika belum ada yang ditutup) */
+  shiftDifference: number | null;
+  hasOpenShift: boolean;
+  /** Uang masuk bersih hari ini: tunai + non-tunai - semua pengeluaran harian */
+  net: number;
+}
+
+export function computeDailyClosing(
+  date: string,
+  transactions: Transaction[],
+  expenses: Expense[],
+  shifts: Shift[]
+): DailyClosing {
+  const dayOf = (iso: string) => toLocalDateKey(new Date(iso));
+  const byMethod = Object.fromEntries(CLOSING_METHODS.map((m) => [m, { count: 0, total: 0 }])) as DailyClosing['byMethod'];
+  const debtNew = { count: 0, total: 0 };
+  let orders = 0;
+  let cancelled = 0;
+  let sales = 0;
+  let overpay = 0;
+  let debtCollectedCash = 0;
+  let debtCollectedNonCash = 0;
+
+  transactions.forEach((t) => {
+    // Pelunasan bon dihitung pada hari uangnya diterima
+    if (t.status === 'completed' && t.paymentType === 'hutang' && t.debtStatus === 'paid' && t.debtPaidAt) {
+      if (dayOf(t.debtPaidAt) === date) {
+        if (t.debtPaidMethod === 'tunai') debtCollectedCash += t.grandTotal;
+        else debtCollectedNonCash += t.grandTotal;
+      }
+    }
+    if (dayOf(t.timestamp) !== date) return;
+    if (t.status === 'cancelled') {
+      cancelled += 1;
+      return;
+    }
+    orders += 1;
+    sales += t.grandTotal;
+    if (t.paymentType === 'hutang') {
+      debtNew.count += 1;
+      debtNew.total += t.grandTotal;
+      return;
+    }
+    const m = (CLOSING_METHODS as readonly string[]).includes(t.paymentType) ? (t.paymentType as ClosingMethod) : 'debit';
+    byMethod[m].count += 1;
+    byMethod[m].total += t.grandTotal;
+    if (t.paymentType === 'tunai') overpay += t.overpayAmount ?? 0;
+  });
+
+  const dayExpenses = expenses.filter((e) => e.scope === 'daily' && e.date === date);
+  const expensesDrawer = dayExpenses.filter((e) => e.fromDrawer).reduce((a, e) => a + e.amount, 0);
+  const expensesOther = dayExpenses.filter((e) => !e.fromDrawer).reduce((a, e) => a + e.amount, 0);
+
+  const dayShifts = shifts
+    .filter((s) => dayOf(s.startTime) === date)
+    .sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const shiftRows: ClosingShiftRow[] = dayShifts.map((s) => {
+    const open = s.status === 'open';
+    const expected = s.expectedCash ?? getExpectedDrawerCash(s);
+    const actual = open ? undefined : s.endingCashActual;
+    return {
+      id: s.id,
+      cashierName: s.cashierName,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      open,
+      startingCash: s.startingCash,
+      expectedCash: expected,
+      actualCash: actual,
+      difference: actual === undefined ? undefined : actual - expected,
+    };
+  });
+  const closed = shiftRows.filter((r) => r.difference !== undefined);
+
+  const nonCashMethods = CLOSING_METHODS.filter((m) => m !== 'tunai');
+  const cashIn = byMethod.tunai.total + overpay + debtCollectedCash;
+  const nonCashIn = nonCashMethods.reduce((a, m) => a + byMethod[m].total, 0) + debtCollectedNonCash;
+  const startingCash = dayShifts.reduce((a, s) => a + s.startingCash, 0);
+
+  return {
+    date,
+    orders,
+    cancelled,
+    sales,
+    byMethod,
+    debtNew,
+    debtCollectedCash,
+    debtCollectedNonCash,
+    overpay,
+    expensesDrawer,
+    expensesOther,
+    expenses: dayExpenses.map((e) => ({ category: e.category, note: e.note, amount: e.amount, fromDrawer: !!e.fromDrawer })),
+    cashIn,
+    nonCashIn,
+    startingCash,
+    expectedCash: startingCash + cashIn - expensesDrawer,
+    shifts: shiftRows,
+    shiftDifference: closed.length ? closed.reduce((a, r) => a + (r.difference ?? 0), 0) : null,
+    hasOpenShift: shiftRows.some((r) => r.open),
+    net: cashIn + nonCashIn - expensesDrawer - expensesOther,
+  };
+}
+
+/** Teks rekap closing untuk dikirim ke owner (WhatsApp). */
+export function dailyClosingToText(c: DailyClosing, storeName: string, fmt: (n: number) => string): string {
+  const d = new Date(c.date + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const L: string[] = [`*CLOSING ${storeName}*`, d, ''];
+  L.push(`Nota: ${c.orders}${c.cancelled ? ` (batal ${c.cancelled})` : ''}`);
+  L.push(`Omset: ${fmt(c.sales)}`, '');
+  L.push('*Pemasukan*');
+  CLOSING_METHODS.forEach((m) => {
+    if (c.byMethod[m].count) L.push(`${CLOSING_METHOD_LABELS[m]}: ${fmt(c.byMethod[m].total)} (${c.byMethod[m].count})`);
+  });
+  if (c.overpay) L.push(`Kelebihan (permen): ${fmt(c.overpay)}`);
+  if (c.debtCollectedCash) L.push(`Pelunasan bon tunai: ${fmt(c.debtCollectedCash)}`);
+  if (c.debtCollectedNonCash) L.push(`Pelunasan bon non-tunai: ${fmt(c.debtCollectedNonCash)}`);
+  if (c.debtNew.count) L.push(`Bon baru (belum dibayar): ${fmt(c.debtNew.total)} (${c.debtNew.count})`);
+  L.push(`Total tunai masuk: ${fmt(c.cashIn)}`, `Total non-tunai masuk: ${fmt(c.nonCashIn)}`, '');
+  L.push('*Pengeluaran*');
+  if (c.expenses.length === 0) L.push('-');
+  c.expenses.forEach((e) => L.push(`${e.category}${e.note ? ` (${e.note})` : ''}: ${fmt(e.amount)}${e.fromDrawer ? ' [laci]' : ''}`));
+  L.push(`Total pengeluaran: ${fmt(c.expensesDrawer + c.expensesOther)}`, '');
+  L.push('*Uang Laci*');
+  L.push(`Modal awal: ${fmt(c.startingCash)}`, `Seharusnya: ${fmt(c.expectedCash)}`);
+  c.shifts.forEach((s) => {
+    L.push(
+      s.open
+        ? `Shift ${s.cashierName}: masih buka`
+        : `Shift ${s.cashierName}: fisik ${fmt(s.actualCash ?? 0)}, selisih ${s.difference! >= 0 ? '+' : ''}${fmt(s.difference ?? 0)}`
+    );
+  });
+  L.push('', `*Bersih hari ini: ${fmt(c.net)}*`);
+  return L.join('\n');
+}

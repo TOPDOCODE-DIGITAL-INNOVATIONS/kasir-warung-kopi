@@ -62,6 +62,65 @@ export function isPrinterMethodSupported(m: PrinterMethod): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Gagalkan operasi yang menggantung (mis. koneksi Bluetooth putus di tengah jalan). */
+function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(msg)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      }
+    );
+  });
+}
+
+const WRITE_TIMEOUT_MS = 8000;
+const TIMEOUT_MSG = 'Printer tidak merespons. Pastikan printer menyala & dekat, lalu coba cetak lagi.';
+
+/**
+ * Antrean cetak: hanya satu pekerjaan cetak yang berjalan pada satu waktu.
+ * Tanpa ini, cetak otomatis + tombol "Cetak" (atau klik dua kali) berebut koneksi:
+ * Web Serial menolak dengan "stream is locked" dan data BLE bisa saling tumpang tindih
+ * sehingga struk tidak tercetak atau tercetak kosong/terpotong.
+ */
+let printQueue: Promise<unknown> = Promise.resolve();
+function enqueue<T>(job: () => Promise<T>): Promise<T> {
+  const run = printQueue.then(job, job);
+  printQueue = run.catch(() => {});
+  return run;
+}
+
+/** Jeda setelah ESC @ (reset): printer murah kadang membuang data yang datang saat masih reset. */
+const AFTER_INIT_DELAY_MS = 60;
+const startsWithInit = (b: Uint8Array) => b.length >= 2 && b[0] === 0x1b && b[1] === 0x40;
+
+/**
+ * Kirim data bertahap dengan jeda, supaya buffer printer (kecil di printer 58mm) tidak penuh.
+ * Buffer penuh = sebagian data dibuang = struk terpotong atau kertas keluar kosong.
+ */
+async function sendPaced(
+  bytes: Uint8Array,
+  chunkSize: number,
+  gapMs: number,
+  write: (part: Uint8Array) => Promise<void>
+): Promise<void> {
+  let i = 0;
+  if (startsWithInit(bytes)) {
+    await write(bytes.slice(0, 2));
+    await sleep(AFTER_INIT_DELAY_MS);
+    i = 2;
+  }
+  for (; i < bytes.length; i += chunkSize) {
+    await write(bytes.slice(i, i + chunkSize));
+    if (gapMs > 0 && i + chunkSize < bytes.length) await sleep(gapMs);
+  }
+}
+
 // -------------------------------------------------------------
 // Web Serial: Bluetooth klasik (SPP/RFCOMM) atau USB.
 // RPP02N adalah printer Bluetooth klasik, jadi ini cara langsung yang paling cocok.
@@ -70,11 +129,19 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // -------------------------------------------------------------
 const SPP_UUID = '00001101-0000-1000-8000-00805f9b34fb';
 let serialPort: any = null;
+let serialListenerAdded = false;
 
 async function getSerialPort(interactive: boolean): Promise<any> {
   const serial = (navigator as any).serial;
   if (!serial) {
     throw new Error('Browser ini belum mendukung Web Serial. Perbarui Chrome (Android 138+) atau pilih metode lain.');
+  }
+  if (!serialListenerAdded && serial.addEventListener) {
+    serialListenerAdded = true;
+    // Printer mati / Bluetooth putus → buang port lama supaya cetak berikutnya membuka ulang.
+    serial.addEventListener('disconnect', (e: any) => {
+      if (!e?.target || e.target === serialPort) serialPort = null;
+    });
   }
   if (serialPort) return serialPort;
 
@@ -90,28 +157,59 @@ async function getSerialPort(interactive: boolean): Promise<any> {
   return serialPort;
 }
 
-async function writeSerial(bytes: Uint8Array, interactive: boolean): Promise<void> {
-  const port = await getSerialPort(interactive);
-  if (!port.writable) {
-    try {
-      await port.open({ baudRate: 9600 }); // baud diabaikan untuk Bluetooth, dipakai untuk USB
-    } catch (err: any) {
-      if (err?.name !== 'InvalidStateError') {
-        serialPort = null;
-        throw new Error(
-          `Tidak bisa terhubung ke printer (${err?.message || err}). Pastikan printer menyala dan sudah di-pair.`
-        );
-      }
+async function closeSerial(port: any): Promise<void> {
+  try {
+    await withTimeout(Promise.resolve(port?.close?.()), 2000, 'close timeout');
+  } catch {
+    /* port sudah tertutup / rusak */
+  }
+}
+
+async function openSerial(port: any): Promise<void> {
+  if (port.writable) return;
+  try {
+    await withTimeout(port.open({ baudRate: 9600 }), WRITE_TIMEOUT_MS, TIMEOUT_MSG); // baud diabaikan untuk Bluetooth
+  } catch (err: any) {
+    if (err?.name !== 'InvalidStateError') {
+      throw new Error(
+        `Tidak bisa terhubung ke printer (${err?.message || err}). Pastikan printer menyala dan sudah di-pair.`
+      );
     }
   }
+  if (!port.writable) throw new Error('Koneksi printer belum siap. Coba cetak lagi.');
+}
+
+async function writeSerialOnce(port: any, bytes: Uint8Array): Promise<void> {
+  await openSerial(port);
   const writer = port.writable.getWriter();
   try {
-    const CHUNK = 512;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      await writer.write(bytes.slice(i, i + CHUNK));
-    }
+    await sendPaced(bytes, 256, 15, (part) => withTimeout(writer.write(part), WRITE_TIMEOUT_MS, TIMEOUT_MSG));
+    // Tunggu sampai data benar-benar terkirim sebelum melepas koneksi
+    await withTimeout(writer.ready ?? Promise.resolve(), WRITE_TIMEOUT_MS, TIMEOUT_MSG);
   } finally {
-    writer.releaseLock();
+    try {
+      writer.releaseLock();
+    } catch {
+      /* writer sudah rusak */
+    }
+  }
+}
+
+async function writeSerial(bytes: Uint8Array, interactive: boolean): Promise<void> {
+  const port = await getSerialPort(interactive);
+  try {
+    await writeSerialOnce(port, bytes);
+  } catch (firstErr) {
+    // Koneksi lama sering "basi" setelah printer tidur / Bluetooth putus: port terlihat terbuka
+    // tapi tulisan gagal atau menggantung. Tutup, buka ulang, dan coba sekali lagi.
+    await closeSerial(port);
+    try {
+      await writeSerialOnce(port, bytes);
+    } catch (err) {
+      await closeSerial(port);
+      serialPort = null;
+      throw err instanceof Error ? err : firstErr;
+    }
   }
 }
 
@@ -127,9 +225,11 @@ const BLE_PRINTER_SERVICES = [
 
 let bleCharacteristic: any = null;
 let bleDevice: any = null;
+const bleListened = new WeakSet<object>();
 
 async function getBleCharacteristic(interactive: boolean): Promise<any> {
   if (bleCharacteristic && bleDevice?.gatt?.connected) return bleCharacteristic;
+  bleCharacteristic = null;
 
   const bluetooth = (navigator as any).bluetooth;
   if (!bluetooth) throw new Error('Browser ini tidak mendukung Web Bluetooth.');
@@ -147,14 +247,17 @@ async function getBleCharacteristic(interactive: boolean): Promise<any> {
       optionalServices: BLE_PRINTER_SERVICES,
     });
   }
-  bleDevice.addEventListener?.('gattserverdisconnected', () => {
-    bleCharacteristic = null;
-  });
+  if (bleDevice && !bleListened.has(bleDevice)) {
+    bleListened.add(bleDevice);
+    bleDevice.addEventListener?.('gattserverdisconnected', () => {
+      bleCharacteristic = null;
+    });
+  }
 
-  const server = await bleDevice.gatt.connect();
+  const server = await withTimeout(bleDevice.gatt.connect(), WRITE_TIMEOUT_MS, TIMEOUT_MSG);
   for (const uuid of BLE_PRINTER_SERVICES) {
     try {
-      const service = await server.getPrimaryService(uuid);
+      const service = await (server as any).getPrimaryService(uuid);
       const chars = await service.getCharacteristics();
       const writable = chars.find((c: any) => c.properties.writeWithoutResponse || c.properties.write);
       if (writable) {
@@ -172,17 +275,39 @@ async function getBleCharacteristic(interactive: boolean): Promise<any> {
   );
 }
 
-async function writeBle(bytes: Uint8Array, interactive: boolean): Promise<void> {
+/**
+ * Ukuran paket BLE. MTU default BLE = 23 byte (20 byte data). Tulisan "without response"
+ * yang lebih besar dari itu ditolak atau dipotong diam-diam oleh banyak printer murah —
+ * penyebab umum struk kosong/terpotong. Tulisan "with response" boleh lebih panjang.
+ */
+export const BLE_CHUNK_NO_RESPONSE = 20;
+export const BLE_CHUNK_WITH_RESPONSE = 100;
+
+async function writeBleOnce(bytes: Uint8Array, interactive: boolean): Promise<void> {
   const ch = await getBleCharacteristic(interactive);
-  const CHUNK = 100;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const part = bytes.slice(i, i + CHUNK);
-    if (ch.properties.writeWithoutResponse && ch.writeValueWithoutResponse) {
-      await ch.writeValueWithoutResponse(part);
-    } else {
-      await ch.writeValue(part);
+  const noResponse = Boolean(ch.properties.writeWithoutResponse && ch.writeValueWithoutResponse);
+  const write = (part: Uint8Array) =>
+    withTimeout<void>(
+      noResponse ? ch.writeValueWithoutResponse(part) : ch.writeValue(part),
+      WRITE_TIMEOUT_MS,
+      TIMEOUT_MSG
+    );
+  await sendPaced(bytes, noResponse ? BLE_CHUNK_NO_RESPONSE : BLE_CHUNK_WITH_RESPONSE, noResponse ? 10 : 5, write);
+}
+
+async function writeBle(bytes: Uint8Array, interactive: boolean): Promise<void> {
+  try {
+    await writeBleOnce(bytes, interactive);
+  } catch (err: any) {
+    if (err?.name === 'NotFoundError') throw err; // pengguna menutup pemilih perangkat
+    // Koneksi GATT putus (printer tidur) → sambung ulang dan coba sekali lagi
+    bleCharacteristic = null;
+    try {
+      bleDevice?.gatt?.disconnect();
+    } catch {
+      /* abaikan */
     }
-    await sleep(20);
+    await writeBleOnce(bytes, false);
   }
 }
 
@@ -203,13 +328,18 @@ function printViaRawBT(bytes: Uint8Array): void {
 // -------------------------------------------------------------
 
 /** Pilih & simpan printer (harus dipanggil dari klik pengguna). */
-export async function connectPrinter(settings: StoreSettings): Promise<string> {
+export function connectPrinter(settings: StoreSettings): Promise<string> {
+  // requestPort/requestDevice harus dipanggil langsung dari klik, jadi tidak boleh menunggu antrean.
+  return connectPrinterNow(settings);
+}
+
+async function connectPrinterNow(settings: StoreSettings): Promise<string> {
   const method = getPrinterMethod(settings);
   if (method === 'serial') {
     forgetPrinter();
     const port = await (navigator as any).serial.requestPort({ allowedBluetoothServiceClassIds: [SPP_UUID] });
     serialPort = port;
-    await writeSerial(encodeEscPos([], 1), false); // buka koneksi & uji
+    await enqueue(() => writeSerial(encodeEscPos([], 1), false)); // buka koneksi & uji
     return 'Printer terhubung. Struk berikutnya akan langsung dicetak.';
   }
   if (method === 'bluetooth') {
@@ -218,7 +348,7 @@ export async function connectPrinter(settings: StoreSettings): Promise<string> {
       acceptAllDevices: true,
       optionalServices: BLE_PRINTER_SERVICES,
     });
-    await getBleCharacteristic(false);
+    await enqueue(() => getBleCharacteristic(false));
     return `Printer ${bleDevice?.name || ''} terhubung. Struk berikutnya akan langsung dicetak.`;
   }
   return 'Metode ini tidak perlu dihubungkan.';
@@ -232,9 +362,7 @@ export function forgetPrinter(): void {
   }
   bleDevice = null;
   bleCharacteristic = null;
-  if (serialPort?.writable) {
-    serialPort.close?.().catch(() => {});
-  }
+  if (serialPort) void closeSerial(serialPort);
   serialPort = null;
 }
 
@@ -256,10 +384,11 @@ export async function printLines(
     window.print();
     return;
   }
+  if (lines.length === 0) throw new Error('Struk kosong, tidak ada yang dicetak.');
   const bytes = encodeEscPos(lines, getFeedLines(settings));
   if (method === 'rawbt') return printViaRawBT(bytes);
-  if (method === 'serial') return writeSerial(bytes, interactive);
-  return writeBle(bytes, interactive);
+  if (method === 'serial') return enqueue(() => writeSerial(bytes, interactive));
+  return enqueue(() => writeBle(bytes, interactive));
 }
 
 export function buildLinesFor(tx: Transaction, settings: StoreSettings): ReceiptLine[] {

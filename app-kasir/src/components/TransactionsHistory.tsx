@@ -12,6 +12,8 @@ import {
 import { verifyPin } from '../lib/security';
 import { can } from '../lib/permissions';
 import { ReceiptModal } from './POS/ReceiptModal';
+import { DailyClosingPanel } from './DailyClosingPanel';
+import { toLocalDateKey } from '../lib/reports';
 
 interface TransactionsHistoryProps {
   storeSettings: StoreSettings;
@@ -26,6 +28,8 @@ export const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPaymentFilter, setSelectedPaymentFilter] = useState<string>('all');
   const [selectedOrderTypeFilter, setSelectedOrderTypeFilter] = useState<string>('all');
+  // Tanggal untuk rekap closing & filter tabel ('' = semua tanggal)
+  const [dateFilter, setDateFilter] = useState<string>(() => toLocalDateKey(new Date()));
   const [selectedTxForReceipt, setSelectedTxForReceipt] = useState<Transaction | null>(null);
 
   // Cancellation modal state
@@ -69,7 +73,11 @@ export const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({
     const matchesOrderType =
       selectedOrderTypeFilter === 'all' || tx.orderType === selectedOrderTypeFilter;
 
-    return matchesSearch && matchesPayment && matchesOrderType;
+    // Bon belum lunas selalu ditampilkan dari semua tanggal
+    const matchesDate =
+      !dateFilter || selectedPaymentFilter === 'bon_unpaid' || toLocalDateKey(new Date(tx.timestamp)) === dateFilter;
+
+    return matchesSearch && matchesPayment && matchesOrderType && matchesDate;
   });
 
   const totalRevenue = filteredTransactions
@@ -133,6 +141,44 @@ export const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({
           </button>
         </div>
       )}
+
+      {/* Pilih tanggal + rekap closing harian */}
+      <div className="bg-white border border-[#D7CCC8] p-3 rounded-lg flex flex-wrap items-center gap-2 shadow-sm text-xs">
+        <span className="font-bold text-[#3E2723] uppercase">Tanggal:</span>
+        <input
+          type="date"
+          value={dateFilter}
+          max={toLocalDateKey(new Date())}
+          onChange={(e) => setDateFilter(e.target.value)}
+          className="bg-[#F9F8F7] border border-[#D7CCC8] rounded px-2 py-1.5 font-bold focus:outline-none focus:border-[#3E2723]"
+        />
+        <button
+          onClick={() => setDateFilter(toLocalDateKey(new Date()))}
+          className="px-2.5 py-1.5 rounded border border-[#D7CCC8] font-bold hover:bg-stone-100"
+        >
+          Hari Ini
+        </button>
+        <button
+          onClick={() => {
+            const d = new Date();
+            d.setDate(d.getDate() - 1);
+            setDateFilter(toLocalDateKey(d));
+          }}
+          className="px-2.5 py-1.5 rounded border border-[#D7CCC8] font-bold hover:bg-stone-100"
+        >
+          Kemarin
+        </button>
+        <button
+          onClick={() => setDateFilter('')}
+          className={`px-2.5 py-1.5 rounded border font-bold ${
+            dateFilter ? 'border-[#D7CCC8] hover:bg-stone-100' : 'bg-[#3E2723] text-white border-[#3E2723]'
+          }`}
+        >
+          Semua Tanggal
+        </button>
+      </div>
+
+      {dateFilter && <DailyClosingPanel date={dateFilter} storeName={storeSettings.storeName} />}
 
       {/* Top Banner Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
