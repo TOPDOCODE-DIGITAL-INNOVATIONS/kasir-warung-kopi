@@ -166,7 +166,53 @@ function runMigrations(): void {
   migrationDone = true;
 
   const cashiers = readJSON<Cashier[]>(STORAGE_KEYS.CASHIERS, []);
-  let changed = migrateCashierPins(cashiers);
+  let changed = false;
+
+  // Migrasi nama contoh lama (Budi/Siti/Agus) ke daftar tim terbaru (Fajar, Wulan, Melya, Widya)
+  const legacyNames: Record<string, string> = {
+    'Budi Santoso': 'Fajar',
+    'Siti Rahma': 'Wulan',
+    'Agus Warkop': 'Melya',
+  };
+  cashiers.forEach((c) => {
+    if (legacyNames[c.name]) {
+      c.name = legacyNames[c.name];
+      changed = true;
+    }
+  });
+  if (
+    cashiers.some((c) => c.id === 'c-1' && c.name === 'Fajar') &&
+    !cashiers.some((c) => c.id === 'c-4' || c.name.toLowerCase() === 'widya')
+  ) {
+    const widyaSeed = INITIAL_CASHIERS.find((c) => c.id === 'c-4');
+    if (widyaSeed) {
+      cashiers.push({ ...widyaSeed });
+      changed = true;
+    }
+  }
+
+  if (migrateCashierPins(cashiers)) {
+    changed = true;
+  }
+
+  // Migrasi katalog contoh lama (Kopi Susu Gula Aren) & nama toko lama ke RUAS KOPI BALI
+  const savedProducts = readJSON<Product[]>(STORAGE_KEYS.PRODUCTS, []);
+  if (savedProducts.some((p) => p.id === 'p-1' && p.name === 'Kopi Susu Gula Aren')) {
+    writeJSON(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS);
+    writeJSON(STORAGE_KEYS.CATEGORIES, INITIAL_CATEGORIES);
+  }
+  const savedSettings = readJSON<StoreSettings | null>(STORAGE_KEYS.SETTINGS, null);
+  if (savedSettings && savedSettings.storeName === 'WARKOP KOPI NUSANTARA') {
+    writeJSON(STORAGE_KEYS.SETTINGS, {
+      ...savedSettings,
+      storeName: INITIAL_STORE_SETTINGS.storeName,
+      storeTagline: INITIAL_STORE_SETTINGS.storeTagline,
+      address: INITIAL_STORE_SETTINGS.address,
+      receiptHeaderMsg: INITIAL_STORE_SETTINGS.receiptHeaderMsg,
+      receiptFooterMsg: INITIAL_STORE_SETTINGS.receiptFooterMsg,
+      qrisMerchantName: INITIAL_STORE_SETTINGS.qrisMerchantName,
+    });
+  }
 
   // Pastikan selalu ada minimal satu Owner agar menu Pengaturan/Kelola Kasir bisa diakses.
   if (cashiers.length > 0 && !cashiers.some((c) => c.role === 'Owner')) {

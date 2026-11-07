@@ -8,8 +8,8 @@ export default function Home() {
         <div className="mx-auto mb-6 w-16 h-16 bg-[#3E2723] rounded-2xl flex items-center justify-center">
           <Coffee className="w-8 h-8 text-white" />
         </div>
-        <h1 className="text-2xl font-bold mb-2">Kasir Warung Kopi</h1>
-        <p className="text-gray-500 mb-8">Pilih aplikasi yang ingin dibuka.</p>
+        <h1 className="text-2xl font-bold mb-1">RUAS KOPI BALI</h1>
+        <p className="text-gray-500 mb-8">Setiap Langkah, Satu Rasa — Pilih aplikasi yang ingin dibuka.</p>
         <div className="space-y-3">
           {/* <a> biasa: /kasir/ adalah PWA statis, bukan route Next.js */}
           <a
