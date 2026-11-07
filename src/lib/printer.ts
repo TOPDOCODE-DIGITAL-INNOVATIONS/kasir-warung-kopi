@@ -1,5 +1,5 @@
 import { StoreSettings, Transaction } from '../types';
-import { buildReceiptLines, PaperWidth, ReceiptLine } from './receipt';
+import { buildReceiptLines, charsPerLine, PaperWidth, ReceiptLine } from './receipt';
 import { bytesToBase64, encodeEscPos } from './escpos';
 
 export type PrinterMethod = 'serial' | 'bluetooth' | 'rawbt' | 'browser';
@@ -7,7 +7,7 @@ export type PrinterMethod = 'serial' | 'bluetooth' | 'rawbt' | 'browser';
 export const PRINTER_METHOD_LABELS: Record<PrinterMethod, string> = {
   serial: 'Langsung – Bluetooth klasik / USB (disarankan RPP02N)',
   bluetooth: 'Langsung – Bluetooth LE',
-  rawbt: 'Lewat aplikasi RawBT (Android)',
+  rawbt: 'Lewat aplikasi RawBT (Android) – versi gratis ada iklan',
   browser: 'Dialog print browser',
 };
 
@@ -25,8 +25,31 @@ export function shouldAutoPrint(settings: StoreSettings): boolean {
   return settings.autoPrintAfterPayment ?? isDirectMethod(getPrinterMethod(settings));
 }
 
+/**
+ * Baris kosong setelah struk. RawBT sudah menambahkan feed sendiri, jadi default 0
+ * agar jarak bawah (dan jarak atas struk berikutnya) tidak terlalu jauh.
+ */
+export function getFeedLines(settings: StoreSettings): number {
+  const v = settings.printerFeedLines;
+  if (typeof v === 'number' && v >= 0) return Math.min(Math.round(v), 10);
+  return getPrinterMethod(settings) === 'rawbt' ? 0 : 2;
+}
+
 export function getPaperWidth(settings: StoreSettings): PaperWidth {
   return settings.printerPaperWidth === 80 ? 80 : 58;
+}
+
+/** Alasan metode tidak tersedia (null = didukung). */
+export function printerUnsupportedReason(m: PrinterMethod): string | null {
+  if (isPrinterMethodSupported(m)) return null;
+  if (m === 'rawbt') return 'RawBT hanya tersedia di Android.';
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return `Halaman dibuka lewat ${location.protocol}//${location.host} (bukan HTTPS). Chrome hanya mengizinkan Bluetooth/USB di alamat HTTPS atau localhost.`;
+  }
+  const chrome = navigator.userAgent.match(/Chrome\/(\d+)/);
+  const ver = chrome ? ` (Chrome Anda versi ${chrome[1]})` : ' (browser ini bukan Chrome)';
+  if (m === 'serial') return `Butuh Chrome Android 138+ atau Chrome desktop 117+${ver}.`;
+  return `Browser ini tidak mendukung Web Bluetooth${ver}.`;
 }
 
 export function isPrinterMethodSupported(m: PrinterMethod): boolean {
@@ -233,7 +256,7 @@ export async function printLines(
     window.print();
     return;
   }
-  const bytes = encodeEscPos(lines);
+  const bytes = encodeEscPos(lines, getFeedLines(settings));
   if (method === 'rawbt') return printViaRawBT(bytes);
   if (method === 'serial') return writeSerial(bytes, interactive);
   return writeBle(bytes, interactive);
@@ -245,13 +268,14 @@ export function buildLinesFor(tx: Transaction, settings: StoreSettings): Receipt
 
 /** Struk uji untuk tombol "Tes Printer". */
 export function buildTestLines(settings: StoreSettings): ReceiptLine[] {
-  const W = getPaperWidth(settings) === 80 ? 48 : 32;
+  const W = charsPerLine(getPaperWidth(settings));
   return [
     { text: 'TES PRINTER', align: 'center', bold: true, double: true },
     { text: settings.storeName.slice(0, W), align: 'center' },
+    { text: 'Baris di bawah tidak boleh', align: 'center' },
+    { text: 'diikuti baris kosong', align: 'center' },
     { text: '-'.repeat(W) },
     { text: '1234567890'.repeat(5).slice(0, W) },
-    { text: 'Baris angka harus pas 1 baris', align: 'center' },
     { text: 'Rata kanan', align: 'right' },
     { text: 'Tebal', bold: true },
     { text: '-'.repeat(W) },

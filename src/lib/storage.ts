@@ -6,6 +6,7 @@ import {
   Shift,
   StoreSettings,
   CartItem,
+  Expense,
 } from '../types';
 import {
   INITIAL_CATEGORIES,
@@ -27,6 +28,9 @@ const STORAGE_KEYS = {
   SHIFT_HISTORY: 'warkop_pos_shift_history',
   RECEIPT_SEQ: 'warkop_pos_receipt_seq',
   DEVICE_CODE: 'warkop_pos_device_code',
+  EXPENSES: 'warkop_pos_expenses',
+  /** ID pengeluaran yang sudah pernah terkirim lalu dihapus, agar server ikut menghapusnya */
+  EXPENSES_DELETED: 'warkop_pos_expenses_deleted',
 };
 
 // Custom event name for instant reactive updates
@@ -471,6 +475,82 @@ export function payDebt(txId: string, method: 'tunai' | 'nontunai'): { ok: boole
 }
 
 // -------------------------------------------------------------
+// PENGELUARAN
+// -------------------------------------------------------------
+
+export const EXPENSE_CATEGORIES = {
+  daily: ['Bahan Baku', 'Es Batu', 'Gas', 'Air Galon', 'Cup / Plastik', 'Susu', 'Gula', 'Transport', 'Lain-lain'],
+  monthly: ['Sewa Tempat', 'Gaji Karyawan', 'Listrik', 'Air PDAM', 'Internet / Wifi', 'Iuran / Retribusi', 'Perawatan Alat', 'Lain-lain'],
+};
+
+export function getExpenses(): Expense[] {
+  return readJSON<Expense[]>(STORAGE_KEYS.EXPENSES, []);
+}
+
+export function addExpense(
+  input: Omit<Expense, 'id' | 'createdAt' | 'shiftId'>
+): Expense {
+  if (!(input.amount > 0)) throw new Error('Nominal pengeluaran harus lebih dari 0.');
+  if (!input.category.trim()) throw new Error('Kategori wajib diisi.');
+  const validDate = input.scope === 'monthly' ? /^\d{4}-\d{2}$/ : /^\d{4}-\d{2}-\d{2}$/;
+  if (!validDate.test(input.date)) throw new Error('Tanggal pengeluaran tidak valid.');
+
+  const expense: Expense = {
+    ...input,
+    amount: Math.round(input.amount),
+    category: input.category.trim(),
+    note: input.note?.trim() || undefined,
+    fromDrawer: input.scope === 'daily' ? Boolean(input.fromDrawer) : false,
+    id: `EXP-${getDeviceCode()}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt: new Date().toISOString(),
+    isSynced: false,
+  };
+
+  if (expense.fromDrawer) {
+    const shift = getActiveShift();
+    if (!shift) throw new Error('Tidak ada shift terbuka. Hilangkan centang "Diambil dari laci" atau buka shift dulu.');
+    if (expense.date !== toLocalDateKey(new Date())) {
+      throw new Error('Pengeluaran dari laci hanya bisa untuk tanggal hari ini.');
+    }
+    expense.shiftId = shift.id;
+    shift.expensesCash = (shift.expensesCash ?? 0) + expense.amount;
+    writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift);
+  }
+
+  const list = getExpenses();
+  list.unshift(expense);
+  writeJSON(STORAGE_KEYS.EXPENSES, list);
+  notifyUpdate();
+  return expense;
+}
+
+export function deleteExpense(id: string): { ok: boolean; message: string } {
+  const list = getExpenses();
+  const exp = list.find((e) => e.id === id);
+  if (!exp) return { ok: false, message: 'Pengeluaran tidak ditemukan.' };
+
+  let message = 'Pengeluaran dihapus.';
+  if (exp.fromDrawer && exp.shiftId) {
+    const shift = getActiveShift();
+    if (shift && shift.id === exp.shiftId) {
+      shift.expensesCash = Math.max(0, (shift.expensesCash ?? 0) - exp.amount);
+      writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift);
+      message += ` Kembalikan ${formatIDR(exp.amount)} ke laci.`;
+    } else {
+      message += ' Shift asalnya sudah ditutup, rekap shift lama tidak diubah.';
+    }
+  }
+
+  writeJSON(STORAGE_KEYS.EXPENSES, list.filter((e) => e.id !== id));
+  if (exp.isSynced) {
+    const deleted = getDeletedExpenseIds();
+    if (!deleted.includes(id)) writeJSON(STORAGE_KEYS.EXPENSES_DELETED, [...deleted, id]);
+  }
+  notifyUpdate();
+  return { ok: true, message };
+}
+
+// -------------------------------------------------------------
 // RESET, BACKUP & RESTORE
 // -------------------------------------------------------------
 
@@ -482,6 +562,8 @@ export function resetDataToDefaults(): void {
   writeJSON(STORAGE_KEYS.SETTINGS, INITIAL_STORE_SETTINGS);
   writeJSON(STORAGE_KEYS.TRANSACTIONS, []);
   writeJSON(STORAGE_KEYS.SHIFT_HISTORY, []);
+  writeJSON(STORAGE_KEYS.EXPENSES, []);
+  writeJSON(STORAGE_KEYS.EXPENSES_DELETED, []);
   localStorage.removeItem(STORAGE_KEYS.ACTIVE_SHIFT);
   localStorage.removeItem(STORAGE_KEYS.RECEIPT_SEQ);
 
@@ -503,6 +585,7 @@ export function exportDataAsJSON(): string {
     transactions: getTransactions(),
     shift: getActiveShift(),
     shiftHistory: getShiftHistory(),
+    expenses: getExpenses(),
   };
   return JSON.stringify(backup, null, 2);
 }
@@ -517,7 +600,7 @@ export function importDataFromJSON(jsonString: string): { ok: boolean; message: 
 
   if (!data || typeof data !== 'object') return { ok: false, message: 'Format backup tidak dikenali.' };
 
-  const arrayFields = ['products', 'categories', 'cashiers', 'transactions', 'shiftHistory'] as const;
+  const arrayFields = ['products', 'categories', 'cashiers', 'transactions', 'shiftHistory', 'expenses'] as const;
   for (const f of arrayFields) {
     if (data[f] !== undefined && !Array.isArray(data[f])) {
       return { ok: false, message: `Field "${f}" pada backup harus berupa array.` };
@@ -540,6 +623,7 @@ export function importDataFromJSON(jsonString: string): { ok: boolean; message: 
   }
   if (data.transactions) writeJSON(STORAGE_KEYS.TRANSACTIONS, data.transactions);
   if (data.shiftHistory) writeJSON(STORAGE_KEYS.SHIFT_HISTORY, data.shiftHistory);
+  if (data.expenses) writeJSON(STORAGE_KEYS.EXPENSES, data.expenses);
   if (data.shift && data.shift.status === 'open') {
     writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, data.shift);
   } else {
@@ -558,6 +642,40 @@ export function importDataFromJSON(jsonString: string): { ok: boolean; message: 
 
 export function getUnsyncedTransactions(): Transaction[] {
   return getTransactions().filter((t) => !t.isSynced);
+}
+
+export function getUnsyncedExpenses(): Expense[] {
+  return getExpenses().filter((e) => !e.isSynced);
+}
+
+export function getDeletedExpenseIds(): string[] {
+  return readJSON<string[]>(STORAGE_KEYS.EXPENSES_DELETED, []);
+}
+
+/** Jumlah data (transaksi + pengeluaran + hapus pengeluaran) yang belum terkirim ke server. */
+export function getUnsyncedCount(): number {
+  return getUnsyncedTransactions().length + getUnsyncedExpenses().length + getDeletedExpenseIds().length;
+}
+
+/** Tandai pengeluaran terkirim; hanya yang isinya tidak berubah sejak dikirim. */
+export function markExpensesAsSynced(sent: Expense[], sentDeletedIds: string[] = []): void {
+  const print = (e: Expense) => {
+    const { isSynced: _a, syncedAt: _b, ...rest } = e;
+    return JSON.stringify(rest);
+  };
+  const sentPrints = new Map(sent.map((e) => [e.id, print(e)]));
+  const now = new Date().toISOString();
+  writeJSON(
+    STORAGE_KEYS.EXPENSES,
+    getExpenses().map((e) =>
+      sentPrints.has(e.id) && sentPrints.get(e.id) === print(e) ? { ...e, isSynced: true, syncedAt: now } : e
+    )
+  );
+  if (sentDeletedIds.length > 0) {
+    const done = new Set(sentDeletedIds);
+    writeJSON(STORAGE_KEYS.EXPENSES_DELETED, getDeletedExpenseIds().filter((id) => !done.has(id)));
+  }
+  notifyUpdate();
 }
 
 function syncFingerprint(t: Transaction): string {
@@ -622,10 +740,13 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
   }
 
   const unsyncedTx = getUnsyncedTransactions();
-  if (unsyncedTx.length === 0) {
+  const unsyncedExpenses = getUnsyncedExpenses();
+  const deletedExpenseIds = getDeletedExpenseIds();
+  const total = unsyncedTx.length + unsyncedExpenses.length + deletedExpenseIds.length;
+  if (total === 0) {
     return {
       success: true,
-      message: 'Semua transaksi sudah tersinkronisasi.',
+      message: 'Semua transaksi & pengeluaran sudah tersinkronisasi.',
       syncedCount: 0,
     };
   }
@@ -636,6 +757,8 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
       deviceCode: getDeviceCode(),
       timestamp: new Date().toISOString(),
       transactions: unsyncedTx,
+      expenses: unsyncedExpenses,
+      deletedExpenseIds,
       products: getProducts(),
       shift: getActiveShift(),
     };
@@ -652,14 +775,20 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
     });
 
     if (res.ok) {
+      markExpensesAsSynced(unsyncedExpenses, deletedExpenseIds);
       markTransactionsAsSynced(
         unsyncedTx.map((t) => t.id),
         unsyncedTx
       );
+      const parts = [
+        unsyncedTx.length ? `${unsyncedTx.length} transaksi` : '',
+        unsyncedExpenses.length ? `${unsyncedExpenses.length} pengeluaran` : '',
+        deletedExpenseIds.length ? `${deletedExpenseIds.length} hapus pengeluaran` : '',
+      ].filter(Boolean);
       return {
         success: true,
-        message: `Berhasil menyinkronkan ${unsyncedTx.length} transaksi.`,
-        syncedCount: unsyncedTx.length,
+        message: `Berhasil menyinkronkan ${parts.join(', ')}.`,
+        syncedCount: total,
       };
     }
 
@@ -681,7 +810,7 @@ export function maybeAutoSync(): void {
   const settings = getStoreSettings();
   if (settings.autoSyncOnline === false) return;
   if (!settings.syncApiUrl || !settings.syncApiUrl.trim()) return;
-  if (getUnsyncedTransactions().length === 0) return;
+  if (getUnsyncedCount() === 0) return;
   void performCloudSync();
 }
 
@@ -732,6 +861,19 @@ export function generatePostgresSqlScript(): string {
   sql += `  items_json JSONB\n`;
   sql += `);\n\n`;
 
+  sql += `CREATE TABLE IF NOT EXISTS expenses (\n`;
+  sql += `  id VARCHAR(100) PRIMARY KEY,\n`;
+  sql += `  scope VARCHAR(10) NOT NULL, -- 'daily' | 'monthly'\n`;
+  sql += `  expense_date VARCHAR(10) NOT NULL, -- YYYY-MM-DD (harian) / YYYY-MM (bulanan)\n`;
+  sql += `  category VARCHAR(100) NOT NULL,\n`;
+  sql += `  amount NUMERIC(12, 2) NOT NULL,\n`;
+  sql += `  note TEXT,\n`;
+  sql += `  from_drawer BOOLEAN DEFAULT FALSE,\n`;
+  sql += `  shift_id VARCHAR(100),\n`;
+  sql += `  created_by VARCHAR(100),\n`;
+  sql += `  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP\n`;
+  sql += `);\n\n`;
+
   // Insert products
   if (products.length > 0) {
     sql += `-- Products Data\n`;
@@ -754,6 +896,17 @@ export function generatePostgresSqlScript(): string {
       sql += `INSERT INTO transactions (id, created_at, cashier_name, order_type, customer_name, subtotal, discount_amount, tax_amount, grand_total, payment_type, amount_paid, change_amount, status, items_json)\n`;
       sql += `VALUES ('${tx.id}', '${tx.timestamp}', '${cleanCashier}', '${tx.orderType}', '${cleanCust}', ${tx.subtotal}, ${tx.discountAmount}, ${tx.taxAmount}, ${tx.grandTotal}, '${tx.paymentType}', ${tx.amountPaid}, ${tx.changeAmount}, '${tx.status}', '${itemsJson}')\n`;
       sql += `ON CONFLICT (id) DO NOTHING;\n\n`;
+    });
+  }
+
+  const expenses = getExpenses();
+  if (expenses.length > 0) {
+    sql += `-- Expenses Data\n`;
+    const q = (v?: string) => (v ? `'${v.replace(/'/g, "''")}'` : 'NULL');
+    expenses.forEach((e) => {
+      sql += `INSERT INTO expenses (id, scope, expense_date, category, amount, note, from_drawer, shift_id, created_by, created_at)\n`;
+      sql += `VALUES (${q(e.id)}, ${q(e.scope)}, ${q(e.date)}, ${q(e.category)}, ${e.amount}, ${q(e.note)}, ${Boolean(e.fromDrawer)}, ${q(e.shiftId)}, ${q(e.createdBy)}, ${q(e.createdAt)})\n`;
+      sql += `ON CONFLICT (id) DO UPDATE SET amount = EXCLUDED.amount, category = EXCLUDED.category, note = EXCLUDED.note;\n\n`;
     });
   }
 

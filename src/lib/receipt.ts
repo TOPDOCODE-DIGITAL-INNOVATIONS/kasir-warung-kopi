@@ -2,13 +2,21 @@ import { StoreSettings, Transaction } from '../types';
 
 /**
  * Format struk teks untuk printer thermal.
- * 58mm (mis. VSC/Rongta RPP02N): 384 dot, Font A 12x24 → 32 karakter per baris.
- * 80mm: 48 karakter per baris.
+ * 58mm (mis. VSC/Rongta RPP02N): 384 dot, Font A 12x24 → kapasitas 32 karakter per baris.
+ * 80mm: kapasitas 48 karakter per baris.
+ *
+ * Isi struk sengaja dibuat 1 karakter lebih sempit dari kapasitas: banyak printer murah
+ * (termasuk RPP02N) otomatis pindah baris saat buffer penuh, lalu LF berikutnya menambah
+ * baris kosong → jarak antarbaris jadi dobel dan struk berantakan.
  */
 export type PaperWidth = 58 | 80;
 
-export function charsPerLine(paper: PaperWidth = 58): number {
+export function printerCapacity(paper: PaperWidth = 58): number {
   return paper === 80 ? 48 : 32;
+}
+
+export function charsPerLine(paper: PaperWidth = 58): number {
+  return printerCapacity(paper) - 1;
 }
 
 export interface ReceiptLine {

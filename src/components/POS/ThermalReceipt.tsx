@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { charsPerLine, PaperWidth, ReceiptLine, renderLineText } from '../../lib/receipt';
+import { charsPerLine, PaperWidth, printerCapacity, ReceiptLine, renderLineText } from '../../lib/receipt';
 
 interface ThermalReceiptProps {
   lines: ReceiptLine[];
@@ -20,6 +20,7 @@ const ReceiptBody: React.FC<ThermalReceiptProps & { fontSize: string; fitWidth?:
     className="thermal-receipt"
     style={{
       width: fitWidth ? `${charsPerLine(paper)}ch` : undefined,
+      margin: fitWidth ? '0 auto' : undefined,
       fontFamily: '"Courier New", Courier, monospace',
       fontSize,
       lineHeight: 1.15,
@@ -43,7 +44,7 @@ const ReceiptBody: React.FC<ThermalReceiptProps & { fontSize: string; fitWidth?:
 );
 
 /**
- * Pratinjau di layar: lebar mengikuti jumlah karakter (32 untuk 58mm),
+ * Pratinjau di layar: lebar mengikuti jumlah karakter (31 untuk 58mm),
  * jadi tampilannya sama dengan hasil cetak printer thermal.
  */
 export const ThermalReceiptPreview: React.FC<ThermalReceiptProps> = ({ lines, paper }) => (
@@ -54,11 +55,12 @@ export const ThermalReceiptPreview: React.FC<ThermalReceiptProps> = ({ lines, pa
 
 /**
  * Versi cetak: di-portal ke <body> dan hanya terlihat saat window.print().
- * Ukuran huruf dihitung agar `charsPerLine` karakter Courier (lebar 0.6em) pas di area cetak.
+ * Ukuran huruf dihitung dari kapasitas printer (32 karakter Courier, lebar 0.6em, di 48mm)
+ * sehingga sama dengan huruf Font A printer thermal.
  */
 export const ThermalReceiptPrintPortal: React.FC<ThermalReceiptProps> = ({ lines, paper }) => {
   const widthMm = PRINT_WIDTH_MM[paper];
-  const fontSizeMm = widthMm / charsPerLine(paper) / 0.6;
+  const fontSizeMm = widthMm / printerCapacity(paper) / 0.6;
   const PAD_TOP_MM = 1;
   const PAD_BOTTOM_MM = 2;
 
@@ -89,7 +91,7 @@ export const ThermalReceiptPrintPortal: React.FC<ThermalReceiptProps> = ({ lines
         ref={contentRef}
         style={{ width: `${widthMm}mm`, margin: '0 auto', padding: `${PAD_TOP_MM}mm 0 ${PAD_BOTTOM_MM}mm` }}
       >
-        <ReceiptBody lines={lines} paper={paper} fontSize={`${fontSizeMm.toFixed(3)}mm`} />
+        <ReceiptBody lines={lines} paper={paper} fontSize={`${fontSizeMm.toFixed(3)}mm`} fitWidth />
       </div>
     </div>,
     document.body

@@ -47,7 +47,7 @@ Service worker hanya aktif di build produksi. Setelah app dibuka sekali dalam ke
 
 ## Sinkronisasi
 
-Atur URL dan token di *Pengaturan*. Sync berjalan otomatis saat perangkat online (setiap ada perubahan dan tiap 5 menit) jika opsi auto-sync aktif. Pembatalan dan pelunasan bon akan menandai transaksi untuk dikirim ulang.
+Atur URL dan token di *Pengaturan*. Sync berjalan otomatis saat perangkat online (setiap ada perubahan dan tiap 5 menit) jika opsi auto-sync aktif. Pembatalan dan pelunasan bon akan menandai transaksi untuk dikirim ulang. Pengeluaran baru dikirim lewat `expenses`; pengeluaran yang sudah terkirim lalu dihapus dikirim ID-nya lewat `deletedExpenseIds` agar server ikut menghapus.
 
 Payload `POST` yang dikirim:
 
@@ -57,12 +57,16 @@ Payload `POST` yang dikirim:
   "deviceCode": "K7Q",
   "timestamp": "ISO-8601",
   "transactions": [ /* Transaction[] lihat src/types.ts */ ],
+  "expenses": [ /* Expense[] yang belum terkirim (scope 'daily' | 'monthly') */ ],
+  "deletedExpenseIds": [ /* ID pengeluaran yang dihapus di kasir */ ],
   "products": [ /* Product[] */ ],
   "shift": { /* Shift aktif atau null */ }
 }
 ```
 
 Header: `Authorization: Bearer <token>` dan `x-api-key: <token>`.
+
+Server harus *upsert* berdasarkan `id` (transaksi & pengeluaran bisa dikirim ulang bila berubah) dan membalas status 2xx; selain itu data dianggap belum terkirim dan akan dicoba lagi.
 
 ## Catatan keamanan
 

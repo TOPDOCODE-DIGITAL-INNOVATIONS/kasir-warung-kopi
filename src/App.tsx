@@ -15,14 +15,16 @@ import { TransactionsHistory } from './components/TransactionsHistory';
 import { MenuManagement } from './components/MenuManagement';
 import { CashierManagement } from './components/CashierManagement';
 import { ReportsScreen } from './components/ReportsScreen';
+import { ExpensesScreen } from './components/ExpensesScreen';
 import { SettingsModal } from './components/SettingsModal';
 import { CashierSwitchModal } from './components/CashierSwitchModal';
 
-export type AppTab = 'pos' | 'history' | 'menu' | 'cashiers' | 'reports' | 'settings';
+export type AppTab = 'pos' | 'history' | 'expenses' | 'menu' | 'cashiers' | 'reports' | 'settings';
 
 export const TAB_PERMISSION: Record<AppTab, Permission> = {
   pos: 'pos',
   history: 'history',
+  expenses: 'expenses',
   menu: 'menu',
   cashiers: 'cashiers',
   reports: 'reports',
@@ -132,6 +134,10 @@ export default function App() {
 
         {activeTab === 'history' && (
           <TransactionsHistory storeSettings={storeSettings} activeCashier={activeCashier} />
+        )}
+
+        {activeTab === 'expenses' && canAccessTab && (
+          <ExpensesScreen activeCashier={activeCashier} activeShift={activeShift} />
         )}
 
         {activeTab === 'menu' && canAccessTab && <MenuManagement />}

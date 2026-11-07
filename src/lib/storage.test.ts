@@ -19,10 +19,15 @@ import {
   saveStoreSettings,
   saveTransaction,
   startNewShift,
+  addExpense,
+  deleteExpense,
+  getExpenses,
+  performCloudSync,
+  getUnsyncedCount,
 } from './storage';
 import { verifyPin, hashPin, isValidPin, sha256Hex } from './security';
 import { can } from './permissions';
-import { computeSalesReport, resolveDateRange, isInRange } from './reports';
+import { computeSalesReport, resolveDateRange, isInRange, computeMonthlyRecap, monthlyRecapToTSV, toLocalDateKey, toMonthKey, getExpectedDrawerCash } from './reports';
 import { PaymentType, Transaction } from '../types';
 
 class MemoryStorage {
@@ -248,5 +253,109 @@ describe('laporan', () => {
     const range = resolveDateRange('today', now);
     expect(isInRange(new Date(2026, 10, 7, 0, 30).toISOString(), range)).toBe(true);
     expect(isInRange(new Date(2026, 10, 6, 23, 59).toISOString(), range)).toBe(false);
+  });
+});
+
+describe('pengeluaran', () => {
+  it('pengeluaran dari laci mengurangi kas seharusnya di shift, dan dikembalikan saat dihapus', () => {
+    startNewShift('c-1', 100000);
+    saveTransaction(makeTx('tunai'));
+    const before = getExpectedDrawerCash(getActiveShift()!);
+    const exp = addExpense({
+      scope: 'daily',
+      date: toLocalDateKey(new Date()),
+      category: 'Es Batu',
+      amount: 15000,
+      fromDrawer: true,
+      createdBy: 'Budi',
+    });
+    expect(getExpectedDrawerCash(getActiveShift()!)).toBe(before - 15000);
+    deleteExpense(exp.id);
+    expect(getExpectedDrawerCash(getActiveShift()!)).toBe(before);
+    expect(getExpenses()).toHaveLength(0);
+  });
+
+  it('pengeluaran dari laci butuh shift terbuka', () => {
+    expect(() =>
+      addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Gas', amount: 1000, fromDrawer: true, createdBy: 'x' })
+    ).toThrow();
+  });
+
+  it('pengeluaran bulanan tersimpan dan ikut backup', () => {
+    addExpense({ scope: 'monthly', date: toMonthKey(new Date()), category: 'Sewa Tempat', amount: 1500000, createdBy: 'Owner' });
+    expect(JSON.parse(exportDataAsJSON()).expenses).toHaveLength(1);
+  });
+});
+
+describe('rekap bulanan', () => {
+  it('menghitung cash, non-tunai, pengeluaran harian & bulanan seperti buku kas', () => {
+    const at = (d: number, h = 10) => new Date(2026, 9, d, h).toISOString();
+    const base = { cashierId: 'c', cashierName: 'B', orderType: 'Dine In' as const, items: [], subtotal: 0, discountAmount: 0, taxAmount: 0, amountPaid: 0, changeAmount: 0, status: 'completed' as const };
+    const txs: Transaction[] = [
+      { ...base, id: '1', timestamp: at(1), grandTotal: 510000, paymentType: 'tunai' },
+      { ...base, id: '2', timestamp: at(1), grandTotal: 45000, paymentType: 'qris' },
+      { ...base, id: '3', timestamp: at(2), grandTotal: 20000, paymentType: 'tunai', status: 'cancelled' },
+      { ...base, id: '4', timestamp: at(2), grandTotal: 30000, paymentType: 'hutang', debtStatus: 'paid', debtPaidAt: at(3), debtPaidMethod: 'tunai' },
+      { ...base, id: '5', timestamp: at(2), grandTotal: 12000, paymentType: 'hutang', debtStatus: 'unpaid' },
+    ];
+    const exps = [
+      { id: 'e1', scope: 'daily' as const, date: '2026-10-03', category: 'Gas', amount: 50000, createdBy: 'x', createdAt: '' },
+      { id: 'e2', scope: 'monthly' as const, date: '2026-10', category: 'Sewa', amount: 300000, createdBy: 'x', createdAt: '' },
+      { id: 'e3', scope: 'monthly' as const, date: '2026-09', category: 'Sewa', amount: 999, createdBy: 'x', createdAt: '' },
+    ];
+    const r = computeMonthlyRecap('2026-10', txs, exps, new Date(2026, 10, 7));
+    expect(r.days).toHaveLength(31);
+    expect(r.days[0]).toMatchObject({ cash: 510000, nonCash: 45000, sales: 555000, expenses: 0, total: 555000 });
+    expect(r.days[1].sales).toBe(0);
+    expect(r.days[2]).toMatchObject({ cash: 30000, expenses: 50000, total: -20000 });
+    expect(r.totalSales).toBe(585000);
+    expect(r.totalMonthlyExpenses).toBe(300000);
+    expect(r.netProfit).toBe(585000 - 50000 - 300000);
+    expect(r.unpaidDebt).toBe(12000);
+    const tsv = monthlyRecapToTSV(r);
+    expect(tsv.split('\n')[1]).toBe('2026-10-01\t510,000.00\t45,000.00\t555,000.00\t0.00\t555,000.00');
+    expect(tsv).toContain('-20,000.00');
+  });
+
+  it('hari yang belum terjadi tidak ditampilkan', () => {
+    expect(computeMonthlyRecap('2026-11', [], [], new Date(2026, 10, 7)).days).toHaveLength(7);
+  });
+});
+
+describe('sync pengeluaran', () => {
+  it('mengirim pengeluaran baru & ID yang dihapus, lalu menandainya terkirim', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync' });
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', async (_url: string, init: any) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, text: async () => '' };
+    });
+
+    const exp = addExpense({ scope: 'monthly', date: '2026-11', category: 'Sewa', amount: 100, createdBy: 'O' });
+    expect(getUnsyncedCount()).toBe(1);
+    expect((await performCloudSync()).success).toBe(true);
+    expect(bodies[0].expenses.map((e: any) => e.id)).toEqual([exp.id]);
+    expect(getUnsyncedCount()).toBe(0);
+
+    deleteExpense(exp.id);
+    expect(getUnsyncedCount()).toBe(1);
+    await performCloudSync();
+    expect(bodies[1].deletedExpenseIds).toEqual([exp.id]);
+    expect(bodies[1].expenses).toEqual([]);
+    expect(getUnsyncedCount()).toBe(0);
+  });
+
+  it('pengeluaran yang belum pernah terkirim lalu dihapus tidak perlu dikirim', () => {
+    const exp = addExpense({ scope: 'monthly', date: '2026-11', category: 'Sewa', amount: 100, createdBy: 'O' });
+    deleteExpense(exp.id);
+    expect(getUnsyncedCount()).toBe(0);
+  });
+
+  it('gagal sync: pengeluaran tetap menunggu dikirim', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync' });
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 500, text: async () => 'err' }));
+    addExpense({ scope: 'monthly', date: '2026-11', category: 'Sewa', amount: 100, createdBy: 'O' });
+    expect((await performCloudSync()).success).toBe(false);
+    expect(getUnsyncedCount()).toBe(1);
   });
 });

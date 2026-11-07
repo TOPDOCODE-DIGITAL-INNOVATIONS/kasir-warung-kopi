@@ -6,14 +6,16 @@ export type Permission =
   | 'cancelTransaction' // batalkan nota
   | 'menu' // kelola katalog menu & stok
   | 'reports' // lihat laporan
+  | 'expenses' // catat pengeluaran harian
+  | 'manageExpenses' // pengeluaran bulanan & hapus pengeluaran
   | 'cashiers' // kelola akun kasir
   | 'settings' // pengaturan toko & sync
   | 'dataAdmin'; // backup, import, reset data
 
 const ROLE_PERMISSIONS: Record<CashierRole, Permission[]> = {
-  Kasir: ['pos', 'history'],
-  Supervisor: ['pos', 'history', 'cancelTransaction', 'menu', 'reports'],
-  Owner: ['pos', 'history', 'cancelTransaction', 'menu', 'reports', 'cashiers', 'settings', 'dataAdmin'],
+  Kasir: ['pos', 'history', 'expenses'],
+  Supervisor: ['pos', 'history', 'expenses', 'manageExpenses', 'cancelTransaction', 'menu', 'reports'],
+  Owner: ['pos', 'history', 'expenses', 'manageExpenses', 'cancelTransaction', 'menu', 'reports', 'cashiers', 'settings', 'dataAdmin'],
 };
 
 export function can(role: CashierRole | undefined, permission: Permission): boolean {

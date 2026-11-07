@@ -37,9 +37,9 @@ const tx: Transaction = {
 describe('format struk 58mm (RPP02N)', () => {
   const lines = buildReceiptLines(tx, INITIAL_STORE_SETTINGS, 58);
 
-  it('tidak ada baris melebihi 32 karakter (16 untuk huruf besar)', () => {
+  it('tidak ada baris melebihi 31 karakter (15 untuk huruf besar)', () => {
     lines.forEach((l) => {
-      const max = l.double ? 16 : 32;
+      const max = l.double ? 15 : 31;
       expect(renderLineText(l, 58).length, JSON.stringify(l)).toBeLessThanOrEqual(max);
     });
   });
@@ -50,7 +50,7 @@ describe('format struk 58mm (RPP02N)', () => {
 
   it('berisi total & kembalian dengan rata kanan', () => {
     const total = lines.find((l) => l.text.startsWith('TOTAL'))!;
-    expect(total.text).toHaveLength(32);
+    expect(total.text).toHaveLength(31);
     expect(total.text.endsWith('Rp220.000')).toBe(true);
     expect(lines.some((l) => l.text.startsWith('Kembali') && l.text.endsWith('Rp30.000'))).toBe(true);
   });
@@ -62,9 +62,9 @@ describe('format struk 58mm (RPP02N)', () => {
     expect(batal.some((l) => l.text.includes('DIBATALKAN'))).toBe(true);
   });
 
-  it('80mm memakai 48 karakter', () => {
+  it('80mm memakai 47 karakter', () => {
     const l80 = buildReceiptLines(tx, INITIAL_STORE_SETTINGS, 80);
-    expect(l80.find((l) => l.text.startsWith('TOTAL'))!.text).toHaveLength(48);
+    expect(l80.find((l) => l.text.startsWith('TOTAL'))!.text).toHaveLength(47);
   });
 });
 
@@ -110,6 +110,6 @@ describe('struk ringkas', () => {
     expect(text).toContain('WKP-20261107-K7Q-0001');
     expect(text).toContain('Budi Santoso');
     expect(text).toMatch(/TOTAL\s+Rp220\.000/);
-    compact.forEach((l) => expect(renderLineText(l, 58).length).toBeLessThanOrEqual(l.double ? 16 : 32));
+    compact.forEach((l) => expect(renderLineText(l, 58).length).toBeLessThanOrEqual(l.double ? 15 : 31));
   });
 });

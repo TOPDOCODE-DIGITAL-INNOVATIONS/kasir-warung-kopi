@@ -8,10 +8,12 @@ import {
   buildTestLines,
   connectPrinter,
   forgetPrinter,
+  getFeedLines,
   getPaperWidth,
   getPrinterMethod,
   isDirectMethod,
   isPrinterMethodSupported,
+  printerUnsupportedReason,
   printLines,
   shouldAutoPrint,
 } from '../lib/printer';
@@ -274,6 +276,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
                   </option>
                 ))}
               </select>
+              {printerUnsupportedReason('serial') && (
+                <p className="text-[10px] text-red-700 mt-1">
+                  Cetak langsung tidak tersedia: {printerUnsupportedReason('serial')}
+                </p>
+              )}
             </div>
 
             <div>
@@ -288,6 +295,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
                 <option value={58}>58mm – 32 karakter (VSC/Rongta RPP02N)</option>
                 <option value={80}>80mm – 48 karakter</option>
               </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-[#3E2723] block mb-1">Jarak Kosong Setelah Struk</label>
+              <select
+                value={getFeedLines(settings)}
+                onChange={(e) => setSettings({ ...settings, printerFeedLines: Number(e.target.value) })}
+                className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[#3E2723]"
+              >
+                {[0, 1, 2, 3, 4, 5].map((n) => (
+                  <option key={n} value={n}>
+                    {n === 0 ? 'Tanpa jarak' : `${n} baris`}
+                    {n === (printerMethod === 'rawbt' ? 0 : 2) ? ' (default)' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-stone-500 mt-0.5">
+                Kecilkan jika jarak atas/bawah struk terlalu jauh; besarkan jika tulisan terakhir terpotong saat disobek.
+              </p>
             </div>
           </div>
 
@@ -310,10 +336,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
               </p>
             )}
             {printerMethod === 'rawbt' && (
+              <>
               <p>
                 Install RawBT dari Play Store dan pilih printer di sana. Setiap cetak akan membuka RawBT sebentar.
-                Gunakan metode “Langsung” bila ingin tanpa pindah aplikasi.
               </p>
+              <p>
+                RawBT versi gratis menambahkan tulisan iklan <strong>rawbt.app</strong> dan jarak kertas sendiri.
+                Untuk menghilangkannya: beli lisensi RawBT Pro, atau pakai metode{' '}
+                <strong>“Langsung – Bluetooth klasik / USB”</strong> (tanpa aplikasi tambahan, tanpa iklan, Chrome
+                Android 138+).
+              </p>
+              </>
             )}
             {printerMethod === 'browser' && (
               <p>

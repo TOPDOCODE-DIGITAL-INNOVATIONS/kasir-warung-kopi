@@ -32,7 +32,9 @@ export function encodeEscPos(lines: ReceiptLine[], feedLines = 3, lineSpacingDot
   cmd(ESC, 0x45, 0);
   cmd(GS, 0x21, 0);
   cmd(ESC, 0x32); // ESC 2 : kembalikan jarak baris default
-  cmd(ESC, 0x64, feedLines); // ESC d n : feed n baris (cukup untuk melewati gerigi sobek)
+  // ESC d n : feed n baris agar baris terakhir melewati gerigi sobek. Jangan berlebihan:
+  // sisa kertas kosong ini juga yang terlihat sebagai jarak atas pada struk berikutnya.
+  if (feedLines > 0) cmd(ESC, 0x64, Math.min(feedLines, 10));
 
   return new Uint8Array(bytes);
 }

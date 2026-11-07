@@ -68,7 +68,9 @@ export interface Shift {
   /** Pelunasan bon yang diterima non-tunai selama shift ini */
   debtCollectedNonCash?: number;
   totalTransactions: number;
-  /** Diisi saat tutup shift: modal + tunai masuk */
+  /** Pengeluaran harian yang diambil dari laci selama shift ini */
+  expensesCash?: number;
+  /** Diisi saat tutup shift: modal + tunai masuk - pengeluaran dari laci */
   expectedCash?: number;
   status: 'open' | 'closed';
 }
@@ -106,6 +108,26 @@ export interface Transaction {
   syncedAt?: string;
 }
 
+export type ExpenseScope = 'daily' | 'monthly';
+
+export interface Expense {
+  id: string;
+  /** daily: pengeluaran operasional hari itu; monthly: biaya tetap/global satu bulan */
+  scope: ExpenseScope;
+  /** YYYY-MM-DD untuk harian, YYYY-MM untuk bulanan */
+  date: string;
+  category: string;
+  amount: number;
+  note?: string;
+  /** Uang diambil dari laci kas shift (hanya harian) */
+  fromDrawer?: boolean;
+  shiftId?: string;
+  createdBy: string;
+  createdAt: string;
+  isSynced?: boolean;
+  syncedAt?: string;
+}
+
 export interface StoreSettings {
   storeName: string;
   storeTagline: string;
@@ -129,6 +151,8 @@ export interface StoreSettings {
   printerMethod?: 'serial' | 'bluetooth' | 'rawbt' | 'browser';
   printerPaperWidth?: 58 | 80;
   autoPrintAfterPayment?: boolean;
+  /** Baris kosong setelah struk (agar bisa disobek). Default: 0 untuk RawBT, 2 untuk lainnya. */
+  printerFeedLines?: number;
   /** Struk ringkas hemat kertas (default true) */
   receiptCompact?: boolean;
 }

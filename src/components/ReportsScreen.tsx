@@ -9,8 +9,9 @@ import {
   Database,
   Clock,
   CalendarRange,
+  BookOpen,
 } from 'lucide-react';
-import { Cashier, Shift, Transaction } from '../types';
+import { Cashier, Expense, Shift, Transaction } from '../types';
 import {
   getTransactions,
   getShiftHistory,
@@ -20,12 +21,17 @@ import {
   resetDataToDefaults,
   generatePostgresSqlScript,
   performCloudSync,
-  getUnsyncedTransactions,
+  getUnsyncedCount,
+  getExpenses,
   POS_UPDATE_EVENT,
 } from '../lib/storage';
 import {
   DateRangePreset,
   computeSalesReport,
+  computeMonthlyRecap,
+  getExpectedDrawerCash,
+  monthlyRecapToTSV,
+  toMonthKey,
   isInRange,
   resolveDateRange,
   toLocalDateKey,
@@ -59,6 +65,8 @@ function downloadFile(content: string, type: string, filename: string) {
 export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [shiftHistory, setShiftHistory] = useState<Shift[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [recapMonth, setRecapMonth] = useState<string>(toMonthKey(new Date()));
   const [unsyncedCount, setUnsyncedCount] = useState<number>(0);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
@@ -73,7 +81,8 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) =
   const loadData = () => {
     setTransactions(getTransactions());
     setShiftHistory(getShiftHistory());
-    setUnsyncedCount(getUnsyncedTransactions().length);
+    setExpenses(getExpenses());
+    setUnsyncedCount(getUnsyncedCount());
   };
 
   useEffect(() => {
@@ -97,6 +106,24 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) =
   ).length;
 
   const shiftsInRange = shiftHistory.filter((s) => isInRange(s.startTime, range));
+
+  const recap = useMemo(
+    () => computeMonthlyRecap(recapMonth, transactions, expenses),
+    [recapMonth, transactions, expenses]
+  );
+
+  const handleExportRecap = () => {
+    downloadFile(monthlyRecapToTSV(recap), 'text/plain;charset=utf-8', `rekap_${recapMonth}.txt`);
+  };
+
+  const handleCopyRecap = async () => {
+    try {
+      await navigator.clipboard.writeText(monthlyRecapToTSV(recap));
+      setNotice({ type: 'success', msg: 'Rekap disalin. Tempel (paste) langsung ke Excel / Google Sheets.' });
+    } catch {
+      setNotice({ type: 'error', msg: 'Gagal menyalin. Gunakan tombol Download.' });
+    }
+  };
 
   const marginPct = report.revenueExTax > 0 ? (report.grossProfit / report.revenueExTax) * 100 : 0;
 
@@ -370,6 +397,121 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) =
         </div>
       </div>
 
+      {/* Rekap Bulanan */}
+      <div className="bg-white border border-[#D7CCC8] rounded-lg shadow-sm overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EFEBE9] p-3.5 pb-2">
+          <h3 className="font-extrabold text-xs text-[#3E2723] uppercase tracking-wider flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-[#3E2723]" />
+            <span>Rekap Bulanan (Buku Kas)</span>
+          </h3>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="month"
+              value={recapMonth}
+              onChange={(e) => e.target.value && setRecapMonth(e.target.value)}
+              className="bg-white border border-[#D7CCC8] rounded px-2 py-1 text-xs"
+            />
+            <button
+              onClick={handleCopyRecap}
+              className="py-1 px-2.5 bg-[#EFEBE9] hover:bg-[#D7CCC8] text-[#3E2723] border border-[#D7CCC8] font-bold rounded text-[11px] uppercase"
+            >
+              Salin
+            </button>
+            <button
+              onClick={handleExportRecap}
+              className="py-1 px-2.5 bg-[#3E2723] hover:bg-[#5D4037] text-white font-bold rounded text-[11px] uppercase flex items-center gap-1"
+            >
+              <Download className="w-3 h-3" /> Download
+            </button>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-[#F9F8F7] text-[#3E2723] font-bold uppercase tracking-wider border-b border-[#D7CCC8]">
+              <tr>
+                <th className="p-2.5">Tanggal</th>
+                <th className="p-2.5 text-right">Cash</th>
+                <th className="p-2.5 text-right">QRIS / Non-Tunai</th>
+                <th className="p-2.5 text-right">Penjualan</th>
+                <th className="p-2.5 text-right">Pengeluaran</th>
+                <th className="p-2.5 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#EFEBE9]">
+              {recap.days.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="p-6 text-center text-stone-500 italic">
+                    Bulan ini belum berjalan
+                  </td>
+                </tr>
+              ) : (
+                recap.days.map((r) => (
+                  <tr key={r.date} className={`hover:bg-stone-50 ${r.sales === 0 && r.expenses === 0 ? 'text-stone-400' : ''}`}>
+                    <td className="p-2.5 whitespace-nowrap font-semibold">
+                      {new Date(r.date + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short' })}
+                    </td>
+                    <td className="p-2.5 text-right">{formatIDR(r.cash)}</td>
+                    <td className="p-2.5 text-right">{formatIDR(r.nonCash)}</td>
+                    <td className="p-2.5 text-right font-bold">{formatIDR(r.sales)}</td>
+                    <td className="p-2.5 text-right text-rose-700">{r.expenses ? `-${formatIDR(r.expenses)}` : formatIDR(0)}</td>
+                    <td className={`p-2.5 text-right font-black ${r.total < 0 ? 'text-rose-700' : 'text-[#3E2723]'}`}>
+                      {formatIDR(r.total)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            <tfoot className="bg-[#F9F8F7] font-black text-[#3E2723] border-t-2 border-[#D7CCC8]">
+              <tr>
+                <td className="p-2.5">TOTAL</td>
+                <td className="p-2.5 text-right">{formatIDR(recap.totalCash)}</td>
+                <td className="p-2.5 text-right">{formatIDR(recap.totalNonCash)}</td>
+                <td className="p-2.5 text-right">{formatIDR(recap.totalSales)}</td>
+                <td className="p-2.5 text-right text-rose-700">-{formatIDR(recap.totalDailyExpenses)}</td>
+                <td className="p-2.5 text-right">{formatIDR(recap.totalAfterDaily)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div className="p-3.5 border-t border-[#EFEBE9] grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="space-y-1">
+            <div className="font-bold text-[#3E2723] uppercase text-[11px]">Pengeluaran Bulanan (Global)</div>
+            {recap.monthlyExpenses.length === 0 ? (
+              <p className="text-stone-500 italic">Belum ada. Catat di tab Pengeluaran → Bulanan.</p>
+            ) : (
+              recap.monthlyExpenses.map((e) => (
+                <div key={e.id} className="flex justify-between">
+                  <span>
+                    {e.category}
+                    {e.note ? <span className="text-stone-500"> · {e.note}</span> : null}
+                  </span>
+                  <span className="text-rose-700 font-bold">-{formatIDR(e.amount)}</span>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="bg-[#FAF8F6] border border-[#D7CCC8] rounded p-2.5 space-y-1">
+            <div className="flex justify-between">
+              <span>Total setelah pengeluaran harian</span>
+              <span className="font-bold">{formatIDR(recap.totalAfterDaily)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Pengeluaran bulanan</span>
+              <span className="font-bold text-rose-700">-{formatIDR(recap.totalMonthlyExpenses)}</span>
+            </div>
+            <div className="flex justify-between font-black text-sm pt-1 border-t border-[#D7CCC8]">
+              <span>Laba Bersih</span>
+              <span className={recap.netProfit >= 0 ? 'text-emerald-800' : 'text-rose-700'}>{formatIDR(recap.netProfit)}</span>
+            </div>
+            {recap.unpaidDebt > 0 && (
+              <div className="text-[10px] text-amber-800">
+                + Bon belum lunas {formatIDR(recap.unpaidDebt)} (belum dihitung sampai dibayar)
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Shift History */}
       <div className="bg-white border border-[#D7CCC8] rounded-lg shadow-sm overflow-hidden">
         <h3 className="font-extrabold text-xs text-[#3E2723] uppercase tracking-wider flex items-center gap-2 border-b border-[#EFEBE9] p-3.5 pb-2">
@@ -401,7 +543,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) =
               ) : (
                 shiftsInRange.map((s) => {
                   const expected =
-                    s.expectedCash ?? s.startingCash + s.totalSalesCash + (s.debtCollectedCash ?? 0);
+                    s.expectedCash ?? getExpectedDrawerCash(s);
                   const actual = s.endingCashActual ?? 0;
                   const diff = actual - expected;
                   const fmtTime = (iso?: string) =>

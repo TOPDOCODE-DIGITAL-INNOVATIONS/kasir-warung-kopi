@@ -1,4 +1,4 @@
-import { Shift, Transaction } from '../types';
+import { Expense, Shift, Transaction } from '../types';
 
 export type DateRangePreset = 'today' | 'yesterday' | '7d' | '30d' | 'month' | 'all' | 'custom';
 
@@ -147,5 +147,141 @@ export function computeSalesReport(transactions: Transaction[]): SalesReport {
 
 /** Uang tunai yang seharusnya ada di laci. */
 export function getExpectedDrawerCash(shift: Shift): number {
-  return shift.startingCash + shift.totalSalesCash + (shift.debtCollectedCash ?? 0);
+  return shift.startingCash + shift.totalSalesCash + (shift.debtCollectedCash ?? 0) - (shift.expensesCash ?? 0);
+}
+
+// -------------------------------------------------------------
+// REKAP BULANAN (format seperti buku kas: Cash | QRIS | Penjualan | Pengeluaran | Total)
+// -------------------------------------------------------------
+
+export interface DailyRecapRow {
+  date: string; // YYYY-MM-DD
+  cash: number; // penjualan tunai + pelunasan bon tunai
+  nonCash: number; // QRIS, transfer, e-wallet, debit + pelunasan bon non-tunai
+  sales: number; // cash + nonCash (uang yang benar-benar masuk)
+  expenses: number; // pengeluaran harian
+  total: number; // sales - expenses
+  orders: number;
+}
+
+export interface MonthlyRecap {
+  month: string; // YYYY-MM
+  days: DailyRecapRow[];
+  totalCash: number;
+  totalNonCash: number;
+  totalSales: number;
+  totalDailyExpenses: number;
+  totalAfterDaily: number;
+  monthlyExpenses: Expense[];
+  totalMonthlyExpenses: number;
+  netProfit: number; // totalAfterDaily - pengeluaran bulanan
+  unpaidDebt: number; // bon bulan ini yang belum dibayar (belum jadi uang)
+}
+
+export function toMonthKey(d: Date): string {
+  return toLocalDateKey(d).slice(0, 7);
+}
+
+export function computeMonthlyRecap(
+  month: string,
+  transactions: Transaction[],
+  expenses: Expense[],
+  now: Date = new Date()
+): MonthlyRecap {
+  const [y, m] = month.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const todayKey = toLocalDateKey(now);
+
+  const rows = new Map<string, DailyRecapRow>();
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = `${month}-${String(d).padStart(2, '0')}`;
+    rows.set(key, { date: key, cash: 0, nonCash: 0, sales: 0, expenses: 0, total: 0, orders: 0 });
+  }
+  const dayKey = (iso: string) => toLocalDateKey(new Date(iso));
+
+  let unpaidDebt = 0;
+  transactions.forEach((t) => {
+    if (t.status !== 'completed') return;
+    const saleRow = rows.get(dayKey(t.timestamp));
+    if (saleRow) saleRow.orders += 1;
+
+    if (t.paymentType === 'hutang') {
+      if (t.debtStatus === 'paid' && t.debtPaidAt) {
+        const paidRow = rows.get(dayKey(t.debtPaidAt));
+        if (paidRow) {
+          if (t.debtPaidMethod === 'tunai') paidRow.cash += t.grandTotal;
+          else paidRow.nonCash += t.grandTotal;
+        }
+      } else if (saleRow) {
+        unpaidDebt += t.grandTotal;
+      }
+      return;
+    }
+    if (!saleRow) return;
+    if (t.paymentType === 'tunai') saleRow.cash += t.grandTotal;
+    else saleRow.nonCash += t.grandTotal;
+  });
+
+  const monthlyExpenses: Expense[] = [];
+  expenses.forEach((e) => {
+    if (e.scope === 'monthly') {
+      if (e.date === month) monthlyExpenses.push(e);
+      return;
+    }
+    const row = rows.get(e.date);
+    if (row) row.expenses += e.amount;
+  });
+
+  // Hari yang belum terjadi tidak ditampilkan
+  const days = [...rows.values()].filter((r) => r.date <= todayKey);
+  days.forEach((r) => {
+    r.sales = r.cash + r.nonCash;
+    r.total = r.sales - r.expenses;
+  });
+
+  const sum = (f: (r: DailyRecapRow) => number) => days.reduce((a, r) => a + f(r), 0);
+  const totalAfterDaily = sum((r) => r.total);
+  const totalMonthlyExpenses = monthlyExpenses.reduce((a, e) => a + e.amount, 0);
+
+  return {
+    month,
+    days,
+    totalCash: sum((r) => r.cash),
+    totalNonCash: sum((r) => r.nonCash),
+    totalSales: sum((r) => r.sales),
+    totalDailyExpenses: sum((r) => r.expenses),
+    totalAfterDaily,
+    monthlyExpenses,
+    totalMonthlyExpenses,
+    netProfit: totalAfterDaily - totalMonthlyExpenses,
+    unpaidDebt,
+  };
+}
+
+/** Angka format buku kas: 1,234,567.00 (sama dengan file sampel). */
+function bookNum(n: number): string {
+  const s = Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return n < 0 ? `-${s}` : s;
+}
+
+/** Teks tab-separated, bisa langsung di-paste ke Excel / Google Sheets. */
+export function monthlyRecapToTSV(recap: MonthlyRecap): string {
+  const lines = [['Tanggal', 'Cash', 'QRIS', 'Penjualan', 'Pengeluaran', 'Total'].join('\t')];
+  recap.days.forEach((r) =>
+    lines.push([r.date, bookNum(r.cash), bookNum(r.nonCash), bookNum(r.sales), bookNum(r.expenses), bookNum(r.total)].join('\t'))
+  );
+  lines.push(
+    ['TOTAL', bookNum(recap.totalCash), bookNum(recap.totalNonCash), bookNum(recap.totalSales), bookNum(recap.totalDailyExpenses), bookNum(recap.totalAfterDaily)].join('\t')
+  );
+  if (recap.monthlyExpenses.length > 0) {
+    lines.push('');
+    lines.push('Pengeluaran Bulanan\t\t\t\t\t');
+    recap.monthlyExpenses.forEach((e) =>
+      lines.push([e.category + (e.note ? ` - ${e.note}` : ''), '', '', '', bookNum(e.amount), ''].join('\t'))
+    );
+    lines.push(['Total Pengeluaran Bulanan', '', '', '', bookNum(recap.totalMonthlyExpenses), ''].join('\t'));
+  }
+  lines.push('');
+  lines.push(['LABA BERSIH', '', '', '', '', bookNum(recap.netProfit)].join('\t'));
+  return lines.join('\n') + '\n';
 }

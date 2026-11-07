@@ -11,6 +11,7 @@ import {
   UserCheck,
   Clock,
   RefreshCw,
+  Wallet,
 } from 'lucide-react';
 import { Cashier, Shift, StoreSettings } from '../types';
 import { formatIDR } from '../lib/storage';
@@ -153,6 +154,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             <Receipt className="w-4 h-4" />
             <span>Riwayat Transaksi</span>
           </button>
+
+          {can(activeCashier.role, 'expenses') && (
+          <button
+            onClick={() => setActiveTab('expenses')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg font-bold text-xs transition-all ${
+              activeTab === 'expenses'
+                ? 'bg-[#D7CCC8] text-[#3E2723] shadow'
+                : 'text-white/80 hover:bg-[#5D4037] hover:text-white'
+            }`}
+          >
+            <Wallet className="w-4 h-4" />
+            <span>Pengeluaran</span>
+          </button>
+          )}
 
           {can(activeCashier.role, 'menu') && (
           <button
