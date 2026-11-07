@@ -5,6 +5,8 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // Muat file .env terpusat dari root repo (kasir-warung-kopi/.env)
+    envDir: path.resolve(__dirname, '..'),
     // Disajikan di https://<domain>/kasir/ sebagai service Vercel terpisah (lihat ../vercel.json).
     // Vercel meneruskan path asli (/kasir/...) ke service, jadi file build ditaruh di dist/kasir/.
     base: '/kasir/',
