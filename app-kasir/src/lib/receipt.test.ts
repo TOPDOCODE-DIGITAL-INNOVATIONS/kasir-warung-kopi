@@ -112,4 +112,16 @@ describe('struk ringkas', () => {
     expect(text).toMatch(/TOTAL\s+Rp220\.000/);
     compact.forEach((l) => expect(renderLineText(l, 58).length).toBeLessThanOrEqual(l.double ? 15 : 31));
   });
+
+  it('menampilkan informasi WiFi di struk bila diisi di pengaturan', () => {
+    const withWifi = buildReceiptLines(
+      tx,
+      { ...INITIAL_STORE_SETTINGS, wifiName: 'RUAS KOPI', wifiPassword: 'kopibali123' },
+      58
+    );
+    const text = withWifi.map((l) => l.text).join('\n');
+    expect(text).toContain('RUAS KOPI');
+    expect(text).toContain('kopibali123');
+    withWifi.forEach((l) => expect(renderLineText(l, 58).length).toBeLessThanOrEqual(l.double ? 15 : 31));
+  });
 });

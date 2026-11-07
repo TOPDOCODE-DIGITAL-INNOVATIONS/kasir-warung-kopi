@@ -298,6 +298,11 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) =
             Kotor {formatIDR(report.grossSales)} · Diskon -{formatIDR(report.discounts)} · Pajak{' '}
             {formatIDR(report.tax)}
           </div>
+          {report.overpay > 0 && (
+            <div className="text-[10px] text-emerald-800 font-semibold">
+              + Kelebihan (kembalian permen) {formatIDR(report.overpay)}
+            </div>
+          )}
         </div>
 
         <div className="bg-white border border-[#D7CCC8] p-3.5 rounded-lg space-y-1 shadow-sm">
@@ -433,6 +438,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) =
                 <th className="p-2.5 text-right">Cash</th>
                 <th className="p-2.5 text-right">QRIS / Non-Tunai</th>
                 <th className="p-2.5 text-right">Penjualan</th>
+                <th className="p-2.5 text-right">Kelebihan</th>
                 <th className="p-2.5 text-right">Pengeluaran</th>
                 <th className="p-2.5 text-right">Total</th>
               </tr>
@@ -440,19 +446,20 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) =
             <tbody className="divide-y divide-[#EFEBE9]">
               {recap.days.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="p-6 text-center text-stone-500 italic">
+                  <td colSpan={7} className="p-6 text-center text-stone-500 italic">
                     Bulan ini belum berjalan
                   </td>
                 </tr>
               ) : (
                 recap.days.map((r) => (
-                  <tr key={r.date} className={`hover:bg-stone-50 ${r.sales === 0 && r.expenses === 0 ? 'text-stone-400' : ''}`}>
+                  <tr key={r.date} className={`hover:bg-stone-50 ${r.sales === 0 && r.overpay === 0 && r.expenses === 0 ? 'text-stone-400' : ''}`}>
                     <td className="p-2.5 whitespace-nowrap font-semibold">
                       {new Date(r.date + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short' })}
                     </td>
                     <td className="p-2.5 text-right">{formatIDR(r.cash)}</td>
                     <td className="p-2.5 text-right">{formatIDR(r.nonCash)}</td>
                     <td className="p-2.5 text-right font-bold">{formatIDR(r.sales)}</td>
+                    <td className="p-2.5 text-right text-emerald-800">{formatIDR(r.overpay)}</td>
                     <td className="p-2.5 text-right text-rose-700">{r.expenses ? `-${formatIDR(r.expenses)}` : formatIDR(0)}</td>
                     <td className={`p-2.5 text-right font-black ${r.total < 0 ? 'text-rose-700' : 'text-[#3E2723]'}`}>
                       {formatIDR(r.total)}
@@ -467,6 +474,7 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ activeCashier }) =
                 <td className="p-2.5 text-right">{formatIDR(recap.totalCash)}</td>
                 <td className="p-2.5 text-right">{formatIDR(recap.totalNonCash)}</td>
                 <td className="p-2.5 text-right">{formatIDR(recap.totalSales)}</td>
+                <td className="p-2.5 text-right text-emerald-800">{formatIDR(recap.totalOverpay)}</td>
                 <td className="p-2.5 text-right text-rose-700">-{formatIDR(recap.totalDailyExpenses)}</td>
                 <td className="p-2.5 text-right">{formatIDR(recap.totalAfterDaily)}</td>
               </tr>

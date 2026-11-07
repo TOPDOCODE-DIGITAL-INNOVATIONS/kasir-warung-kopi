@@ -77,6 +77,7 @@ export interface SalesReport {
   itemsWithoutCost: number; // jumlah porsi yang produknya tidak punya harga modal
   avgTicket: number;
   outstandingDebt: number; // bon belum lunas pada periode ini
+  overpay: number; // kelebihan (kembalian permen), di luar omset
   paymentBreakdown: Record<string, { count: number; total: number }>;
   topProducts: { name: string; qty: number; revenue: number }[];
 }
@@ -91,6 +92,7 @@ export function computeSalesReport(transactions: Transaction[]): SalesReport {
   let cogs = 0;
   let itemsWithoutCost = 0;
   let outstandingDebt = 0;
+  let overpay = 0;
   const paymentBreakdown: SalesReport['paymentBreakdown'] = {};
   const productMap: Record<string, { name: string; qty: number; revenue: number }> = {};
 
@@ -99,6 +101,7 @@ export function computeSalesReport(transactions: Transaction[]): SalesReport {
     discounts += t.discountAmount;
     tax += t.taxAmount;
     netSales += t.grandTotal;
+    overpay += t.overpayAmount ?? 0;
 
     if (t.paymentType === 'hutang' && t.debtStatus !== 'paid') {
       outstandingDebt += t.grandTotal;
@@ -138,6 +141,7 @@ export function computeSalesReport(transactions: Transaction[]): SalesReport {
     itemsWithoutCost,
     avgTicket: completed.length > 0 ? netSales / completed.length : 0,
     outstandingDebt,
+    overpay,
     paymentBreakdown,
     topProducts: Object.values(productMap)
       .sort((a, b) => b.qty - a.qty)
@@ -147,7 +151,13 @@ export function computeSalesReport(transactions: Transaction[]): SalesReport {
 
 /** Uang tunai yang seharusnya ada di laci. */
 export function getExpectedDrawerCash(shift: Shift): number {
-  return shift.startingCash + shift.totalSalesCash + (shift.debtCollectedCash ?? 0) - (shift.expensesCash ?? 0);
+  return (
+    shift.startingCash +
+    shift.totalSalesCash +
+    (shift.overpayCash ?? 0) +
+    (shift.debtCollectedCash ?? 0) -
+    (shift.expensesCash ?? 0)
+  );
 }
 
 // -------------------------------------------------------------
@@ -159,8 +169,9 @@ export interface DailyRecapRow {
   cash: number; // penjualan tunai + pelunasan bon tunai
   nonCash: number; // QRIS, transfer, e-wallet, debit + pelunasan bon non-tunai
   sales: number; // cash + nonCash (uang yang benar-benar masuk)
+  overpay: number; // kelebihan (kembalian permen)
   expenses: number; // pengeluaran harian
-  total: number; // sales - expenses
+  total: number; // sales + overpay - expenses
   orders: number;
 }
 
@@ -170,6 +181,7 @@ export interface MonthlyRecap {
   totalCash: number;
   totalNonCash: number;
   totalSales: number;
+  totalOverpay: number;
   totalDailyExpenses: number;
   totalAfterDaily: number;
   monthlyExpenses: Expense[];
@@ -195,7 +207,7 @@ export function computeMonthlyRecap(
   const rows = new Map<string, DailyRecapRow>();
   for (let d = 1; d <= daysInMonth; d++) {
     const key = `${month}-${String(d).padStart(2, '0')}`;
-    rows.set(key, { date: key, cash: 0, nonCash: 0, sales: 0, expenses: 0, total: 0, orders: 0 });
+    rows.set(key, { date: key, cash: 0, nonCash: 0, sales: 0, overpay: 0, expenses: 0, total: 0, orders: 0 });
   }
   const dayKey = (iso: string) => toLocalDateKey(new Date(iso));
 
@@ -203,7 +215,10 @@ export function computeMonthlyRecap(
   transactions.forEach((t) => {
     if (t.status !== 'completed') return;
     const saleRow = rows.get(dayKey(t.timestamp));
-    if (saleRow) saleRow.orders += 1;
+    if (saleRow) {
+      saleRow.orders += 1;
+      saleRow.overpay += t.overpayAmount ?? 0;
+    }
 
     if (t.paymentType === 'hutang') {
       if (t.debtStatus === 'paid' && t.debtPaidAt) {
@@ -236,7 +251,7 @@ export function computeMonthlyRecap(
   const days = [...rows.values()].filter((r) => r.date <= todayKey);
   days.forEach((r) => {
     r.sales = r.cash + r.nonCash;
-    r.total = r.sales - r.expenses;
+    r.total = r.sales + r.overpay - r.expenses;
   });
 
   const sum = (f: (r: DailyRecapRow) => number) => days.reduce((a, r) => a + f(r), 0);
@@ -249,6 +264,7 @@ export function computeMonthlyRecap(
     totalCash: sum((r) => r.cash),
     totalNonCash: sum((r) => r.nonCash),
     totalSales: sum((r) => r.sales),
+    totalOverpay: sum((r) => r.overpay),
     totalDailyExpenses: sum((r) => r.expenses),
     totalAfterDaily,
     monthlyExpenses,
@@ -266,22 +282,32 @@ function bookNum(n: number): string {
 
 /** Teks tab-separated, bisa langsung di-paste ke Excel / Google Sheets. */
 export function monthlyRecapToTSV(recap: MonthlyRecap): string {
-  const lines = [['Tanggal', 'Cash', 'QRIS', 'Penjualan', 'Pengeluaran', 'Total'].join('\t')];
+  const lines = [['Tanggal', 'Cash', 'QRIS', 'Penjualan', 'Kelebihan', 'Pengeluaran', 'Total'].join('\t')];
   recap.days.forEach((r) =>
-    lines.push([r.date, bookNum(r.cash), bookNum(r.nonCash), bookNum(r.sales), bookNum(r.expenses), bookNum(r.total)].join('\t'))
+    lines.push(
+      [r.date, bookNum(r.cash), bookNum(r.nonCash), bookNum(r.sales), bookNum(r.overpay), bookNum(r.expenses), bookNum(r.total)].join('\t')
+    )
   );
   lines.push(
-    ['TOTAL', bookNum(recap.totalCash), bookNum(recap.totalNonCash), bookNum(recap.totalSales), bookNum(recap.totalDailyExpenses), bookNum(recap.totalAfterDaily)].join('\t')
+    [
+      'TOTAL',
+      bookNum(recap.totalCash),
+      bookNum(recap.totalNonCash),
+      bookNum(recap.totalSales),
+      bookNum(recap.totalOverpay),
+      bookNum(recap.totalDailyExpenses),
+      bookNum(recap.totalAfterDaily),
+    ].join('\t')
   );
   if (recap.monthlyExpenses.length > 0) {
     lines.push('');
-    lines.push('Pengeluaran Bulanan\t\t\t\t\t');
+    lines.push('Pengeluaran Bulanan\t\t\t\t\t\t');
     recap.monthlyExpenses.forEach((e) =>
-      lines.push([e.category + (e.note ? ` - ${e.note}` : ''), '', '', '', bookNum(e.amount), ''].join('\t'))
+      lines.push([e.category + (e.note ? ` - ${e.note}` : ''), '', '', '', '', bookNum(e.amount), ''].join('\t'))
     );
-    lines.push(['Total Pengeluaran Bulanan', '', '', '', bookNum(recap.totalMonthlyExpenses), ''].join('\t'));
+    lines.push(['Total Pengeluaran Bulanan', '', '', '', '', bookNum(recap.totalMonthlyExpenses), ''].join('\t'));
   }
   lines.push('');
-  lines.push(['LABA BERSIH', '', '', '', '', bookNum(recap.netProfit)].join('\t'));
+  lines.push(['LABA BERSIH', '', '', '', '', '', bookNum(recap.netProfit)].join('\t'));
   return lines.join('\n') + '\n';
 }

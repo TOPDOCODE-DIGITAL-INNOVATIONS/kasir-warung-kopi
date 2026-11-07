@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings, Store, QrCode, Building2, Save, Check, Database, RefreshCw, Printer } from 'lucide-react';
+import { Settings, Store, QrCode, Building2, Save, Check, Database, RefreshCw, Printer, Wifi } from 'lucide-react';
 import { StoreSettings } from '../types';
 import { getStoreSettings, saveStoreSettings, performCloudSync, getSyncUrl } from '../lib/storage';
 import {
@@ -167,6 +167,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
               onChange={(e) => setSettings({ ...settings, receiptFooterMsg: e.target.value })}
               className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[#3E2723]"
             />
+          </div>
+
+          <div className="pt-2 border-t border-[#EFEBE9]">
+            <div className="flex items-center gap-1.5 mb-2">
+              <Wifi className="w-3.5 h-3.5 text-[#3E2723]" />
+              <span className="text-xs font-extrabold text-[#3E2723] uppercase tracking-wider">
+                Informasi WiFi di Struk (Opsional)
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold text-[#3E2723] block mb-1">Nama WiFi (SSID)</label>
+                <input
+                  type="text"
+                  placeholder="Contoh: RUAS KOPI BALI"
+                  value={settings.wifiName || ''}
+                  onChange={(e) => setSettings({ ...settings, wifiName: e.target.value })}
+                  className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-1.5 text-xs focus:outline-none focus:border-[#3E2723]"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-[#3E2723] block mb-1">Password WiFi</label>
+                <input
+                  type="text"
+                  placeholder="Kosongkan jika tidak ingin dicetak di struk"
+                  value={settings.wifiPassword || ''}
+                  onChange={(e) => setSettings({ ...settings, wifiPassword: e.target.value })}
+                  className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-[#3E2723]"
+                />
+              </div>
+            </div>
           </div>
         </div>
 

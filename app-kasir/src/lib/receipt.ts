@@ -189,6 +189,7 @@ export function buildCompactReceiptLines(
   if (tx.paymentType === 'tunai') {
     push(leftRight('Tunai', rp(tx.amountPaid), W));
     push(leftRight('Kembali', rp(tx.changeAmount), W));
+    if (tx.overpayAmount) push(leftRight('Kembali (permen)', rp(tx.overpayAmount), W));
   } else if (tx.paymentType === 'hutang') {
     push(tx.debtStatus === 'paid' ? '** BON - SUDAH LUNAS **' : '** BON - BELUM LUNAS **', {
       align: 'center',
@@ -196,6 +197,25 @@ export function buildCompactReceiptLines(
     });
   } else {
     push(leftRight('Bayar', PAYMENT_LABEL[tx.paymentType] || tx.paymentType.toUpperCase(), W));
+  }
+
+  const wifiName = settings.wifiName?.trim();
+  const wifiPass = settings.wifiPassword?.trim();
+  if (wifiName || wifiPass) {
+    out.push(sep);
+    if (wifiName && wifiPass) {
+      const oneLine = `WiFi: ${wifiName} | Pass: ${wifiPass}`;
+      if (toAscii(oneLine).length <= W) {
+        push(toAscii(oneLine), { align: 'center' });
+      } else {
+        pushWrapped(`WiFi: ${wifiName}`, { align: 'center' });
+        pushWrapped(`Pass: ${wifiPass}`, { align: 'center', bold: true });
+      }
+    } else if (wifiName) {
+      pushWrapped(`WiFi: ${wifiName}`, { align: 'center' });
+    } else if (wifiPass) {
+      pushWrapped(`Pass WiFi: ${wifiPass}`, { align: 'center', bold: true });
+    }
   }
 
   pushWrapped(settings.receiptFooterMsg || 'Terima kasih!', { align: 'center' });
@@ -258,6 +278,7 @@ export function buildFullReceiptLines(
   if (tx.paymentType === 'tunai') {
     push(leftRight('Tunai', rp(tx.amountPaid), W));
     push(leftRight('Kembali', rp(tx.changeAmount), W), { bold: true });
+    if (tx.overpayAmount) push(leftRight('Kembali (permen)', rp(tx.overpayAmount), W));
   }
   if (tx.paymentType === 'hutang') {
     push(tx.debtStatus === 'paid' ? '** BON - SUDAH LUNAS **' : '** BON - BELUM LUNAS **', {
@@ -266,6 +287,14 @@ export function buildFullReceiptLines(
     });
   }
   out.push(sep);
+
+  const wifiNameFull = settings.wifiName?.trim();
+  const wifiPassFull = settings.wifiPassword?.trim();
+  if (wifiNameFull || wifiPassFull) {
+    if (wifiNameFull) pushWrapped(`WiFi: ${wifiNameFull}`, { align: 'center' });
+    if (wifiPassFull) pushWrapped(`Password WiFi: ${wifiPassFull}`, { align: 'center', bold: true });
+    out.push(sep);
+  }
 
   pushWrapped(settings.receiptFooterMsg || 'Terima kasih!', { align: 'center' });
 

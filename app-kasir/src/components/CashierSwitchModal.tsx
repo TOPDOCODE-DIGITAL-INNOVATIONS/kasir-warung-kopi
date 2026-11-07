@@ -412,6 +412,13 @@ export const CashierSwitchModal: React.FC<CashierSwitchModalProps> = ({
                   </span>
                 </div>
 
+                {(activeShift.overpayCash ?? 0) > 0 && (
+                  <div className="flex justify-between text-stone-600">
+                    <span>Kelebihan (kembalian permen)</span>
+                    <span className="font-bold text-emerald-800">+{formatIDR(activeShift.overpayCash ?? 0)}</span>
+                  </div>
+                )}
+
                 {(activeShift.debtCollectedCash ?? 0) > 0 && (
                   <div className="flex justify-between text-stone-600">
                     <span>Pelunasan Bon (Tunai)</span>

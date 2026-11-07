@@ -402,6 +402,7 @@ export function startNewShift(cashierId: string, startingCash: number): Shift {
     debtCollectedCash: 0,
     debtCollectedNonCash: 0,
     totalTransactions: 0,
+    overpayCash: 0,
     status: 'open',
   };
 
@@ -457,8 +458,14 @@ export function saveTransaction(tx: Transaction): Transaction {
     throw new Error(issues.join('\n'));
   }
 
+  const overpay = tx.paymentType === 'tunai' ? Math.max(0, Math.round(tx.overpayAmount ?? 0)) : 0;
+  if (overpay > 0 && overpay > tx.amountPaid - tx.grandTotal) {
+    throw new Error('Kelebihan tidak boleh lebih besar dari kembalian.');
+  }
+
   const saved: Transaction = {
     ...tx,
+    overpayAmount: overpay || undefined,
     items: compactCartItems(tx.items),
     shiftId: shift.id,
     isSynced: false,
@@ -481,6 +488,7 @@ export function saveTransaction(tx: Transaction): Transaction {
   // Rekap shift
   if (saved.paymentType === 'tunai') {
     shift.totalSalesCash += saved.grandTotal;
+    if (overpay > 0) shift.overpayCash = (shift.overpayCash ?? 0) + overpay;
   } else if (saved.paymentType === 'hutang') {
     shift.totalSalesDebt = (shift.totalSalesDebt ?? 0) + saved.grandTotal;
   } else {
@@ -532,7 +540,9 @@ export function cancelTransaction(
   if (shift && tx.shiftId === shift.id) {
     if (tx.paymentType === 'tunai') {
       shift.totalSalesCash = Math.max(0, shift.totalSalesCash - tx.grandTotal);
-      message += ` Kembalikan uang ${formatIDR(tx.grandTotal)} dari laci.`;
+      const overpay = tx.overpayAmount ?? 0;
+      if (overpay > 0) shift.overpayCash = Math.max(0, (shift.overpayCash ?? 0) - overpay);
+      message += ` Kembalikan uang ${formatIDR(tx.grandTotal + overpay)} dari laci.`;
     } else if (tx.paymentType === 'hutang') {
       shift.totalSalesDebt = Math.max(0, (shift.totalSalesDebt ?? 0) - tx.grandTotal);
     } else {

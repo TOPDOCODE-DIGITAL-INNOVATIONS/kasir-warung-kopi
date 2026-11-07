@@ -12,6 +12,7 @@ import {
   getStockIssues,
   getStoreSettings,
   getTransactions,
+  formatIDR,
   importDataFromJSON,
   markTransactionsAsSynced,
   payDebt,
@@ -289,6 +290,54 @@ describe('pengeluaran', () => {
   });
 });
 
+describe('kelebihan (kembalian permen)', () => {
+  it('kelebihan masuk ke uang laci seharusnya, bukan ke omset, dan dibalik saat batal', () => {
+    startNewShift('c-1', 100000);
+    const base = makeTx('tunai');
+    const tx = saveTransaction({
+      ...base,
+      amountPaid: base.grandTotal + 2000,
+      changeAmount: 1500,
+      overpayAmount: 500,
+    });
+    const shift = getActiveShift()!;
+    expect(shift.totalSalesCash).toBe(base.grandTotal);
+    expect(shift.overpayCash).toBe(500);
+    // laci = modal + uang diterima - kembalian uang
+    expect(getExpectedDrawerCash(shift)).toBe(100000 + base.grandTotal + 2000 - 1500);
+    expect(computeSalesReport(getTransactions())).toMatchObject({ netSales: base.grandTotal, overpay: 500 });
+
+    const res = cancelTransaction(tx.id, 'salah', 'Budi');
+    expect(res.message).toContain(formatIDR(base.grandTotal + 500));
+    expect(getActiveShift()!.overpayCash).toBe(0);
+  });
+
+  it('kelebihan tidak boleh melebihi kembalian', () => {
+    startNewShift('c-1', 0);
+    const base = makeTx('tunai');
+    expect(() => saveTransaction({ ...base, amountPaid: base.grandTotal + 500, overpayAmount: 1000 })).toThrow(/kelebihan/i);
+  });
+
+  it('kelebihan diabaikan untuk pembayaran non-tunai', () => {
+    startNewShift('c-1', 0);
+    const tx = saveTransaction({ ...makeTx('qris'), overpayAmount: 500 });
+    expect(tx.overpayAmount).toBeUndefined();
+    expect(getActiveShift()!.overpayCash ?? 0).toBe(0);
+  });
+
+  it('rekap bulanan punya kolom kelebihan dan ikut menambah total', () => {
+    const at = new Date(2026, 9, 5, 10).toISOString();
+    const base = { cashierId: 'c', cashierName: 'B', orderType: 'Dine In' as const, items: [], subtotal: 0, discountAmount: 0, taxAmount: 0, status: 'completed' as const };
+    const txs: Transaction[] = [
+      { ...base, id: '1', timestamp: at, grandTotal: 18500, paymentType: 'tunai', amountPaid: 20000, changeAmount: 1000, overpayAmount: 500 },
+    ];
+    const r = computeMonthlyRecap('2026-10', txs, [], new Date(2026, 10, 7));
+    expect(r.days[4]).toMatchObject({ cash: 18500, sales: 18500, overpay: 500, total: 19000 });
+    expect(r.totalOverpay).toBe(500);
+    expect(r.netProfit).toBe(19000);
+  });
+});
+
 describe('rekap bulanan', () => {
   it('menghitung cash, non-tunai, pengeluaran harian & bulanan seperti buku kas', () => {
     const at = (d: number, h = 10) => new Date(2026, 9, d, h).toISOString();
@@ -315,7 +364,7 @@ describe('rekap bulanan', () => {
     expect(r.netProfit).toBe(585000 - 50000 - 300000);
     expect(r.unpaidDebt).toBe(12000);
     const tsv = monthlyRecapToTSV(r);
-    expect(tsv.split('\n')[1]).toBe('2026-10-01\t510,000.00\t45,000.00\t555,000.00\t0.00\t555,000.00');
+    expect(tsv.split('\n')[1]).toBe('2026-10-01\t510,000.00\t45,000.00\t555,000.00\t0.00\t0.00\t555,000.00');
     expect(tsv).toContain('-20,000.00');
   });
 

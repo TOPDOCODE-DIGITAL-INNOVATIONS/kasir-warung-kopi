@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/utils/supabase/server'
 import { pickBusinessId } from '@/lib/business-filter'
 import DashboardClient from './DashboardClient'
+import { formatRange } from '@/lib/book-period'
 
 type Summary = {
   today: string
@@ -9,6 +10,10 @@ type Summary = {
   top_products: { name: string; qty: number }[]
   unpaid_debt: number
   month_expenses: number
+  period_sales: number
+  period_overpay: number
+  period_start: string | null
+  period_end: string | null
 }
 
 export default async function DashboardPage({
@@ -58,7 +63,14 @@ export default async function DashboardPage({
       weekRevenue={daily.reduce((s, d) => s + d.sales, 0)}
       weekCount={daily.reduce((s, d) => s + d.count, 0)}
       unpaidDebt={Number(summary.unpaid_debt)}
-      monthExpenses={Number(summary.month_expenses)}
+      periodExpenses={Number(summary.month_expenses)}
+      periodSales={Number(summary.period_sales)}
+      periodOverpay={Number(summary.period_overpay ?? 0)}
+      periodLabel={
+        summary.period_start && summary.period_end
+          ? formatRange(summary.period_start, summary.period_end)
+          : 'Periode buku tiap cabang'
+      }
       chartData={daily.map((d) => ({
         name: d.day === summary.today ? 'Hari ini' : dayFmt.format(new Date(d.day + 'T00:00:00Z')),
         sales: d.sales,

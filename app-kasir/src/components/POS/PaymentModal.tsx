@@ -58,7 +58,15 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [copiedBankIndex, setCopiedBankIndex] = useState<number | null>(null);
 
   // Cash change calculation
-  const changeAmount = Math.max(0, cashReceived - grandTotal);
+  const changeDue = Math.max(0, cashReceived - grandTotal);
+  // Kelebihan: bagian kembalian yang diganti permen / tidak dikembalikan (tidak ada uang pas)
+  const [overpayInput, setOverpayInput] = useState<number>(0);
+  const overpay = Math.min(Math.max(0, overpayInput), changeDue);
+  const changeAmount = changeDue - overpay;
+  // Pilihan cepat: sisa receh yang tidak bisa dikembalikan jika pecahan terkecil di laci 500 / 1.000 / 2.000
+  const overpayPresets = [500, 1000, 2000]
+    .map((unit) => changeDue % unit)
+    .filter((v, i, arr) => v > 0 && arr.indexOf(v) === i);
 
   // Quick cash suggestion chips
   const quickCashPresets = [
@@ -122,6 +130,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       paymentDetail: detail,
       amountPaid: selectedPaymentType === 'tunai' ? cashReceived : grandTotal,
       changeAmount: selectedPaymentType === 'tunai' ? changeAmount : 0,
+      overpayAmount: selectedPaymentType === 'tunai' && overpay > 0 ? overpay : undefined,
       status: 'completed',
       notes: paymentNote.trim() || undefined,
     };
@@ -339,6 +348,59 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                       : formatIDR(changeAmount)}
                   </span>
                 </div>
+
+                {/* Kelebihan / kembalian permen */}
+                {changeDue > 0 && (
+                  <div className="p-3 rounded border border-amber-200 bg-amber-50 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs font-bold text-amber-900">
+                        Kembalian permen / kelebihan
+                      </label>
+                      {overpay > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setOverpayInput(0)}
+                          className="text-[10px] font-bold text-amber-900 underline"
+                        >
+                          Hapus
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {overpayPresets.map((v) => (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setOverpayInput(v)}
+                          className={`px-2.5 py-1 rounded text-xs font-bold ${
+                            overpay === v
+                              ? 'bg-amber-700 text-white'
+                              : 'bg-white text-amber-900 border border-amber-300 hover:bg-amber-100'
+                          }`}
+                        >
+                          {formatIDR(v)}
+                        </button>
+                      ))}
+                      <div className="relative flex-1 min-w-[7rem]">
+                        <span className="absolute left-2 top-1.5 text-[11px] font-bold text-amber-900">Rp</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={changeDue}
+                          placeholder="Lainnya"
+                          value={overpayInput || ''}
+                          onChange={(e) => setOverpayInput(Math.max(0, parseFloat(e.target.value) || 0))}
+                          className="w-full bg-white border border-amber-300 rounded pl-7 pr-2 py-1 text-xs font-bold focus:outline-none focus:border-amber-700"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-amber-900/80">
+                      {overpay > 0
+                        ? `Kembalian uang ${formatIDR(changeAmount)} + permen ${formatIDR(overpay)}. Kelebihan ${formatIDR(overpay)} tetap di laci & dicatat terpisah.`
+                        : 'Isi jika sebagian kembalian diganti permen karena tidak ada uang pas.'}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 

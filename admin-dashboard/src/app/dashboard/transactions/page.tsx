@@ -16,7 +16,7 @@ export default async function TransactionsPage({
   let query = supabase
     .from('transactions')
     .select(
-      'id, created_at, cashier_name, order_type, customer_name, items, grand_total, payment_type, payment_detail, status, debt_status, businesses(name)'
+      'id, created_at, cashier_name, order_type, customer_name, items, grand_total, overpay_amount, payment_type, payment_detail, status, debt_status, businesses(name)'
     )
     .order('created_at', { ascending: false })
     .limit(300)
@@ -90,6 +90,9 @@ export default async function TransactionsPage({
                       </td>
                       <td className={'px-4 py-3 text-right font-medium whitespace-nowrap ' + (cancelled ? 'line-through' : 'text-gray-900')}>
                         {rupiah(tx.grand_total)}
+                        {!cancelled && Number(tx.overpay_amount) > 0 && (
+                          <p className="text-xs font-normal text-green-700">+ kelebihan {rupiah(tx.overpay_amount)}</p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs max-w-xs truncate">
                         {((tx.items ?? []) as Item[])

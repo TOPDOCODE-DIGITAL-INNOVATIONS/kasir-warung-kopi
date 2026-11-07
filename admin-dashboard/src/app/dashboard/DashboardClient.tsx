@@ -1,7 +1,7 @@
 'use client'
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-import { TrendingUp, Receipt, Wallet, HandCoins } from 'lucide-react'
+import { TrendingUp, Receipt, Wallet, HandCoins, BookOpen } from 'lucide-react'
 import BusinessSelect from './BusinessSelect'
 import { rupiah } from '@/lib/format'
 
@@ -12,7 +12,10 @@ type Props = {
   weekRevenue: number
   weekCount: number
   unpaidDebt: number
-  monthExpenses: number
+  periodExpenses: number
+  periodSales: number
+  periodOverpay: number
+  periodLabel: string
   chartData: { name: string; sales: number }[]
   topProducts: { name: string; qty: number }[]
 }
@@ -51,11 +54,12 @@ export default function DashboardClient(p: Props) {
         <BusinessSelect businesses={p.businesses} />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <Card label="Penjualan Hari Ini" value={rupiah(p.todayRevenue)} hint={`${p.todayCount} transaksi`} icon={TrendingUp} tone="bg-green-50 text-green-600" />
         <Card label="Penjualan 7 Hari" value={rupiah(p.weekRevenue)} hint={`${p.weekCount} transaksi`} icon={Receipt} tone="bg-blue-50 text-blue-600" />
         <Card label="Bon Belum Lunas" value={rupiah(p.unpaidDebt)} hint="Semua waktu" icon={HandCoins} tone="bg-amber-50 text-amber-600" />
-        <Card label="Pengeluaran Bulan Ini" value={rupiah(p.monthExpenses)} hint="Harian + bulanan" icon={Wallet} tone="bg-red-50 text-red-600" />
+        <Card label="Penjualan Periode Ini" value={rupiah(p.periodSales)} hint={p.periodOverpay > 0 ? `${p.periodLabel} · + kelebihan ${rupiah(p.periodOverpay)}` : p.periodLabel} icon={BookOpen} tone="bg-indigo-50 text-indigo-600" />
+        <Card label="Pengeluaran Periode Ini" value={rupiah(p.periodExpenses)} hint={p.periodLabel} icon={Wallet} tone="bg-red-50 text-red-600" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -68,6 +68,8 @@ export interface Shift {
   /** Pelunasan bon yang diterima non-tunai selama shift ini */
   debtCollectedNonCash?: number;
   totalTransactions: number;
+  /** Kelebihan: kembalian tunai yang diganti permen / tidak dikembalikan (uang tetap di laci) */
+  overpayCash?: number;
   /** Pengeluaran harian yang diambil dari laci selama shift ini */
   expensesCash?: number;
   /** Diisi saat tutup shift: modal + tunai masuk - pengeluaran dari laci */
@@ -92,7 +94,14 @@ export interface Transaction {
   paymentType: PaymentType;
   paymentDetail?: string; // e.g. "BCA", "GoPay", "QRIS Statis"
   amountPaid: number;
+  /** Kembalian yang benar-benar diberikan dalam bentuk uang */
   changeAmount: number;
+  /**
+   * Kelebihan: bagian kembalian yang diganti permen / tidak dikembalikan karena tidak ada
+   * uang pas. Uangnya tetap di laci, dicatat sebagai pemasukan terpisah dari penjualan.
+   * amountPaid = grandTotal + changeAmount + overpayAmount
+   */
+  overpayAmount?: number;
   status: 'completed' | 'cancelled';
   shiftId?: string;
   cancelReason?: string;
@@ -135,6 +144,8 @@ export interface StoreSettings {
   phone: string;
   receiptHeaderMsg: string;
   receiptFooterMsg: string;
+  wifiName?: string;
+  wifiPassword?: string;
   taxRatePercent: number; // e.g. 0 or 10
   enableTax: boolean;
   qrisMerchantName: string;

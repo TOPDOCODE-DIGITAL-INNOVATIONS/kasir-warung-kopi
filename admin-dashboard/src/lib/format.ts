@@ -1,7 +1,9 @@
+import { formatMoney } from './money'
+
 export const TZ = 'Asia/Jakarta'
 
 export function rupiah(value: number | string | null | undefined): string {
-  return 'Rp ' + Math.round(Number(value) || 0).toLocaleString('id-ID')
+  return 'Rp ' + formatMoney(Number(value) || 0)
 }
 
 /** YYYY-MM-DD dalam zona waktu WIB */

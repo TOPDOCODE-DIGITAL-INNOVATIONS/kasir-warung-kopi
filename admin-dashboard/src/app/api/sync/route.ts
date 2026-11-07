@@ -115,6 +115,7 @@ export async function POST(request: Request) {
         payment_detail: str(t.paymentDetail),
         amount_paid: num(t.amountPaid),
         change_amount: num(t.changeAmount),
+        overpay_amount: num(t.overpayAmount),
         status: t.status === 'cancelled' ? 'cancelled' : 'completed',
         cancel_reason: str(t.cancelReason),
         cancelled_at: ts(t.cancelledAt),

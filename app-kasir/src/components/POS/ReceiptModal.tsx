@@ -104,7 +104,13 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     text += `*TOTAL: ${formatIDR(transaction.grandTotal)}*\n`;
     text += `Bayar (${transaction.paymentType.toUpperCase()}): ${formatIDR(transaction.amountPaid)}\n`;
     if (transaction.changeAmount > 0) text += `Kembali: ${formatIDR(transaction.changeAmount)}\n`;
+    if (transaction.overpayAmount) text += `Kembali (permen): ${formatIDR(transaction.overpayAmount)}\n`;
     text += `--------------------------------\n`;
+    if (storeSettings.wifiName?.trim() || storeSettings.wifiPassword?.trim()) {
+      if (storeSettings.wifiName?.trim()) text += `WiFi: ${storeSettings.wifiName.trim()}\n`;
+      if (storeSettings.wifiPassword?.trim()) text += `Password WiFi: *${storeSettings.wifiPassword.trim()}*\n`;
+      text += `--------------------------------\n`;
+    }
     text += `${storeSettings.receiptFooterMsg || 'Terima Kasih!'}\n`;
 
     return encodeURIComponent(text);

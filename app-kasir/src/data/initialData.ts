@@ -555,6 +555,8 @@ export const INITIAL_STORE_SETTINGS: StoreSettings = {
   phone: '0812-3456-7890',
   receiptHeaderMsg: 'Selamat Datang di Ruas Kopi Bali',
   receiptFooterMsg: 'Temukan Rasa di Setiap Langkah',
+  wifiName: '',
+  wifiPassword: '',
   taxRatePercent: 0,
   enableTax: false,
   qrisMerchantName: 'RUAS KOPI BALI',
