@@ -44,10 +44,10 @@ export default async function HistoryPage({
   const shownBusinesses = (businesses ?? []).filter((b) => !businessId || b.id === businessId)
 
   const rows = ((recap ?? []) as Recap[]).map((r) => {
-    const sales = Number(r.sales_pos) + Number(r.sales_manual)
+    const sales = Number(r.sales_pos) + Number(r.overpay_pos) + Number(r.sales_manual)
     const expenses = Number(r.expenses_pos) + Number(r.expenses_manual)
     const overpay = Number(r.overpay_pos) + Number(r.overpay_manual)
-    return { ...r, sales, expenses, overpay, profit: sales + overpay - expenses }
+    return { ...r, sales, expenses, overpay, profit: sales - expenses }
   })
 
   return (

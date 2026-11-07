@@ -277,7 +277,7 @@ export default function HistoryClient({
                     {businesses.length > 1 && <td className="px-4 py-3">{e.businessName}</td>}
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       {rupiah(e.sales)}
-                      {e.overpay > 0 && <p className="text-xs text-green-700">+ kelebihan {rupiah(e.overpay)}</p>}
+                      {e.overpay > 0 && <p className="text-xs text-green-700">termasuk kelebihan {rupiah(e.overpay)}</p>}
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">{rupiah(e.expenses)}</td>
                     <td className="px-2 py-3 whitespace-nowrap text-right">

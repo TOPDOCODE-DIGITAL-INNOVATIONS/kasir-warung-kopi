@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 import { LogOut, Store } from 'lucide-react'
 import Nav from './Nav'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data } = await supabase.auth.getClaims()

@@ -58,7 +58,7 @@ export default function DashboardClient(p: Props) {
         <Card label="Penjualan Hari Ini" value={rupiah(p.todayRevenue)} hint={`${p.todayCount} transaksi`} icon={TrendingUp} tone="bg-green-50 text-green-600" />
         <Card label="Penjualan 7 Hari" value={rupiah(p.weekRevenue)} hint={`${p.weekCount} transaksi`} icon={Receipt} tone="bg-blue-50 text-blue-600" />
         <Card label="Bon Belum Lunas" value={rupiah(p.unpaidDebt)} hint="Semua waktu" icon={HandCoins} tone="bg-amber-50 text-amber-600" />
-        <Card label="Penjualan Periode Ini" value={rupiah(p.periodSales)} hint={p.periodOverpay > 0 ? `${p.periodLabel} · + kelebihan ${rupiah(p.periodOverpay)}` : p.periodLabel} icon={BookOpen} tone="bg-indigo-50 text-indigo-600" />
+        <Card label="Penjualan Periode Ini" value={rupiah(p.periodSales)} hint={p.periodOverpay > 0 ? `${p.periodLabel} · termasuk kelebihan ${rupiah(p.periodOverpay)}` : p.periodLabel} icon={BookOpen} tone="bg-indigo-50 text-indigo-600" />
         <Card label="Pengeluaran Periode Ini" value={rupiah(p.periodExpenses)} hint={p.periodLabel} icon={Wallet} tone="bg-red-50 text-red-600" />
       </div>
 
