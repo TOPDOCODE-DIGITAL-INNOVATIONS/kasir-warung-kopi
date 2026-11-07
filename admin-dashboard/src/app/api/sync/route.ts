@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/utils/supabase/admin'
 
+// Sama dengan region database Supabase (Sydney); lihat src/app/layout.tsx.
+export const preferredRegion = 'syd1'
+
 /**
  * Endpoint sinkronisasi dari aplikasi kasir (app-kasir).
  * Payload: lihat app-kasir/src/lib/storage.ts -> doCloudSync().

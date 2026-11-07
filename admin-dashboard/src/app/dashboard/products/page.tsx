@@ -11,13 +11,15 @@ export default async function ProductsPage({
   const businessId = pickBusinessId((await searchParams).b)
   const supabase = await createClient()
 
-  const { data: businesses } = await supabase.from('businesses').select('id, name').order('created_at')
   let query = supabase
     .from('products')
     .select('id, name, category_id, price, cost_price, stock, is_available, synced_at, businesses(name)')
     .order('name')
   if (businessId) query = query.eq('business_id', businessId)
-  const { data: products, error } = await query
+  const [{ data: businesses }, { data: products, error }] = await Promise.all([
+    supabase.from('businesses').select('id, name').order('created_at'),
+    query,
+  ])
 
   return (
     <div className="space-y-6">

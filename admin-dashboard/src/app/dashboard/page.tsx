@@ -19,7 +19,10 @@ export default async function DashboardPage({
   const businessId = pickBusinessId((await searchParams).b)
   const supabase = await createClient()
 
-  const { data: businesses } = await supabase.from('businesses').select('id, name').order('created_at')
+  const [{ data: businesses }, { data, error }] = await Promise.all([
+    supabase.from('businesses').select('id, name').order('created_at'),
+    supabase.rpc('dashboard_summary', { p_business: businessId, p_days: 7 }),
+  ])
 
   if (!businesses || businesses.length === 0) {
     return (
@@ -33,7 +36,6 @@ export default async function DashboardPage({
     )
   }
 
-  const { data, error } = await supabase.rpc('dashboard_summary', { p_business: businessId, p_days: 7 })
   if (error || !data) {
     return (
       <p className="text-sm text-red-600 bg-red-50 p-4 rounded-lg">

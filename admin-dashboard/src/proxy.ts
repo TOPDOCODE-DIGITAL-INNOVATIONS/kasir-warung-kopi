@@ -22,9 +22,10 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // getClaims() memverifikasi JWT secara lokal (JWKS di-cache) bila project memakai
+  // asymmetric signing keys, jadi tidak ada round-trip ke Supabase Auth tiap navigasi.
+  const { data } = await supabase.auth.getClaims()
+  const user = data?.claims
 
   if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
     const url = request.nextUrl.clone()

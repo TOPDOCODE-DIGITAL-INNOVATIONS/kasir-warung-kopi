@@ -13,7 +13,6 @@ export default async function TransactionsPage({
   const businessId = pickBusinessId((await searchParams).b)
   const supabase = await createClient()
 
-  const { data: businesses } = await supabase.from('businesses').select('id, name').order('created_at')
   let query = supabase
     .from('transactions')
     .select(
@@ -22,7 +21,10 @@ export default async function TransactionsPage({
     .order('created_at', { ascending: false })
     .limit(300)
   if (businessId) query = query.eq('business_id', businessId)
-  const { data: transactions, error } = await query
+  const [{ data: businesses }, { data: transactions, error }] = await Promise.all([
+    supabase.from('businesses').select('id, name').order('created_at'),
+    query,
+  ])
 
   return (
     <div className="space-y-6">
