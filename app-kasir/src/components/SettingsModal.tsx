@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Settings, Store, QrCode, Building2, Save, Check, Database, RefreshCw, Printer } from 'lucide-react';
 import { StoreSettings } from '../types';
-import { getStoreSettings, saveStoreSettings, performCloudSync } from '../lib/storage';
+import { getStoreSettings, saveStoreSettings, performCloudSync, getSyncUrl } from '../lib/storage';
 import {
   PRINTER_METHOD_LABELS,
   PrinterMethod,
@@ -430,7 +430,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
           <h3 className="font-extrabold text-xs text-[#3E2723] uppercase tracking-wider flex items-center justify-between border-b border-[#EFEBE9] pb-2">
             <div className="flex items-center gap-2">
               <Database className="w-4 h-4 text-[#3E2723]" />
-              <span>Sinkronisasi ke Website (PostgreSQL API)</span>
+              <span>Sinkronisasi ke Dashboard Owner</span>
             </div>
             {settings.lastSyncedAt && (
               <span className="text-[10px] text-stone-500 font-normal">
@@ -440,8 +440,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
           </h3>
 
           <p className="text-xs text-stone-600">
-            Hubungkan kasir offline ini dengan REST API website Anda agar transaksi (termasuk pembatalan & pelunasan bon)
-            otomatis terkirim.
+            Isi token cabang dari Dashboard Owner (menu <em>Cabang &amp; Token</em>) agar transaksi, pengeluaran, shift,
+            dan katalog produk otomatis terkirim ke database.
           </p>
 
           {settings.lastSyncError && (
@@ -453,11 +453,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
           <div className="space-y-3">
             <div>
               <label className="text-xs font-bold text-[#3E2723] block mb-1">
-                URL Endpoint Sync API Website (POST)
+                URL Endpoint Sync (kosongkan untuk memakai server bawaan)
               </label>
               <input
                 type="url"
-                placeholder="https://website-warkop.com/api/pos/sync"
+                placeholder={getSyncUrl({ ...settings, syncApiUrl: '' }) || 'https://domain-anda.vercel.app/api/sync'}
                 value={settings.syncApiUrl || ''}
                 onChange={(e) => setSettings({ ...settings, syncApiUrl: e.target.value })}
                 className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-[#3E2723]"
@@ -466,11 +466,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
 
             <div>
               <label className="text-xs font-bold text-[#3E2723] block mb-1">
-                Secret API Key / Bearer Token (Opsional Security)
+                Token Sync Cabang (wajib)
               </label>
               <input
                 type="password"
-                placeholder="secret-token-warkop-123"
+                placeholder="tempel token dari dashboard"
                 autoComplete="off"
                 value={settings.syncApiKey || ''}
                 onChange={(e) => setSettings({ ...settings, syncApiKey: e.target.value })}

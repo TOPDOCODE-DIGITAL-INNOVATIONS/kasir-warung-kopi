@@ -12,7 +12,8 @@ createRoot(document.getElementById('root')!).render(
 // Service worker hanya di build produksi; di mode dev akan menyajikan file lama dari cache.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
+    const base = import.meta.env.BASE_URL;
+    navigator.serviceWorker.register(`${base}sw.js`, { scope: base }).catch((err) => {
       console.warn('SW registration failed:', err);
     });
   });

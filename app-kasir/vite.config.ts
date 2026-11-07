@@ -5,6 +5,8 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // Disajikan di https://<domain>/kasir/ (lihat admin-dashboard/next.config.ts)
+    base: '/kasir/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

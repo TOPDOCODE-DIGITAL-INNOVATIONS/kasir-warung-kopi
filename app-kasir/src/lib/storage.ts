@@ -714,6 +714,25 @@ function recordSyncError(message: string): void {
   notifyUpdate();
 }
 
+/**
+ * URL endpoint sync. Jika kosong dan app disajikan dari website (mis. https://domain/kasir/),
+ * pakai endpoint di domain yang sama: https://domain/api/sync.
+ */
+export function getSyncUrl(settings: StoreSettings = getStoreSettings()): string {
+  const custom = settings.syncApiUrl?.trim();
+  if (custom) return custom;
+  if (typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)) {
+    return `${window.location.origin}/api/sync`;
+  }
+  return '';
+}
+
+/** Shift yang dimulai dalam 14 hari terakhir (termasuk yang sudah ditutup). */
+function getRecentShifts(): Shift[] {
+  const cutoff = Date.now() - 14 * 86400000;
+  return getShiftHistory().filter((s) => new Date(s.startTime).getTime() >= cutoff);
+}
+
 let syncInFlight: Promise<{ success: boolean; message: string; syncedCount: number }> | null = null;
 
 export function performCloudSync(): Promise<{
@@ -731,10 +750,18 @@ export function performCloudSync(): Promise<{
 
 async function doCloudSync(): Promise<{ success: boolean; message: string; syncedCount: number }> {
   const settings = getStoreSettings();
-  if (!settings.syncApiUrl || !settings.syncApiUrl.trim()) {
+  const syncUrl = getSyncUrl(settings);
+  if (!syncUrl) {
     return {
       success: false,
       message: 'URL API Sync belum dikonfigurasi di Pengaturan Toko.',
+      syncedCount: 0,
+    };
+  }
+  if (!settings.syncApiKey?.trim()) {
+    return {
+      success: false,
+      message: 'Token sync belum diisi. Salin token cabang dari Dashboard Owner → Cabang & Token.',
       syncedCount: 0,
     };
   }
@@ -761,9 +788,10 @@ async function doCloudSync(): Promise<{ success: boolean; message: string; synce
       deletedExpenseIds,
       products: getProducts(),
       shift: getActiveShift(),
+      shifts: getRecentShifts(),
     };
 
-    const res = await fetch(settings.syncApiUrl, {
+    const res = await fetch(syncUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -809,7 +837,7 @@ export function maybeAutoSync(): void {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   const settings = getStoreSettings();
   if (settings.autoSyncOnline === false) return;
-  if (!settings.syncApiUrl || !settings.syncApiUrl.trim()) return;
+  if (!getSyncUrl(settings) || !settings.syncApiKey?.trim()) return;
   if (getUnsyncedCount() === 0) return;
   void performCloudSync();
 }

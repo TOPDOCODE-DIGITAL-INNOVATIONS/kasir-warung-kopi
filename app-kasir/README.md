@@ -8,7 +8,7 @@ Butuh Node.js 20+.
 
 ```bash
 npm install
-npm run dev       # http://localhost:3000 (bisa diakses dari tablet di jaringan yang sama)
+npm run dev       # http://localhost:3001/kasir/ (bisa diakses dari tablet di jaringan yang sama)
 npm run build     # build produksi ke dist/
 npm run preview   # sajikan hasil build (service worker/offline aktif di sini)
 npm test          # unit test
@@ -47,7 +47,11 @@ Service worker hanya aktif di build produksi. Setelah app dibuka sekali dalam ke
 
 ## Sinkronisasi
 
-Atur URL dan token di *Pengaturan*. Sync berjalan otomatis saat perangkat online (setiap ada perubahan dan tiap 5 menit) jika opsi auto-sync aktif. Pembatalan dan pelunasan bon akan menandai transaksi untuk dikirim ulang. Pengeluaran baru dikirim lewat `expenses`; pengeluaran yang sudah terkirim lalu dihapus dikirim ID-nya lewat `deletedExpenseIds` agar server ikut menghapus.
+Di produksi app ini disajikan oleh `admin-dashboard` di `https://<domain>/kasir/` dan mengirim data ke
+`https://<domain>/api/sync` (Supabase). Cukup isi **token cabang** dari Dashboard Owner di *Pengaturan*;
+URL boleh dikosongkan (otomatis memakai domain yang sama). Lihat `../README.md`.
+
+Atur URL (opsional) dan token di *Pengaturan*. Sync berjalan otomatis saat perangkat online (setiap ada perubahan dan tiap 5 menit) jika opsi auto-sync aktif. Pembatalan dan pelunasan bon akan menandai transaksi untuk dikirim ulang. Pengeluaran baru dikirim lewat `expenses`; pengeluaran yang sudah terkirim lalu dihapus dikirim ID-nya lewat `deletedExpenseIds` agar server ikut menghapus.
 
 Payload `POST` yang dikirim:
 
@@ -60,7 +64,8 @@ Payload `POST` yang dikirim:
   "expenses": [ /* Expense[] yang belum terkirim (scope 'daily' | 'monthly') */ ],
   "deletedExpenseIds": [ /* ID pengeluaran yang dihapus di kasir */ ],
   "products": [ /* Product[] */ ],
-  "shift": { /* Shift aktif atau null */ }
+  "shift": { /* Shift aktif atau null */ },
+  "shifts": [ /* Shift[] 14 hari terakhir */ ]
 }
 ```
 

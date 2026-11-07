@@ -1,10 +1,11 @@
 {
-  "name": "admin-dashboard",
+  "name": "kasir-warung-kopi-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run build:kasir && next build",
+    "build:kasir": "npm --prefix ../app-kasir ci && npm --prefix ../app-kasir run build -- --outDir ../admin-dashboard/public/kasir --emptyOutDir",
     "start": "next start",
     "lint": "eslint"
   },

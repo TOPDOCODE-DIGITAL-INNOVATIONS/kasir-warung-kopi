@@ -324,7 +324,7 @@ describe('rekap bulanan', () => {
 
 describe('sync pengeluaran', () => {
   it('mengirim pengeluaran baru & ID yang dihapus, lalu menandainya terkirim', async () => {
-    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync' });
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
     const bodies: any[] = [];
     vi.stubGlobal('fetch', async (_url: string, init: any) => {
       bodies.push(JSON.parse(init.body));
@@ -351,8 +351,18 @@ describe('sync pengeluaran', () => {
     expect(getUnsyncedCount()).toBe(0);
   });
 
+  it('tanpa token, sync tidak dijalankan', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: '' });
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    addExpense({ scope: 'monthly', date: '2026-11', category: 'Sewa', amount: 100, createdBy: 'O' });
+    expect((await performCloudSync()).success).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(getUnsyncedCount()).toBe(1);
+  });
+
   it('gagal sync: pengeluaran tetap menunggu dikirim', async () => {
-    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync' });
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
     vi.stubGlobal('fetch', async () => ({ ok: false, status: 500, text: async () => 'err' }));
     addExpense({ scope: 'monthly', date: '2026-11', category: 'Sewa', amount: 100, createdBy: 'O' });
     expect((await performCloudSync()).success).toBe(false);
