@@ -34,6 +34,11 @@ import {
   hasPendingPush,
   editTransaction,
   canEditTransactionAmounts,
+  saveDraft,
+  getDrafts,
+  deleteDraft,
+  draftItemsForCart,
+  maybeAutoSync,
 } from './storage';
 import { verifyPin, hashPin, isValidPin, sha256Hex } from './security';
 import { can } from './permissions';
@@ -724,5 +729,85 @@ describe('koreksi transaksi', () => {
     const input = { items: tx.items, discountAmount: 0, paymentType: 'qris' as const, orderType: 'Dine In' as const };
     expect(editTransaction(tx.id, input, { reason: ' ', editedBy: 'O' }).ok).toBe(false);
     expect(editTransaction(tx.id, input, approve).message).toBe('Tidak ada perubahan.');
+  });
+});
+
+describe('draf pesanan (bayar nanti)', () => {
+  const draftInput = (label = 'Meja 5') => {
+    const tx = makeTx('tunai', 2);
+    return { label, orderType: 'Dine In' as const, items: tx.items, discountAmount: 0, discountType: 'rp' as const };
+  };
+
+  it('simpan tanpa shift, tidak mengurangi stok, lalu bisa diperbarui', () => {
+    const product = getProducts()[0];
+    saveProducts(getProducts().map((p) => (p.id === product.id ? { ...p, stock: 5 } : p)));
+    expect(() => saveDraft({ ...draftInput(), label: ' ' }, 'Kasir')).toThrow();
+    const d = saveDraft(draftInput(), 'Kasir');
+    expect(getDrafts()).toHaveLength(1);
+    expect(getProducts().find((p) => p.id === product.id)!.stock).toBe(5);
+    expect(getActiveShift()).toBeNull();
+    expect(getTransactions()).toHaveLength(0);
+
+    const items = draftItemsForCart(d);
+    items[0] = { ...items[0], quantity: 3 };
+    const updated = saveDraft({ ...draftInput(), id: d.id, items }, 'Wulan');
+    expect(getDrafts()).toHaveLength(1);
+    expect(updated.items[0].quantity).toBe(3);
+    expect(updated.createdBy).toBe('Kasir');
+    expect(updated.updatedBy).toBe('Wulan');
+    deleteDraft(d.id);
+    expect(getDrafts()).toHaveLength(0);
+  });
+
+  it('draf terkirim ke server; penghapusan setelah dibayar ikut dikirim', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    const bodies: any[] = [];
+    stubServer((b) => {
+      bodies.push(b);
+      return { draftsAccepted: true };
+    });
+    const d = saveDraft(draftInput(), 'Kasir');
+    expect(hasPendingPush()).toBe(true);
+    await performCloudSync();
+    expect(bodies[0].drafts.map((x: any) => x.id)).toEqual([d.id]);
+    expect(hasPendingPush()).toBe(false);
+
+    deleteDraft(d.id);
+    expect(hasPendingPush()).toBe(true);
+    await performCloudSync();
+    expect(bodies[1].deletedDraftIds).toEqual([d.id]);
+    expect(hasPendingPush()).toBe(false);
+  });
+
+  it('server lama yang belum mendukung draf: draf tetap menunggu & sync otomatis tidak diulang terus', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    let posts = 0;
+    stubServer(() => {
+      posts++;
+      return {};
+    });
+    vi.stubGlobal('navigator', { onLine: true });
+    saveDraft(draftInput(), 'Kasir');
+    await performCloudSync();
+    expect(posts).toBe(1);
+    expect(hasPendingPush()).toBe(true);
+    maybeAutoSync();
+    await Promise.resolve();
+    expect(posts).toBe(1);
+  });
+
+  it('draf dari perangkat lain masuk; yang dibayar di perangkat lain hilang; perubahan lokal tidak ditimpa', () => {
+    const remote = { ...saveDraft(draftInput('Meja 1'), 'B'), id: 'DRAFT-B-1', deviceCode: 'B22' };
+    deleteDraft(getDrafts()[0].id);
+    expect(applyPulledData({ drafts: [remote] })).toBe(1);
+    expect(getDrafts().map((d) => d.label)).toEqual(['Meja 1']);
+
+    // Ditambah item di sini (belum terkirim) -> versi server tidak menimpa
+    saveDraft({ ...draftInput('Meja 1 + es teh'), id: 'DRAFT-B-1' }, 'A');
+    applyPulledData({ drafts: [{ ...remote, label: 'versi server' }] });
+    expect(getDrafts()[0].label).toBe('Meja 1 + es teh');
+
+    applyPulledData({ deletedDraftIds: ['DRAFT-B-1'] });
+    expect(getDrafts()).toHaveLength(0);
   });
 });

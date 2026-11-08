@@ -132,6 +132,29 @@ export interface TransactionEditLog {
   prevPaymentType: PaymentType;
 }
 
+/**
+ * Draf pesanan (open bill / bayar nanti): pelanggan sudah pesan, dibayar saat pulang.
+ * Belum menjadi transaksi: tidak mengurangi stok & tidak masuk rekap shift sampai dibayar.
+ */
+export interface DraftOrder {
+  id: string;
+  /** Nama pelanggan / no. meja (wajib, untuk mencari draf) */
+  label: string;
+  orderType: 'Dine In' | 'Takeaway' | 'Online / Ojol';
+  items: CartItem[];
+  discountAmount: number;
+  discountType: 'rp' | 'percent';
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  deviceCode?: string;
+  isSynced?: boolean;
+  /** Pernah terkirim ke server (dipakai untuk mengirim penghapusan) */
+  syncedAt?: string;
+}
+
 export type ExpenseScope = 'daily' | 'monthly';
 
 export interface Expense {
