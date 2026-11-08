@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server'
 import { pickBusinessId } from '@/lib/business-filter'
 import DashboardClient from './DashboardClient'
 import { formatRange } from '@/lib/book-period'
+import { TX_COLUMNS, type TxRow } from './transactions/types'
 
 type Summary = {
   today: string
@@ -24,9 +25,13 @@ export default async function DashboardPage({
   const businessId = pickBusinessId((await searchParams).b)
   const supabase = await createClient()
 
-  const [{ data: businesses }, { data, error }] = await Promise.all([
+  let recentQuery = supabase.from('transactions').select(TX_COLUMNS).order('created_at', { ascending: false }).limit(10)
+  if (businessId) recentQuery = recentQuery.eq('business_id', businessId)
+
+  const [{ data: businesses }, { data, error }, { data: recent }] = await Promise.all([
     supabase.from('businesses').select('id, name').order('created_at'),
     supabase.rpc('dashboard_summary', { p_business: businessId, p_days: 7 }),
+    recentQuery,
   ])
 
   if (!businesses || businesses.length === 0) {
@@ -75,6 +80,9 @@ export default async function DashboardPage({
         name: d.day === summary.today ? 'Hari ini' : dayFmt.format(new Date(d.day + 'T00:00:00Z')),
         sales: d.sales,
       }))}
+      recent={(recent ?? []) as unknown as TxRow[]}
+      showBusiness={!businessId && businesses.length > 1}
+      transactionsHref={businessId ? `/dashboard/transactions?b=${businessId}` : '/dashboard/transactions'}
       topProducts={summary.top_products.map((p) => ({ name: p.name, qty: Number(p.qty) }))}
     />
   )
