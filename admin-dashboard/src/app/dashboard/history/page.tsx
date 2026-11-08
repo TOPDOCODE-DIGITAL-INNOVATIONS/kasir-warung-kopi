@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/utils/supabase/server'
 import { pickBusinessId } from '@/lib/business-filter'
 import { dayKey, rupiah } from '@/lib/format'
@@ -91,7 +92,7 @@ export default async function HistoryPage({
         <div className="p-4 md:p-6 border-b border-gray-100">
           <h2 className="font-semibold text-lg text-gray-900">Rekap per Periode Buku</h2>
           <p className="text-xs text-gray-500 mt-1">
-            Gabungan transaksi kasir, pengeluaran kasir, dan data lama (manual), sesuai aturan tutup buku.
+            Gabungan transaksi kasir, pengeluaran kasir, dan data lama (manual), sesuai aturan tutup buku. Klik periode untuk melihat rekap lengkapnya.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -117,7 +118,12 @@ export default async function HistoryPage({
                 rows.map((r) => (
                   <tr key={r.start_date + r.end_date} className="hover:bg-gray-50/50">
                     <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
-                      {formatRange(r.start_date, r.end_date)}
+                      <Link
+                        href={`/dashboard/recap?${new URLSearchParams({ ...(businessId ? { b: businessId } : {}), p: `${r.start_date}_${r.end_date}` })}`}
+                        className="text-blue-700 hover:underline"
+                      >
+                        {formatRange(r.start_date, r.end_date)}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-right whitespace-nowrap">{rupiah(r.sales)}</td>
                     <td className="px-4 py-3 text-right whitespace-nowrap text-green-700">{rupiah(r.overpay)}</td>

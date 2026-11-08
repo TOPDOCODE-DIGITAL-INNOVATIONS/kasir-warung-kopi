@@ -4,6 +4,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { TrendingUp, Receipt, Wallet, HandCoins, BookOpen } from 'lucide-react'
 import BusinessSelect from './BusinessSelect'
 import { rupiah } from '@/lib/format'
+import Link from 'next/link'
+import TransactionList from './transactions/TransactionList'
+import type { TxRow } from './transactions/types'
 
 type Props = {
   businesses: { id: string; name: string }[]
@@ -18,6 +21,9 @@ type Props = {
   periodLabel: string
   chartData: { name: string; sales: number }[]
   topProducts: { name: string; qty: number }[]
+  recent: TxRow[]
+  showBusiness: boolean
+  transactionsHref: string
 }
 
 function Card({ label, value, hint, icon: Icon, tone }: {
@@ -105,6 +111,16 @@ export default function DashboardClient(p: Props) {
             </ol>
           )}
         </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <h3 className="text-lg font-bold text-gray-900">Transaksi Terbaru</h3>
+          <Link href={p.transactionsHref} className="text-sm font-medium text-blue-600 hover:underline">
+            Lihat semua
+          </Link>
+        </div>
+        <TransactionList transactions={p.recent} showBusiness={p.showBusiness} compact />
       </div>
     </div>
   )

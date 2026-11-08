@@ -1,112 +1,200 @@
+import Link from 'next/link'
 import { createClient } from '@/utils/supabase/server'
-import { formatDateTime, rupiah, PAYMENT_LABELS } from '@/lib/format'
+import { rupiah, dayKey, PAYMENT_LABELS } from '@/lib/format'
 import { pickBusinessId } from '@/lib/business-filter'
 import BusinessSelect from '../BusinessSelect'
+import TransactionList from './TransactionList'
+import { TX_COLUMNS, type TxRow } from './types'
 
-type Item = { quantity?: number; product?: { name?: string }; selectedOptions?: { choiceLabel?: string }[] }
+type Params = { b?: string | string[]; from?: string; to?: string; status?: string; pay?: string; q?: string }
 
-export default async function TransactionsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ b?: string | string[] }>
-}) {
-  const businessId = pickBusinessId((await searchParams).b)
+const LIMIT = 300
+const isDate = (s?: string) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s)
+
+function nextDay(d: string) {
+  const dt = new Date(d + 'T00:00:00Z')
+  dt.setUTCDate(dt.getUTCDate() + 1)
+  return dt.toISOString().slice(0, 10)
+}
+
+export default async function TransactionsPage({ searchParams }: { searchParams: Promise<Params> }) {
+  const sp = await searchParams
+  const businessId = pickBusinessId(sp.b)
+  const today = dayKey(new Date())
+  const from = isDate(sp.from) ? sp.from! : today
+  const to = isDate(sp.to) ? sp.to! : from
+  const status = sp.status ?? ''
+  const pay = sp.pay ?? ''
+  const q = (sp.q ?? '').trim()
+
   const supabase = await createClient()
 
-  let query = supabase
-    .from('transactions')
-    .select(
-      'id, created_at, cashier_name, order_type, customer_name, items, grand_total, overpay_amount, payment_type, payment_detail, status, debt_status, businesses(name)'
-    )
-    .order('created_at', { ascending: false })
-    .limit(300)
-  if (businessId) query = query.eq('business_id', businessId)
-  const [{ data: businesses }, { data: transactions, error }] = await Promise.all([
+  const build = (columns: string) => {
+    let query = supabase
+      .from('transactions')
+      .select(columns)
+      .gte('created_at', `${from}T00:00:00+07:00`)
+      .lt('created_at', `${nextDay(to)}T00:00:00+07:00`)
+      .order('created_at', { ascending: false })
+      .limit(LIMIT)
+    if (businessId) query = query.eq('business_id', businessId)
+    if (status === 'completed' || status === 'cancelled') query = query.eq('status', status)
+    if (status === 'unpaid') query = query.eq('payment_type', 'hutang').eq('debt_status', 'unpaid').eq('status', 'completed')
+    if (pay && PAYMENT_LABELS[pay]) query = query.eq('payment_type', pay)
+    if (q) {
+      const safe = q.replace(/[,()*%]/g, ' ')
+      query = query.or(`id.ilike.%${safe}%,customer_name.ilike.%${safe}%,cashier_name.ilike.%${safe}%`)
+    }
+    return query
+  }
+
+  const [{ data: businesses }, firstTry] = await Promise.all([
     supabase.from('businesses').select('id, name').order('created_at'),
-    query,
+    build(TX_COLUMNS + ', edit_history'),
   ])
+  // Kolom edit_history mungkin belum ada jika schema.sql terbaru belum dijalankan.
+  const result = firstTry.error ? await build(TX_COLUMNS) : firstTry
+  const transactions = (result.data ?? []) as unknown as TxRow[]
+  const error = result.error
+
+  const done = transactions.filter((t) => t.status !== 'cancelled')
+  const sales = done.reduce((s, t) => s + Number(t.grand_total), 0)
+  const cancelledCount = transactions.length - done.length
+  const unpaid = done
+    .filter((t) => t.payment_type === 'hutang' && t.debt_status !== 'paid')
+    .reduce((s, t) => s + Number(t.grand_total), 0)
+  const byPayment = Object.entries(
+    done.reduce<Record<string, number>>((acc, t) => {
+      const k = t.payment_type ?? '-'
+      acc[k] = (acc[k] ?? 0) + Number(t.grand_total)
+      return acc
+    }, {})
+  ).sort((a, b) => b[1] - a[1])
+
+  const quick = (label: string, f: string, t: string) => {
+    const params = new URLSearchParams()
+    if (businessId) params.set('b', businessId)
+    params.set('from', f)
+    params.set('to', t)
+    const active = f === from && t === to && !status && !pay && !q
+    return (
+      <Link
+        key={label}
+        href={`/dashboard/transactions?${params}`}
+        className={
+          'px-3 py-1.5 text-sm rounded-lg border ' +
+          (active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50')
+        }
+      >
+        {label}
+      </Link>
+    )
+  }
+  const shift = (days: number) => {
+    const d = new Date(today + 'T00:00:00Z')
+    d.setUTCDate(d.getUTCDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Riwayat Transaksi</h1>
-          <p className="text-gray-500 text-sm mt-1">300 transaksi terakhir yang disinkronisasi dari kasir.</p>
+          <h1 className="text-2xl font-bold text-gray-900">Transaksi</h1>
+          <p className="text-gray-500 text-sm mt-1">Klik salah satu transaksi untuk melihat detail pesanannya.</p>
         </div>
         <BusinessSelect businesses={businesses ?? []} />
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        {quick('Hari ini', today, today)}
+        {quick('Kemarin', shift(-1), shift(-1))}
+        {quick('7 hari', shift(-6), today)}
+        {quick('30 hari', shift(-29), today)}
+      </div>
+
+      <form method="get" className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
+        {businessId && <input type="hidden" name="b" value={businessId} />}
+        <label className="text-xs text-gray-500 space-y-1">
+          <span>Dari</span>
+          <input type="date" name="from" defaultValue={from} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900" />
+        </label>
+        <label className="text-xs text-gray-500 space-y-1">
+          <span>Sampai</span>
+          <input type="date" name="to" defaultValue={to} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900" />
+        </label>
+        <label className="text-xs text-gray-500 space-y-1">
+          <span>Status</span>
+          <select name="status" defaultValue={status} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900 bg-white">
+            <option value="">Semua</option>
+            <option value="completed">Selesai</option>
+            <option value="cancelled">Batal</option>
+            <option value="unpaid">Bon belum lunas</option>
+          </select>
+        </label>
+        <label className="text-xs text-gray-500 space-y-1">
+          <span>Pembayaran</span>
+          <select name="pay" defaultValue={pay} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900 bg-white">
+            <option value="">Semua</option>
+            {Object.entries(PAYMENT_LABELS).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-xs text-gray-500 space-y-1 col-span-2 md:col-span-1">
+          <span>Cari</span>
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            placeholder="No. nota, pelanggan, kasir"
+            className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900"
+          />
+        </label>
+        <button className="col-span-2 md:col-span-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg py-2">
+          Terapkan
+        </button>
+      </form>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Stat label="Total Penjualan" value={rupiah(sales)} hint={`${done.length} transaksi selesai`} />
+        <Stat label="Rata-rata / Transaksi" value={rupiah(done.length ? sales / done.length : 0)} hint="Tidak termasuk batal" />
+        <Stat label="Bon Belum Lunas" value={rupiah(unpaid)} hint="Pada rentang ini" tone="text-amber-600" />
+        <Stat label="Dibatalkan" value={String(cancelledCount)} hint="transaksi" tone="text-red-600" />
+      </div>
+
+      {byPayment.length > 0 && (
+        <div className="flex flex-wrap gap-2 text-xs">
+          {byPayment.map(([k, v]) => (
+            <span key={k} className="bg-white border border-gray-200 rounded-full px-3 py-1 text-gray-600">
+              {PAYMENT_LABELS[k] ?? k}: <span className="font-semibold text-gray-900">{rupiah(v)}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error.message}</p>}
+      {transactions.length >= LIMIT && (
+        <p className="text-xs text-amber-700 bg-amber-50 p-3 rounded-lg">
+          Menampilkan {LIMIT} transaksi terbaru saja. Persempit rentang tanggal agar ringkasan akurat.
+        </p>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-700">
-              <tr>
-                <th className="px-4 py-3 font-medium">Tanggal</th>
-                <th className="px-4 py-3 font-medium">No. Nota</th>
-                <th className="px-4 py-3 font-medium">Cabang</th>
-                <th className="px-4 py-3 font-medium">Kasir</th>
-                <th className="px-4 py-3 font-medium">Bayar</th>
-                <th className="px-4 py-3 font-medium text-right">Total</th>
-                <th className="px-4 py-3 font-medium">Item</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {!transactions || transactions.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                    Belum ada transaksi.
-                  </td>
-                </tr>
-              ) : (
-                transactions.map((tx) => {
-                  const cancelled = tx.status === 'cancelled'
-                  const business = tx.businesses as unknown as { name: string } | null
-                  return (
-                    <tr key={tx.id} className={cancelled ? 'bg-red-50/40 text-gray-400' : 'hover:bg-gray-50/50'}>
-                      <td className="px-4 py-3 whitespace-nowrap text-gray-900">{formatDateTime(tx.created_at)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">{tx.id}</td>
-                      <td className="px-4 py-3">{business?.name ?? '-'}</td>
-                      <td className="px-4 py-3">{tx.cashier_name ?? '-'}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {cancelled ? (
-                          <span className="px-2 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full">Batal</span>
-                        ) : tx.payment_type === 'hutang' ? (
-                          <span
-                            className={
-                              'px-2 py-1 text-xs font-semibold rounded-full ' +
-                              (tx.debt_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')
-                            }
-                          >
-                            Bon {tx.debt_status === 'paid' ? 'Lunas' : 'Belum Lunas'}
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
-                            {PAYMENT_LABELS[tx.payment_type ?? ''] ?? tx.payment_type}
-                            {tx.payment_detail ? ` · ${tx.payment_detail}` : ''}
-                          </span>
-                        )}
-                      </td>
-                      <td className={'px-4 py-3 text-right font-medium whitespace-nowrap ' + (cancelled ? 'line-through' : 'text-gray-900')}>
-                        {rupiah(tx.grand_total)}
-                        {!cancelled && Number(tx.overpay_amount) > 0 && (
-                          <p className="text-xs font-normal text-green-700">+ kelebihan {rupiah(tx.overpay_amount)}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-xs max-w-xs truncate">
-                        {((tx.items ?? []) as Item[])
-                          .map((i) => `${i.product?.name ?? '?'} x${i.quantity ?? 1}`)
-                          .join(', ')}
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <TransactionList transactions={transactions} showBusiness={!businessId && (businesses?.length ?? 0) > 1} />
       </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, hint, tone = 'text-gray-900' }: { label: string; value: string; hint: string; tone?: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
+      <p className="text-xs font-medium text-gray-500">{label}</p>
+      <p className={`text-lg font-bold truncate ${tone}`}>{value}</p>
+      <p className="text-xs text-gray-400">{hint}</p>
     </div>
   )
 }
