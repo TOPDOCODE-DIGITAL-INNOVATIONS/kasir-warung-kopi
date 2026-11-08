@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Receipt, Filter, Eye, XCircle, CheckCircle2, HandCoins, Lock } from 'lucide-react';
+import { Search, Receipt, Filter, Eye, XCircle, CheckCircle2, HandCoins, Lock, Pencil } from 'lucide-react';
 import { Transaction, StoreSettings, Cashier } from '../types';
 import {
   getTransactions,
@@ -12,6 +12,7 @@ import {
 import { verifyPin } from '../lib/security';
 import { can } from '../lib/permissions';
 import { ReceiptModal } from './POS/ReceiptModal';
+import { EditTransactionModal } from './EditTransactionModal';
 import { DailyClosingPanel } from './DailyClosingPanel';
 import { toLocalDateKey } from '../lib/reports';
 
@@ -41,6 +42,8 @@ export const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({
   // Debt payment modal state
   const [txToPay, setTxToPay] = useState<Transaction | null>(null);
   const [payMethod, setPayMethod] = useState<'tunai' | 'nontunai'>('tunai');
+
+  const [txToEdit, setTxToEdit] = useState<Transaction | null>(null);
 
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
@@ -331,6 +334,14 @@ export const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({
                     </td>
                     <td className="p-3 font-black text-[#3E2723]">{formatIDR(tx.grandTotal)}</td>
                     <td className="p-3">
+                      {tx.editHistory && tx.editHistory.length > 0 && (
+                        <span
+                          className="mr-1 bg-sky-100 text-sky-900 border border-sky-300 px-2 py-0.5 rounded-full text-[10px] font-bold"
+                          title={tx.editHistory.map((h) => `${h.by}: ${h.reason} (${h.summary})`).join('\n')}
+                        >
+                          Dikoreksi
+                        </span>
+                      )}
                       {tx.status === 'completed' && isUnpaidDebt(tx) ? (
                         <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full text-[10px] font-bold">
                           Bon Belum Lunas
@@ -371,6 +382,17 @@ export const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({
 
                         {tx.status === 'completed' && (
                           <button
+                            onClick={() => setTxToEdit(tx)}
+                            className="p-1.5 bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300 rounded transition-colors"
+                            title="Koreksi Transaksi (salah catat)"
+                            aria-label="Koreksi Transaksi"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+
+                        {tx.status === 'completed' && (
+                          <button
                             onClick={() => setTxToCancel(tx)}
                             className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 rounded transition-colors"
                             title="Batalkan Transaksi / Refund"
@@ -395,6 +417,19 @@ export const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({
           storeSettings={storeSettings}
           onClose={() => setSelectedTxForReceipt(null)}
           onNewTransaction={() => setSelectedTxForReceipt(null)}
+        />
+      )}
+
+      {txToEdit && (
+        <EditTransactionModal
+          transaction={txToEdit}
+          activeCashier={activeCashier}
+          onClose={() => setTxToEdit(null)}
+          onSaved={(msg) => {
+            setTxToEdit(null);
+            setNotice({ type: 'success', msg });
+            refreshData();
+          }}
         />
       )}
 

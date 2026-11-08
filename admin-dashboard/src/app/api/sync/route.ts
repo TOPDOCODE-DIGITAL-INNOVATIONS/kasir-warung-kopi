@@ -125,6 +125,74 @@ async function mirrorProducts(supabase: SupabaseClient, businessId: string, prod
   if (delError) throw delError
 }
 
+/**
+ * Draf pesanan (open bill / bayar nanti). Versi yang lebih baru (updatedAt) yang menang.
+ * Gagal di sini (mis. tabel draft_orders belum dibuat) tidak menggagalkan sync transaksi;
+ * kasir cukup mengirim ulang drafnya nanti.
+ */
+async function syncDrafts(
+  supabase: SupabaseClient,
+  businessId: string,
+  drafts: Row[],
+  deletedIds: string[],
+  deviceCode: string | null,
+  now: string
+): Promise<boolean> {
+  try {
+    const deleted = new Set(deletedIds)
+    const incoming = drafts.filter((d) => !deleted.has(d.id as string))
+    if (incoming.length) {
+      const { data: existing, error: readError } = await supabase
+        .from('draft_orders')
+        .select('id, updated_at')
+        .eq('business_id', businessId)
+        .in('id', incoming.map((d) => d.id as string))
+      if (readError) throw readError
+      const current = new Map((existing ?? []).map((r) => [r.id as string, ts(r.updated_at)]))
+      const rows = incoming
+        .map((d) => {
+          const raw = { ...d }
+          delete raw.isSynced
+          delete raw.syncedAt
+          return {
+            business_id: businessId,
+            id: d.id,
+            label: str(d.label),
+            updated_at: ts(d.updatedAt) ?? now,
+            device_code: str(d.deviceCode) ?? deviceCode,
+            raw,
+            synced_at: now,
+          }
+        })
+        .filter((r) => {
+          const cur = current.get(r.id as string)
+          return !cur || r.updated_at >= cur
+        })
+      if (rows.length) {
+        const { error } = await supabase.from('draft_orders').upsert(rows, { onConflict: 'business_id,id' })
+        if (error) throw error
+      }
+    }
+    if (deletedIds.length) {
+      const { error } = await supabase
+        .from('draft_orders')
+        .delete()
+        .eq('business_id', businessId)
+        .in('id', deletedIds)
+      if (error) throw error
+      const { error: tombError } = await supabase.from('deleted_records').upsert(
+        deletedIds.map((id) => ({ business_id: businessId, kind: 'draft', id, deleted_at: now })),
+        { onConflict: 'business_id,kind,id' }
+      )
+      if (tombError) throw tombError
+    }
+    return true
+  } catch (e) {
+    console.error('sync: drafts', e)
+    return false
+  }
+}
+
 // ---------------------------------------------------------------------
 // POST: kasir -> server
 // ---------------------------------------------------------------------
@@ -155,12 +223,16 @@ export async function POST(request: Request) {
   const deletedExpenseIds = Array.isArray(body.deletedExpenseIds)
     ? body.deletedExpenseIds.filter((x): x is string => typeof x === 'string')
     : []
+  const drafts = list(body.drafts)
+  const deletedDraftIds = Array.isArray(body.deletedDraftIds)
+    ? body.deletedDraftIds.filter((x): x is string => typeof x === 'string')
+    : []
   const config = parseConfig(body.config)
   // Jam perangkat bisa lebih cepat; jangan biarkan versi data master melampaui jam server.
   const editedAt = ts(body.configEditedAt)
   const configEditedAt = editedAt && editedAt > now ? now : editedAt
 
-  if ([transactions, expenses, legacyProducts, shifts, deletedExpenseIds].some((a) => a.length > MAX_ROWS)) {
+  if ([transactions, expenses, legacyProducts, shifts, deletedExpenseIds, drafts, deletedDraftIds].some((a) => a.length > MAX_ROWS)) {
     return json({ success: false, error: `Maksimal ${MAX_ROWS} baris per jenis data` }, 413)
   }
 
@@ -197,6 +269,8 @@ export async function POST(request: Request) {
         debt_paid_method: str(t.debtPaidMethod),
         debt_paid_shift_id: str(t.debtPaidShiftId),
         notes: str(t.notes),
+        // Hanya dikirim bila ada koreksi, agar kasir tetap bisa sync walau kolom belum dimigrasi.
+        ...(Array.isArray(t.editHistory) && t.editHistory.length ? { edit_history: t.editHistory } : {}),
         synced_at: now,
       }))
       const { error } = await supabase.from('transactions').upsert(rows, { onConflict: 'business_id,id' })
@@ -262,6 +336,11 @@ export async function POST(request: Request) {
       if (error) throw error
     }
 
+    const draftsAccepted =
+      drafts.length || deletedDraftIds.length
+        ? await syncDrafts(supabase, businessId, drafts, deletedDraftIds, deviceCode, now)
+        : true
+
     // Data master: yang terakhir diubah (berdasarkan waktu edit di perangkat) yang dipakai.
     let configAccepted = false
     let configUpdatedAt = business.pos_config_updated_at
@@ -294,6 +373,7 @@ export async function POST(request: Request) {
         expenses: expenses.length,
         deletedExpenses: deletedExpenseIds.length,
         shifts: shifts.length,
+        draftsAccepted,
         configAccepted,
         configUpdatedAt: configUpdatedAt ? new Date(configUpdatedAt).toISOString() : null,
       },
@@ -340,6 +420,7 @@ function rowToTransaction(r: Row): Row {
     debtPaidMethod: r.debt_paid_method,
     debtPaidShiftId: r.debt_paid_shift_id,
     notes: r.notes,
+    editHistory: Array.isArray(r.edit_history) && r.edit_history.length ? r.edit_history : null,
     deviceCode: r.device_code,
   })
 }
@@ -402,9 +483,10 @@ export async function GET(request: Request) {
     const expCursor = cur('exp')
     const shiftCursor = cur('shift')
     const delCursor = cur('del')
+    const draftCursor = cur('draft')
     const init = params.get('init') === '1' || !txCursor
 
-    const [tx, exp, shift, del] = await Promise.all([
+    const [tx, exp, shift, del, draft] = await Promise.all([
       fetchPage(supabase, 'transactions', businessId, txCursor, 'synced_at', (q) =>
         init
           ? q.or(`created_at.gte."${daysAgo(INITIAL_TX_DAYS)}",and(payment_type.eq.hutang,debt_status.eq.unpaid)`)
@@ -420,6 +502,11 @@ export async function GET(request: Request) {
       delCursor
         ? fetchPage(supabase, 'deleted_records', businessId, delCursor, 'deleted_at')
         : Promise.resolve<Page>({ rows: [], next: serverTime, more: false }),
+      // Draf: semua draf yang masih terbuka (jumlahnya sedikit). Tabel belum ada -> kosong saja.
+      fetchPage(supabase, 'draft_orders', businessId, draftCursor, 'synced_at').catch((e) => {
+        console.error('sync pull: drafts', e)
+        return { rows: [], next: draftCursor, more: false } as Page
+      }),
     ])
 
     const configUpdatedAt = business.pos_config_updated_at
@@ -437,14 +524,17 @@ export async function GET(request: Request) {
       expenses: exp.rows.map(rowToExpense),
       shifts: shift.rows.map((r) => (r.raw && typeof r.raw === 'object' ? r.raw : { id: r.id })),
       deletedExpenseIds: del.rows.filter((r) => r.kind === 'expense').map((r) => r.id),
+      drafts: draft.rows.map((r) => (r.raw && typeof r.raw === 'object' ? r.raw : null)).filter(Boolean),
+      deletedDraftIds: del.rows.filter((r) => r.kind === 'draft').map((r) => r.id),
       // Cursor kosong (tidak ada data) diisi serverTime agar tarikan berikutnya tidak mengulang dari awal.
       cursors: {
         tx: tx.next ?? serverTime,
         exp: exp.next ?? serverTime,
         shift: shift.next ?? serverTime,
         del: del.next ?? serverTime,
+        draft: draft.next ?? serverTime,
       },
-      hasMore: tx.more || exp.more || shift.more || del.more,
+      hasMore: tx.more || exp.more || shift.more || del.more || draft.more,
     })
   } catch (error) {
     console.error('sync pull error', error)

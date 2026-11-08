@@ -113,9 +113,45 @@ export interface Transaction {
   debtPaidMethod?: 'tunai' | 'nontunai';
   debtPaidShiftId?: string;
   notes?: string;
+  /** Riwayat koreksi (edit) transaksi, terlama dulu */
+  editHistory?: TransactionEditLog[];
   /** Kode perangkat asal (diisi untuk transaksi dari perangkat lain hasil sync) */
   deviceCode?: string;
   isSynced?: boolean;
+  syncedAt?: string;
+}
+
+/** Catatan satu kali koreksi transaksi (untuk audit). */
+export interface TransactionEditLog {
+  at: string;
+  by: string;
+  reason: string;
+  /** Ringkasan perubahan, mis. "Total Rp 20.000 → Rp 15.000; Pembayaran tunai → qris" */
+  summary: string;
+  prevGrandTotal: number;
+  prevPaymentType: PaymentType;
+}
+
+/**
+ * Draf pesanan (open bill / bayar nanti): pelanggan sudah pesan, dibayar saat pulang.
+ * Belum menjadi transaksi: tidak mengurangi stok & tidak masuk rekap shift sampai dibayar.
+ */
+export interface DraftOrder {
+  id: string;
+  /** Nama pelanggan / no. meja (wajib, untuk mencari draf) */
+  label: string;
+  orderType: 'Dine In' | 'Takeaway' | 'Online / Ojol';
+  items: CartItem[];
+  discountAmount: number;
+  discountType: 'rp' | 'percent';
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  deviceCode?: string;
+  isSynced?: boolean;
+  /** Pernah terkirim ke server (dipakai untuk mengirim penghapusan) */
   syncedAt?: string;
 }
 

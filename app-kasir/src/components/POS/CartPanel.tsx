@@ -9,6 +9,8 @@ import {
   Coffee,
   ChevronRight,
   Sparkles,
+  ClipboardList,
+  Save,
 } from 'lucide-react';
 import { CartItem, StoreSettings } from '../../types';
 import { formatIDR } from '../../lib/storage';
@@ -30,6 +32,11 @@ interface CartPanelProps {
   onCheckout: () => void;
   /** Jika diisi, tombol checkout dinonaktifkan dan alasan ini ditampilkan */
   checkoutBlockedReason?: string | null;
+  /** Draf yang sedang dibuka di keranjang (null = pesanan baru) */
+  activeDraftLabel?: string | null;
+  draftCount: number;
+  onOpenDrafts: () => void;
+  onSaveDraft: () => void;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
@@ -48,6 +55,10 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   onClearCart,
   onCheckout,
   checkoutBlockedReason,
+  activeDraftLabel,
+  draftCount,
+  onOpenDrafts,
+  onSaveDraft,
 }) => {
   const checkoutDisabled = cart.length === 0 || Boolean(checkoutBlockedReason);
   const [showDiscountInput, setShowDiscountInput] = useState(false);
@@ -85,16 +96,34 @@ export const CartPanel: React.FC<CartPanelProps> = ({
           </span>
         </div>
 
+        <div className="flex items-center gap-1.5">
+        <button
+          onClick={onOpenDrafts}
+          className="text-[10px] text-[#3E2723] font-bold border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-stone-100 transition-colors flex items-center gap-1"
+          title="Draf pesanan / bayar nanti"
+        >
+          <ClipboardList className="w-3 h-3" />
+          <span>DRAF</span>
+          {draftCount > 0 && (
+            <span className="bg-amber-500 text-white rounded-full px-1.5 text-[9px] font-black">{draftCount}</span>
+          )}
+        </button>
         {cart.length > 0 && (
           <button
             onClick={onClearCart}
             className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] font-bold border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-stone-100 transition-colors flex items-center gap-1"
           >
             <Trash2 className="w-3 h-3" />
-            <span>KOSONGKAN</span>
+            <span>{activeDraftLabel ? 'TUTUP' : 'KOSONGKAN'}</span>
           </button>
         )}
+        </div>
       </div>
+      {activeDraftLabel && (
+        <div className="shrink-0 px-3.5 py-1.5 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-900 font-semibold">
+          Draf: <b>{activeDraftLabel}</b> — tambah item lalu simpan lagi, atau bayar sekarang.
+        </div>
+      )}
       
 
       {/* Order Type Tabs & Customer Input */}
@@ -311,6 +340,15 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {checkoutBlockedReason}
           </p>
         )}
+        <button
+          type="button"
+          onClick={onSaveDraft}
+          disabled={cart.length === 0}
+          className="w-full py-2 bg-white border border-[#3E2723] text-[#3E2723] hover:bg-[#FAF8F6] font-extrabold text-xs rounded transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Save className="w-4 h-4" />
+          <span>{activeDraftLabel ? 'SIMPAN PERUBAHAN DRAF' : 'SIMPAN DRAF (BAYAR NANTI)'}</span>
+        </button>
         <button
           onClick={onCheckout}
           disabled={checkoutDisabled}

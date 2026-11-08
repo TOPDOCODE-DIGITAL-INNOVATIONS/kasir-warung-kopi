@@ -184,10 +184,26 @@ create table if not exists public.book_period_rules (
 alter table public.businesses add column if not exists pos_config jsonb;
 alter table public.businesses add column if not exists pos_config_updated_at timestamptz;
 alter table public.transactions add column if not exists debt_paid_shift_id text;
+-- Riwayat koreksi transaksi yang salah catat (diisi dari kasir): [{at, by, reason, summary, prevGrandTotal, prevPaymentType}]
+alter table public.transactions add column if not exists edit_history jsonb;
+
+-- Draf pesanan / open bill (pelanggan pesan, bayar saat pulang). Dibagi ke semua kasir satu cabang.
+create table if not exists public.draft_orders (
+  business_id uuid not null references public.businesses(id) on delete cascade,
+  id text not null,
+  label text,
+  device_code text,
+  raw jsonb not null,
+  updated_at timestamptz not null,
+  synced_at timestamptz not null default now(),
+  primary key (business_id, id)
+);
+create index if not exists draft_orders_business_synced_idx on public.draft_orders(business_id, synced_at);
+alter table public.draft_orders enable row level security;
 
 create table if not exists public.deleted_records (
   business_id uuid not null references public.businesses(id) on delete cascade,
-  kind text not null, -- expense
+  kind text not null, -- expense | draft
   id text not null,
   deleted_at timestamptz not null default now(),
   primary key (business_id, kind, id)
