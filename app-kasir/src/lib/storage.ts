@@ -7,6 +7,8 @@ import {
   StoreSettings,
   CartItem,
   Expense,
+  PaymentType,
+  TransactionEditLog,
 } from '../types';
 import {
   INITIAL_CATEGORIES,
@@ -376,9 +378,18 @@ export function getStoreSettings(): StoreSettings {
 
 export function saveStoreSettings(settings: StoreSettings): void {
   const prev = getStoreSettings();
-  writeJSON(STORAGE_KEYS.SETTINGS, settings);
-  if (JSON.stringify(sharedSettings(prev)) !== JSON.stringify(sharedSettings(settings))) markConfigDirty();
-  if ((prev.syncApiKey ?? '').trim() !== (settings.syncApiKey ?? '').trim()) resetPullState();
+  const next: StoreSettings = {
+    ...settings,
+    syncApiKey: settings.syncApiKey?.trim() || undefined,
+    syncApiUrl: settings.syncApiUrl?.trim() || undefined,
+  };
+  const tokenChanged = (prev.syncApiKey ?? '').trim() !== (next.syncApiKey ?? '');
+  writeJSON(STORAGE_KEYS.SETTINGS, tokenChanged ? { ...next, lastSyncError: undefined } : next);
+  if (tokenChanged) {
+    onSyncTokenChanged(false);
+  } else if (JSON.stringify(sharedSettings(prev)) !== JSON.stringify(sharedSettings(next))) {
+    markConfigDirty();
+  }
   notifyUpdate();
 }
 
@@ -606,6 +617,264 @@ export function payDebt(txId: string, method: 'tunai' | 'nontunai'): { ok: boole
 
   notifyUpdate();
   return { ok: true, message: `Bon ${tx.customerName || ''} sebesar ${formatIDR(tx.grandTotal)} lunas.` };
+}
+
+// -------------------------------------------------------------
+// KOREKSI (EDIT) TRANSAKSI
+// -------------------------------------------------------------
+
+export interface TransactionEditInput {
+  items: CartItem[];
+  /** Diskon nominal (Rp) */
+  discountAmount: number;
+  discountReason?: string;
+  paymentType: PaymentType;
+  paymentDetail?: string;
+  /** Uang diterima, khusus tunai */
+  amountPaid?: number;
+  /** Kelebihan (kembalian diganti permen), khusus tunai */
+  overpayAmount?: number;
+  orderType: Transaction['orderType'];
+  customerName?: string;
+  customerPhone?: string;
+  notes?: string;
+}
+
+/** Tambah (sign 1) / keluarkan (sign -1) kontribusi transaksi pada rekap shift. */
+function applyTxToShift(shift: Shift, tx: Transaction, sign: 1 | -1): void {
+  if (tx.paymentType === 'tunai') {
+    shift.totalSalesCash = Math.max(0, shift.totalSalesCash + sign * tx.grandTotal);
+    const overpay = tx.overpayAmount ?? 0;
+    if (overpay > 0) shift.overpayCash = Math.max(0, (shift.overpayCash ?? 0) + sign * overpay);
+  } else if (tx.paymentType === 'hutang') {
+    shift.totalSalesDebt = Math.max(0, (shift.totalSalesDebt ?? 0) + sign * tx.grandTotal);
+  } else {
+    shift.totalSalesNonCash = Math.max(0, shift.totalSalesNonCash + sign * tx.grandTotal);
+  }
+}
+
+/** Uang tunai yang masuk laci dari transaksi ini (penjualan tunai + kelebihan). */
+function cashIn(tx: Transaction): number {
+  return tx.paymentType === 'tunai' ? tx.grandTotal + (tx.overpayAmount ?? 0) : 0;
+}
+
+/**
+ * Apakah nominal (item, diskon, pembayaran) transaksi boleh dikoreksi. Hanya transaksi dari shift
+ * yang masih terbuka di perangkat ini, agar rekap kas shift tetap cocok dengan isi laci.
+ */
+export function canEditTransactionAmounts(tx: Transaction): { ok: boolean; reason?: string } {
+  if (tx.status === 'cancelled') return { ok: false, reason: 'Transaksi sudah dibatalkan.' };
+  if (tx.paymentType === 'hutang' && tx.debtStatus === 'paid') {
+    return { ok: false, reason: 'Bon ini sudah dilunasi, nominalnya tidak bisa diubah.' };
+  }
+  const shift = getActiveShift();
+  if (!shift || !tx.shiftId || tx.shiftId !== shift.id) {
+    return {
+      ok: false,
+      reason:
+        'Transaksi dari shift yang sudah ditutup (atau dari perangkat lain): hanya pelanggan, tipe order & catatan ' +
+        'yang bisa dikoreksi. Untuk koreksi item/nominal, batalkan transaksi lalu buat transaksi baru.',
+    };
+  }
+  return { ok: true };
+}
+
+function itemsPrint(items: CartItem[]): string {
+  return JSON.stringify(
+    items
+      .map((i) => [i.product.id, i.quantity, i.unitPrice, i.selectedOptions.map((o) => o.choiceLabel).join('|'), i.notes ?? ''])
+      .sort()
+  );
+}
+
+function qtyByProduct(items: CartItem[]): Map<string, number> {
+  const m = new Map<string, number>();
+  items.forEach((i) => m.set(i.product.id, (m.get(i.product.id) ?? 0) + i.quantity));
+  return m;
+}
+
+/**
+ * Koreksi transaksi yang salah catat. Nomor struk & waktu tetap; stok dan rekap shift ikut
+ * disesuaikan, dan perubahan dicatat di `editHistory` lalu dikirim ulang ke server.
+ */
+export function editTransaction(
+  txId: string,
+  input: TransactionEditInput,
+  opts: { reason: string; editedBy: string }
+): { ok: boolean; message: string; transaction?: Transaction } {
+  const reason = opts.reason.trim();
+  if (!reason) return { ok: false, message: 'Mohon isi alasan koreksi.' };
+
+  const transactions = getTransactions();
+  const idx = transactions.findIndex((t) => t.id === txId);
+  if (idx < 0) return { ok: false, message: 'Transaksi tidak ditemukan.' };
+  const old = transactions[idx];
+  if (old.status === 'cancelled') return { ok: false, message: 'Transaksi yang dibatalkan tidak bisa dikoreksi.' };
+
+  // Item & total
+  const items = compactCartItems(
+    input.items
+      .map((i) => ({ ...i, quantity: Math.floor(i.quantity) }))
+      .filter((i) => i.quantity > 0)
+      .map((i) => ({ ...i, totalPrice: i.unitPrice * i.quantity }))
+  );
+  if (items.length === 0) {
+    return { ok: false, message: 'Minimal harus ada 1 item. Untuk membatalkan semuanya, gunakan Batalkan Transaksi.' };
+  }
+  const subtotal = items.reduce((sum, i) => sum + i.totalPrice, 0);
+  const discountAmount = Math.min(subtotal, Math.max(0, Math.round(input.discountAmount || 0)));
+  const afterDiscount = subtotal - discountAmount;
+  // Pakai tarif pajak transaksi aslinya, bukan pengaturan saat ini.
+  const oldBase = old.subtotal - old.discountAmount;
+  const taxRate = old.taxAmount > 0 && oldBase > 0 ? Math.round((old.taxAmount / oldBase) * 10000) / 10000 : 0;
+  const taxAmount = Math.round(afterDiscount * taxRate);
+  const grandTotal = afterDiscount + taxAmount;
+
+  // Pembayaran
+  const paymentType = input.paymentType;
+  const customerName = input.customerName?.trim() || undefined;
+  if (paymentType === 'hutang' && !customerName) {
+    return { ok: false, message: 'Nama pelanggan wajib diisi untuk Bon / Hutang.' };
+  }
+  let amountPaid = grandTotal;
+  let changeAmount = 0;
+  let overpayAmount: number | undefined;
+  if (paymentType === 'tunai') {
+    amountPaid = Math.round(input.amountPaid ?? old.amountPaid);
+    if (amountPaid < grandTotal) {
+      return { ok: false, message: `Uang diterima (${formatIDR(amountPaid)}) kurang dari total ${formatIDR(grandTotal)}.` };
+    }
+    const overpay = Math.max(0, Math.round(input.overpayAmount ?? 0));
+    if (overpay > amountPaid - grandTotal) return { ok: false, message: 'Kelebihan tidak boleh lebih besar dari kembalian.' };
+    overpayAmount = overpay || undefined;
+    changeAmount = amountPaid - grandTotal - overpay;
+  }
+
+  const updated: Transaction = {
+    ...old,
+    items,
+    subtotal,
+    discountAmount,
+    discountReason: discountAmount > 0 ? input.discountReason?.trim() || old.discountReason : undefined,
+    taxAmount,
+    grandTotal,
+    paymentType,
+    paymentDetail: input.paymentDetail?.trim() || undefined,
+    amountPaid,
+    changeAmount,
+    overpayAmount,
+    orderType: input.orderType,
+    customerName,
+    customerPhone: input.customerPhone?.trim() || undefined,
+    notes: input.notes?.trim() || undefined,
+  };
+  if (paymentType === 'hutang') {
+    updated.debtStatus = old.paymentType === 'hutang' ? old.debtStatus ?? 'unpaid' : 'unpaid';
+  } else {
+    delete updated.debtStatus;
+    delete updated.debtPaidAt;
+    delete updated.debtPaidMethod;
+    delete updated.debtPaidShiftId;
+  }
+
+  const itemsChanged = itemsPrint(old.items) !== itemsPrint(items);
+  const amountsChanged =
+    itemsChanged ||
+    old.discountAmount !== discountAmount ||
+    old.grandTotal !== grandTotal ||
+    old.paymentType !== paymentType ||
+    old.amountPaid !== amountPaid ||
+    (old.overpayAmount ?? 0) !== (overpayAmount ?? 0);
+
+  // Ringkasan perubahan untuk audit
+  const summary: string[] = [];
+  if (old.grandTotal !== grandTotal) summary.push(`Total ${formatIDR(old.grandTotal)} → ${formatIDR(grandTotal)}`);
+  if (itemsChanged) {
+    const desc = (list: CartItem[]) => list.map((i) => `${i.quantity}x ${i.product.name}`).join(', ');
+    summary.push(`Item: ${desc(old.items)} → ${desc(items)}`);
+  }
+  if (old.discountAmount !== discountAmount) summary.push(`Diskon ${formatIDR(old.discountAmount)} → ${formatIDR(discountAmount)}`);
+  if (old.paymentType !== paymentType) summary.push(`Pembayaran ${old.paymentType} → ${paymentType}`);
+  else if ((old.paymentDetail ?? '') !== (updated.paymentDetail ?? '')) summary.push('Detail pembayaran diubah');
+  if (paymentType === 'tunai' && old.paymentType === 'tunai' && old.amountPaid !== amountPaid) {
+    summary.push(`Uang diterima ${formatIDR(old.amountPaid)} → ${formatIDR(amountPaid)}`);
+  }
+  if ((old.overpayAmount ?? 0) !== (overpayAmount ?? 0)) {
+    summary.push(`Kelebihan ${formatIDR(old.overpayAmount ?? 0)} → ${formatIDR(overpayAmount ?? 0)}`);
+  }
+  if (old.orderType !== updated.orderType) summary.push(`Order ${old.orderType} → ${updated.orderType}`);
+  if ((old.customerName ?? '') !== (customerName ?? '')) {
+    summary.push(`Pelanggan "${old.customerName ?? '-'}" → "${customerName ?? '-'}"`);
+  }
+  if ((old.customerPhone ?? '') !== (updated.customerPhone ?? '')) summary.push('No. HP diubah');
+  if ((old.notes ?? '') !== (updated.notes ?? '')) summary.push('Catatan diubah');
+  if (summary.length === 0) return { ok: false, message: 'Tidak ada perubahan.' };
+
+  let shift: Shift | null = null;
+  let products: Product[] | null = null;
+  if (amountsChanged) {
+    const allowed = canEditTransactionAmounts(old);
+    if (!allowed.ok) return { ok: false, message: allowed.reason! };
+    shift = getActiveShift()!;
+
+    if (itemsChanged) {
+      // Cek & sesuaikan stok berdasarkan selisih jumlah per produk.
+      products = getProducts();
+      const before = qtyByProduct(old.items);
+      const after = qtyByProduct(items);
+      const issues: string[] = [];
+      after.forEach((qty, productId) => {
+        const delta = qty - (before.get(productId) ?? 0);
+        if (delta <= 0) return;
+        const p = products!.find((x) => x.id === productId);
+        const name = items.find((i) => i.product.id === productId)?.product.name ?? productId;
+        if (!p) {
+          if (!before.has(productId)) issues.push(`${name} sudah tidak ada di katalog.`);
+          return;
+        }
+        if (!before.has(productId) && !p.isAvailable) issues.push(`${p.name} sedang tidak tersedia.`);
+        else if (p.stock >= 0 && delta > p.stock) issues.push(`Stok ${p.name} tinggal ${p.stock}, perlu tambahan ${delta}.`);
+      });
+      if (issues.length) return { ok: false, message: issues.join('\n') };
+
+      const productIds = new Set([...before.keys(), ...after.keys()]);
+      productIds.forEach((productId) => {
+        const delta = (after.get(productId) ?? 0) - (before.get(productId) ?? 0);
+        const p = products!.find((x) => x.id === productId);
+        if (delta !== 0 && p && p.stock >= 0) p.stock = Math.max(0, p.stock - delta);
+      });
+    }
+  }
+
+  const log: TransactionEditLog = {
+    at: new Date().toISOString(),
+    by: opts.editedBy,
+    reason,
+    summary: summary.join('; '),
+    prevGrandTotal: old.grandTotal,
+    prevPaymentType: old.paymentType,
+  };
+  updated.editHistory = [...(old.editHistory ?? []), log];
+  updated.isSynced = false; // kirim ulang ke server
+  delete updated.syncedAt;
+
+  transactions[idx] = updated;
+  writeTransactions(transactions);
+  if (products) writeJSON(STORAGE_KEYS.PRODUCTS, products);
+
+  let message = 'Transaksi berhasil dikoreksi.';
+  if (shift) {
+    applyTxToShift(shift, old, -1);
+    applyTxToShift(shift, updated, 1);
+    writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift);
+    markShiftDirty();
+    const diff = cashIn(updated) - cashIn(old);
+    if (diff > 0) message += ` Terima tambahan ${formatIDR(diff)} ke laci.`;
+    if (diff < 0) message += ` Kembalikan ${formatIDR(-diff)} dari laci ke pelanggan.`;
+  }
+
+  notifyUpdate();
+  return { ok: true, message, transaction: updated };
 }
 
 // -------------------------------------------------------------
@@ -886,16 +1155,28 @@ function getRecentShifts(): Shift[] {
 type SyncResult = { success: boolean; message: string; syncedCount: number };
 
 let syncInFlight: Promise<SyncResult> | null = null;
+let syncInFlightKey = '';
 let syncQueued = false;
+
+function currentSyncKey(): string {
+  return getStoreSettings().syncApiKey?.trim() ?? '';
+}
 
 /** Kirim perubahan ke server lalu tarik perubahan dari perangkat lain. */
 export function performCloudSync(): Promise<SyncResult> {
   // Cegah dua sync berjalan bersamaan (manual + otomatis). Perubahan yang masuk saat sync
   // sedang berjalan dikirim di putaran berikutnya.
   if (syncInFlight) {
+    // Token diganti saat sync dengan token lama masih berjalan: jalankan sync baru setelahnya,
+    // jangan kembalikan hasil sync token lama.
+    if (syncInFlightKey !== currentSyncKey()) {
+      const after = () => performCloudSync();
+      return syncInFlight.then(after, after);
+    }
     syncQueued = true;
     return syncInFlight;
   }
+  syncInFlightKey = currentSyncKey();
   syncInFlight = doCloudSync().finally(() => {
     syncInFlight = null;
     if (syncQueued) {
@@ -937,6 +1218,9 @@ async function doCloudSync(): Promise<SyncResult> {
   if (push && !push.success) return push;
 
   const pull = await pullFromCloud(syncUrl, apiKey);
+  if (pull.aborted) {
+    return { success: false, message: pull.message, syncedCount: push?.syncedCount ?? 0 };
+  }
   if (!pull.success) {
     recordSyncError(pull.message);
     return { success: false, message: pull.message, syncedCount: push?.syncedCount ?? 0 };
@@ -1149,6 +1433,27 @@ function resetPullState(): void {
   localStorage.removeItem(STORAGE_KEYS.CONFIG_VERSION);
 }
 
+/**
+ * Perangkat dihubungkan ke cabang (token) lain, lewat Link Kasir maupun diisi manual di Pengaturan.
+ * Data master cabang di server yang dipakai: perubahan menu/kasir lokal yang belum terkirim TIDAK
+ * dikirim lebih dulu (dulu bisa menimpa menu & kasir cabang di semua perangkat). Jika server belum
+ * punya data master, perangkat yang sudah dipakai ini tetap menjadi sumber pertamanya.
+ */
+function onSyncTokenChanged(fromLink: boolean): void {
+  const hadLocalEdits = !!localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+  resetPullState();
+  localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+  // Shift perangkat lain milik cabang lama tidak boleh ikut rekap cabang baru.
+  localStorage.removeItem(STORAGE_KEYS.REMOTE_SHIFTS);
+  // Link kasir di perangkat yang belum pernah bertransaksi & belum diubah: pakai menu/kasir dari
+  // server, jangan kirim data bawaan walau server belum punya data master.
+  if (fromLink && getTransactions().length === 0 && !hadLocalEdits) {
+    localStorage.setItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE, '1');
+  } else {
+    localStorage.removeItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE);
+  }
+}
+
 /** JSON dengan urutan key tetap (jsonb di server mengubah urutan key). */
 function stableStringify(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
@@ -1290,7 +1595,7 @@ export function getAllShifts(): Shift[] {
 async function pullFromCloud(
   syncUrl: string,
   apiKey: string
-): Promise<{ success: boolean; message: string; received: number; needConfigPush: boolean }> {
+): Promise<{ success: boolean; message: string; received: number; needConfigPush: boolean; aborted?: boolean }> {
   const saved = readJSON<PullCursors | null>(STORAGE_KEYS.PULL_CURSORS, null);
   let cursors: PullCursors | null = saved
     ? (Object.fromEntries(
@@ -1323,6 +1628,18 @@ async function pullFromCloud(
         };
       }
       const data = (await res.json()) as PullResponse;
+
+      // Token diganti selama request berjalan: data ini milik cabang lama, jangan disimpan
+      // (cursor & data master cabang lama akan merusak tarikan pertama dari cabang baru).
+      if (currentSyncKey() !== apiKey) {
+        return {
+          success: false,
+          aborted: true,
+          message: 'Token sync berubah saat sinkronisasi berjalan. Sync diulang dengan token baru.',
+          received,
+          needConfigPush: false,
+        };
+      }
 
       if (
         page === 0 &&
@@ -1389,10 +1706,7 @@ export function consumeSyncLinkFromUrl(): boolean {
   }
 
   writeJSON(STORAGE_KEYS.SETTINGS, { ...settings, syncApiKey: token, autoSyncOnline: true, lastSyncError: undefined });
-  resetPullState();
-  localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
-  // Perangkat yang belum pernah bertransaksi memakai menu/kasir dari server, bukan data bawaan.
-  if (getTransactions().length === 0) localStorage.setItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE, '1');
+  onSyncTokenChanged(true);
   notifyUpdate();
   return true;
 }

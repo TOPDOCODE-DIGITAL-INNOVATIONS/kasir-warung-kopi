@@ -197,6 +197,8 @@ export async function POST(request: Request) {
         debt_paid_method: str(t.debtPaidMethod),
         debt_paid_shift_id: str(t.debtPaidShiftId),
         notes: str(t.notes),
+        // Hanya dikirim bila ada koreksi, agar kasir tetap bisa sync walau kolom belum dimigrasi.
+        ...(Array.isArray(t.editHistory) && t.editHistory.length ? { edit_history: t.editHistory } : {}),
         synced_at: now,
       }))
       const { error } = await supabase.from('transactions').upsert(rows, { onConflict: 'business_id,id' })
@@ -340,6 +342,7 @@ function rowToTransaction(r: Row): Row {
     debtPaidMethod: r.debt_paid_method,
     debtPaidShiftId: r.debt_paid_shift_id,
     notes: r.notes,
+    editHistory: Array.isArray(r.edit_history) && r.edit_history.length ? r.edit_history : null,
     deviceCode: r.device_code,
   })
 }

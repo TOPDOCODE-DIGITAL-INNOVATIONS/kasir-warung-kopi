@@ -184,6 +184,8 @@ create table if not exists public.book_period_rules (
 alter table public.businesses add column if not exists pos_config jsonb;
 alter table public.businesses add column if not exists pos_config_updated_at timestamptz;
 alter table public.transactions add column if not exists debt_paid_shift_id text;
+-- Riwayat koreksi transaksi yang salah catat (diisi dari kasir): [{at, by, reason, summary, prevGrandTotal, prevPaymentType}]
+alter table public.transactions add column if not exists edit_history jsonb;
 
 create table if not exists public.deleted_records (
   business_id uuid not null references public.businesses(id) on delete cascade,

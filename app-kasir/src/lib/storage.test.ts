@@ -32,6 +32,8 @@ import {
   saveCategories,
   consumeSyncLinkFromUrl,
   hasPendingPush,
+  editTransaction,
+  canEditTransactionAmounts,
 } from './storage';
 import { verifyPin, hashPin, isValidPin, sha256Hex } from './security';
 import { can } from './permissions';
@@ -594,5 +596,133 @@ describe('sync dua arah antar perangkat', () => {
     expect(posts).toHaveLength(0);
     expect(gets[0]).toContain('init=1');
     expect(gets[0]).toMatch(/^https:\/\/kopi\.test\/api\/sync/);
+  });
+});
+
+describe('ganti token sync', () => {
+  it('token diisi manual: perubahan menu lokal tidak menimpa data master cabang di server', async () => {
+    saveCategories([{ id: 'lokal', name: 'Lokal', iconName: 'x' }]); // perubahan lokal lama
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'cabang-b' });
+    const posts: any[] = [];
+    const serverCfg = {
+      products: [{ id: 'b-1', name: 'Kopi Cabang B', categoryId: 'kopi', price: 1, stock: -1, isAvailable: true }],
+      categories: [{ id: 'kopi', name: 'Kopi', iconName: 'coffee' }],
+      cashiers: [{ id: 'c-b', name: 'Owner B', role: 'Owner' }],
+      settings: { storeName: 'CABANG B' },
+    };
+    stubServer((b) => posts.push(b), { ...EMPTY_PULL, configUpdatedAt: '2026-01-01T00:00:00.000Z', config: serverCfg });
+    expect((await performCloudSync()).success).toBe(true);
+    expect(posts.filter((b) => b.config)).toHaveLength(0);
+    expect(getProducts().map((p) => p.name)).toEqual(['Kopi Cabang B']);
+    expect(getStoreSettings().storeName).toBe('CABANG B');
+  });
+
+  it('token di-trim & error sync lama dibersihkan saat token diganti', () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiKey: 'lama', lastSyncError: 'HTTP 401' });
+    saveStoreSettings({ ...getStoreSettings(), syncApiKey: '  baru  ' });
+    expect(getStoreSettings().syncApiKey).toBe('baru');
+    expect(getStoreSettings().lastSyncError).toBeUndefined();
+  });
+
+  it('sync dengan token lama yang masih berjalan tidak menyimpan cursor ke cabang baru', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'lama' });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const tokens: string[] = [];
+    vi.stubGlobal('fetch', async (url: string, init: any) => {
+      tokens.push(init.headers['x-api-key']);
+      if (init.headers['x-api-key'] === 'lama') await gate;
+      const cursors = { tx: init.headers['x-api-key'] === 'lama' ? '2026-01-01T00:00:00.000Z' : '2026-11-01T00:00:00.000Z', exp: 'x', shift: 'x', del: 'x' };
+      return { ok: true, json: async () => ({ ...EMPTY_PULL, configUpdatedAt: '2026-01-01T00:00:00.000Z', cursors }), text: async () => '' };
+    });
+    const first = performCloudSync();
+    saveStoreSettings({ ...getStoreSettings(), syncApiKey: 'baru' });
+    const second = performCloudSync();
+    release();
+    await first;
+    expect((await second).success).toBe(true);
+    expect(tokens).toEqual(['lama', 'baru']);
+    expect(JSON.parse(localStorage.getItem('warkop_pos_pull_cursors')!).tx).toBe('2026-11-01T00:00:00.000Z');
+  });
+});
+
+describe('koreksi transaksi', () => {
+  const approve = { reason: 'salah catat', editedBy: 'Owner' };
+
+  it('ubah jumlah item & metode bayar: total, stok, dan rekap shift ikut dikoreksi', () => {
+    const product = getProducts().find((p) => p.stock >= 0) ?? getProducts()[0];
+    const products = getProducts().map((p) => (p.id === product.id ? { ...p, stock: 10 } : p));
+    saveProducts(products);
+    startNewShift('c-1', 0);
+    const tx = saveTransaction(makeTx('tunai', 2, product.id));
+    markTransactionsAsSynced([tx.id]);
+    expect(getProducts().find((p) => p.id === product.id)!.stock).toBe(8);
+
+    const res = editTransaction(
+      tx.id,
+      { items: [{ ...tx.items[0], quantity: 1 }], discountAmount: 0, paymentType: 'qris', orderType: 'Takeaway' },
+      approve
+    );
+    expect(res.ok).toBe(true);
+    const t = getTransactions().find((x) => x.id === tx.id)!;
+    expect(t.grandTotal).toBe(product.price);
+    expect(t.paymentType).toBe('qris');
+    expect(t.amountPaid).toBe(product.price);
+    expect(t.isSynced).toBe(false);
+    expect(t.editHistory).toHaveLength(1);
+    expect(t.editHistory![0].prevGrandTotal).toBe(product.price * 2);
+    expect(getProducts().find((p) => p.id === product.id)!.stock).toBe(9);
+    const shift = getActiveShift()!;
+    expect(shift.totalSalesCash).toBe(0);
+    expect(shift.totalSalesNonCash).toBe(product.price);
+    expect(shift.totalTransactions).toBe(1);
+  });
+
+  it('tunai: uang diterima harus cukup; kembalian dihitung ulang', () => {
+    startNewShift('c-1', 0);
+    const tx = saveTransaction({ ...makeTx('tunai', 1), amountPaid: 50000, changeAmount: 50000 - makeTx('tunai', 1).grandTotal });
+    const price = tx.items[0].unitPrice;
+    const bad = editTransaction(tx.id, { items: [{ ...tx.items[0], quantity: 100 }], discountAmount: 0, paymentType: 'tunai', amountPaid: 1, orderType: 'Dine In' }, approve);
+    expect(bad.ok).toBe(false);
+    const ok = editTransaction(tx.id, { items: tx.items, discountAmount: 0, paymentType: 'tunai', amountPaid: price + 5000, orderType: 'Dine In' }, approve);
+    expect(ok.ok).toBe(true);
+    expect(getTransactions().find((x) => x.id === tx.id)!.changeAmount).toBe(5000);
+  });
+
+  it('transaksi dari shift yang sudah ditutup: hanya info pelanggan yang boleh diubah', () => {
+    startNewShift('c-1', 0);
+    const tx = saveTransaction(makeTx('tunai'));
+    closeCurrentShift(tx.grandTotal);
+    expect(canEditTransactionAmounts(getTransactions()[0]).ok).toBe(false);
+    const nominal = editTransaction(tx.id, { items: tx.items, discountAmount: 1000, paymentType: 'tunai', orderType: 'Dine In' }, approve);
+    expect(nominal.ok).toBe(false);
+    const info = editTransaction(tx.id, { items: tx.items, discountAmount: 0, paymentType: 'tunai', orderType: 'Dine In', customerName: 'Bu Ani' }, approve);
+    expect(info.ok).toBe(true);
+    expect(getTransactions()[0].customerName).toBe('Bu Ani');
+    expect(getShiftHistory()[0].totalSalesCash).toBe(tx.grandTotal);
+  });
+
+  it('bon: wajib nama pelanggan; ganti ke tunai memindahkan rekap & status bon', () => {
+    startNewShift('c-1', 0);
+    const tx = saveTransaction(makeTx('tunai'));
+    expect(editTransaction(tx.id, { items: tx.items, discountAmount: 0, paymentType: 'hutang', orderType: 'Dine In' }, approve).ok).toBe(false);
+    expect(editTransaction(tx.id, { items: tx.items, discountAmount: 0, paymentType: 'hutang', orderType: 'Dine In', customerName: 'Pak RT' }, approve).ok).toBe(true);
+    let t = getTransactions()[0];
+    expect(t.debtStatus).toBe('unpaid');
+    expect(getActiveShift()!.totalSalesDebt).toBe(tx.grandTotal);
+    expect(getActiveShift()!.totalSalesCash).toBe(0);
+    expect(editTransaction(tx.id, { items: tx.items, discountAmount: 0, paymentType: 'tunai', amountPaid: tx.grandTotal, orderType: 'Dine In', customerName: 'Pak RT' }, approve).ok).toBe(true);
+    t = getTransactions()[0];
+    expect(t.debtStatus).toBeUndefined();
+    expect(t.editHistory).toHaveLength(2);
+    expect(getActiveShift()!.totalSalesDebt).toBe(0);
+  });
+
+  it('wajib alasan & menolak jika tidak ada perubahan', () => {
+    startNewShift('c-1', 0);
+    const tx = saveTransaction(makeTx('qris'));
+    const input = { items: tx.items, discountAmount: 0, paymentType: 'qris' as const, orderType: 'Dine In' as const };
+    expect(editTransaction(tx.id, input, { reason: ' ', editedBy: 'O' }).ok).toBe(false);
+    expect(editTransaction(tx.id, input, approve).message).toBe('Tidak ada perubahan.');
   });
 });

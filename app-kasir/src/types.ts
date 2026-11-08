@@ -113,10 +113,23 @@ export interface Transaction {
   debtPaidMethod?: 'tunai' | 'nontunai';
   debtPaidShiftId?: string;
   notes?: string;
+  /** Riwayat koreksi (edit) transaksi, terlama dulu */
+  editHistory?: TransactionEditLog[];
   /** Kode perangkat asal (diisi untuk transaksi dari perangkat lain hasil sync) */
   deviceCode?: string;
   isSynced?: boolean;
   syncedAt?: string;
+}
+
+/** Catatan satu kali koreksi transaksi (untuk audit). */
+export interface TransactionEditLog {
+  at: string;
+  by: string;
+  reason: string;
+  /** Ringkasan perubahan, mis. "Total Rp 20.000 → Rp 15.000; Pembayaran tunai → qris" */
+  summary: string;
+  prevGrandTotal: number;
+  prevPaymentType: PaymentType;
 }
 
 export type ExpenseScope = 'daily' | 'monthly';
