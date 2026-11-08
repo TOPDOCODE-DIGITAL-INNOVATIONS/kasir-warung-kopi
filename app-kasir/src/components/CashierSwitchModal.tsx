@@ -10,6 +10,7 @@ import {
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
+import { RupiahInput } from './RupiahInput';
 import { Cashier, Shift } from '../types';
 import {
   getCashiers,
@@ -351,18 +352,12 @@ export const CashierSwitchModal: React.FC<CashierSwitchModalProps> = ({
                 <label className="text-xs font-bold text-[#3E2723] block mb-1">
                   Saldo Kas Awal di Laci (Modal Kembalian)
                 </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2 font-bold text-[#3E2723] text-xs">
-                    Rp
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={startingCash}
-                    onChange={(e) => setStartingCash(Number(e.target.value))}
-                    className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pl-9 pr-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#3E2723]"
-                  />
-                </div>
+                <RupiahInput
+                  emptyWhenZero={false}
+                  value={startingCash}
+                  onChange={setStartingCash}
+                  className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pr-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#3E2723]"
+                />
               </div>
 
               {shiftError && <p className="text-xs text-rose-700 font-semibold">{shiftError}</p>}
@@ -459,18 +454,12 @@ export const CashierSwitchModal: React.FC<CashierSwitchModalProps> = ({
                 <label className="text-xs font-bold text-[#3E2723] block mb-1">
                   Hasil Hitung Uang Fisik Laci
                 </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-2 font-bold text-[#3E2723] text-xs">
-                    Rp
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    value={endingCashActual}
-                    onChange={(e) => setEndingCashActual(Number(e.target.value))}
-                    className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pl-9 pr-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#3E2723]"
-                  />
-                </div>
+                <RupiahInput
+                  emptyWhenZero={false}
+                  value={endingCashActual}
+                  onChange={setEndingCashActual}
+                  className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pr-3 py-1.5 text-xs font-bold focus:outline-none focus:border-[#3E2723]"
+                />
                 <p
                   className={`text-xs font-bold mt-1.5 ${
                     cashDifference === 0

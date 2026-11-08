@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Wallet, Plus, Trash2, CalendarDays, CalendarRange } from 'lucide-react';
+import { RupiahInput } from './RupiahInput';
 import { Cashier, Expense, ExpenseScope, Shift } from '../types';
 import {
   addExpense,
@@ -231,13 +232,11 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
           </div>
 
           <div>
-            <label className="text-xs font-bold text-[#3E2723] block mb-1">Nominal (Rp)</label>
-            <input
-              inputMode="numeric"
-              value={amount ? Number(amount.replace(/\D/g, '') || 0).toLocaleString('id-ID') : ''}
-              onChange={(e) => setAmount(e.target.value.replace(/\D/g, ''))}
-              placeholder="0"
-              className={`${inputCls} font-bold`}
+            <label className="text-xs font-bold text-[#3E2723] block mb-1">Nominal</label>
+            <RupiahInput
+              value={Number(amount) || 0}
+              onChange={(v) => setAmount(v ? String(v) : '')}
+              className={`${inputCls.replace('px-3', 'pr-3')} font-bold`}
               required
             />
           </div>
