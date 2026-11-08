@@ -10,6 +10,7 @@ import {
 } from '../lib/storage';
 import { verifyPin } from '../lib/security';
 import { can } from '../lib/permissions';
+import { RupiahInput } from './RupiahInput';
 
 interface EditTransactionModalProps {
   transaction: Transaction;
@@ -26,6 +27,9 @@ const PAYMENT_LABELS: Record<PaymentType, string> = {
   debit: 'EDC Debit',
   hutang: 'Bon / Hutang',
 };
+
+const rupiahCls =
+  'w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pr-3 py-2 text-xs focus:outline-none focus:border-[#3E2723] disabled:bg-stone-100 disabled:text-stone-400';
 
 const ORDER_TYPES: Transaction['orderType'][] = ['Dine In', 'Takeaway', 'Online / Ojol'];
 
@@ -212,17 +216,15 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           {/* Diskon & total */}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="font-bold text-[#3E2723] block mb-1">Diskon (Rp)</label>
-              <input
-                type="number"
-                min={0}
+              <label className="font-bold text-[#3E2723] block mb-1">Diskon </label>
+              <RupiahInput
                 disabled={lockedAmounts}
-                value={discount || ''}
-                onChange={(e) => {
+                value={discount}
+                onChange={(v) => {
                   clearError();
-                  setDiscount(Number(e.target.value) || 0);
+                  setDiscount(v);
                 }}
-                className={inputCls}
+                className={rupiahCls}
               />
             </div>
             <div className="bg-[#FAF8F6] border border-[#D7CCC8] rounded p-2 space-y-0.5">
@@ -282,31 +284,27 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             {paymentType === 'tunai' && (
               <>
                 <div>
-                  <label className="font-bold text-[#3E2723] block mb-1">Uang Diterima (Rp)</label>
-                  <input
-                    type="number"
-                    min={0}
+                  <label className="font-bold text-[#3E2723] block mb-1">Uang Diterima </label>
+                  <RupiahInput
                     disabled={lockedAmounts}
-                    value={amountPaid || ''}
-                    onChange={(e) => {
+                    value={amountPaid}
+                    onChange={(v) => {
                       clearError();
-                      setAmountPaid(Number(e.target.value) || 0);
+                      setAmountPaid(v);
                     }}
-                    className={inputCls}
+                    className={rupiahCls}
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-[#3E2723] block mb-1">Kelebihan / Permen (Rp)</label>
-                  <input
-                    type="number"
-                    min={0}
+                  <label className="font-bold text-[#3E2723] block mb-1">Kelebihan / Permen </label>
+                  <RupiahInput
                     disabled={lockedAmounts}
-                    value={overpay || ''}
-                    onChange={(e) => {
+                    value={overpay}
+                    onChange={(v) => {
                       clearError();
-                      setOverpay(Number(e.target.value) || 0);
+                      setOverpay(v);
                     }}
-                    className={inputCls}
+                    className={rupiahCls}
                   />
                 </div>
                 <div className="col-span-2 text-[11px] text-stone-600">

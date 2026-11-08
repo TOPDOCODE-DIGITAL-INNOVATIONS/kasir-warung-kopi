@@ -193,6 +193,34 @@ async function syncDrafts(
   }
 }
 
+/**
+ * Upsert yang tetap jalan walau database belum dimigrasi: jika PostgREST menolak karena kolom
+ * belum ada (PGRST204, mis. `edit_history` sebelum SQL terbaru dijalankan), kolom itu dibuang
+ * lalu dicoba lagi, supaya satu kolom baru tidak memacetkan seluruh sync kasir.
+ */
+async function upsertTolerant(supabase: SupabaseClient, table: string, rows: Row[]) {
+  let current = rows
+  const dropped: string[] = []
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const { error } = await supabase.from(table).upsert(current, { onConflict: 'business_id,id' })
+    if (!error) {
+      if (dropped.length) {
+        console.warn(`sync: kolom ${dropped.join(', ')} belum ada di tabel ${table}; jalankan supabase/schema.sql terbaru`)
+      }
+      return
+    }
+    const missing = error.code === 'PGRST204' ? /'([^']+)' column/.exec(error.message)?.[1] : undefined
+    if (!missing || dropped.includes(missing)) throw error
+    dropped.push(missing)
+    current = current.map((r) => {
+      const copy = { ...r }
+      delete copy[missing]
+      return copy
+    })
+  }
+  throw new Error(`Gagal menyimpan ke ${table}: terlalu banyak kolom yang belum dimigrasi`)
+}
+
 // ---------------------------------------------------------------------
 // POST: kasir -> server
 // ---------------------------------------------------------------------
@@ -273,8 +301,7 @@ export async function POST(request: Request) {
         ...(Array.isArray(t.editHistory) && t.editHistory.length ? { edit_history: t.editHistory } : {}),
         synced_at: now,
       }))
-      const { error } = await supabase.from('transactions').upsert(rows, { onConflict: 'business_id,id' })
-      if (error) throw error
+      await upsertTolerant(supabase, 'transactions', rows)
     }
 
     if (expenses.length) {
@@ -292,8 +319,7 @@ export async function POST(request: Request) {
         created_at: ts(e.createdAt),
         synced_at: now,
       }))
-      const { error } = await supabase.from('expenses').upsert(rows, { onConflict: 'business_id,id' })
-      if (error) throw error
+      await upsertTolerant(supabase, 'expenses', rows)
     }
 
     if (deletedExpenseIds.length) {
@@ -332,8 +358,7 @@ export async function POST(request: Request) {
         raw: s,
         synced_at: now,
       }))
-      const { error } = await supabase.from('shifts').upsert(rows, { onConflict: 'business_id,id' })
-      if (error) throw error
+      await upsertTolerant(supabase, 'shifts', rows)
     }
 
     const draftsAccepted =

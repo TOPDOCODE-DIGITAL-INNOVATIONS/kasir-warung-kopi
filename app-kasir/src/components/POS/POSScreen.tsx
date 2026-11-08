@@ -20,6 +20,12 @@ import { CartPanel } from './CartPanel';
 import { PaymentModal } from './PaymentModal';
 import { ReceiptModal } from './ReceiptModal';
 
+/** Kunci baris keranjang: produk + opsi + catatan yang sama digabung dalam satu baris. */
+function makeCartItemId(productId: string, selectedOptions: SelectedOption[], notes: string): string {
+  const optionsKey = selectedOptions.map((o) => `${o.groupName}:${o.choiceLabel}`).join('|');
+  return `${productId}-${optionsKey}-${notes.trim()}`;
+}
+
 interface POSScreenProps {
   activeCashier: Cashier;
   activeShift: Shift | null;
@@ -157,9 +163,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     const extrasSum = selectedOptions.reduce((acc, opt) => acc + opt.extraPrice, 0);
     const unitPrice = product.price + extrasSum;
 
-    // Create unique key for cart matching
-    const optionsKey = selectedOptions.map((o) => `${o.groupName}:${o.choiceLabel}`).join('|');
-    const cartItemId = `${product.id}-${optionsKey}-${notes}`;
+    const cartItemId = makeCartItemId(product.id, selectedOptions, notes);
 
     setCart((prev) => {
       const existingIdx = prev.findIndex((item) => item.cartItemId === cartItemId);
@@ -205,6 +209,27 @@ export const POSScreen: React.FC<POSScreenProps> = ({
           : item
       )
     );
+  };
+
+  /** Ubah catatan item di keranjang. Jika jadi sama persis dengan baris lain, keduanya digabung. */
+  const handleUpdateCartNotes = (cartItemId: string, notes: string) => {
+    setCart((prev) => {
+      const item = prev.find((it) => it.cartItemId === cartItemId);
+      if (!item) return prev;
+      const clean = notes.trim();
+      const newId = makeCartItemId(item.product.id, item.selectedOptions, clean);
+      if (newId === cartItemId && (item.notes ?? '') === clean) return prev;
+      const twin = prev.find((it) => it.cartItemId === newId && it !== item);
+      if (twin) {
+        const qty = twin.quantity + item.quantity;
+        return prev
+          .filter((it) => it !== item)
+          .map((it) => (it === twin ? { ...it, quantity: qty, totalPrice: it.unitPrice * qty } : it));
+      }
+      return prev.map((it) =>
+        it === item ? { ...it, cartItemId: newId, notes: clean || undefined } : it
+      );
+    });
   };
 
   const handleRemoveCartItem = (cartItemId: string) => {
@@ -300,6 +325,10 @@ export const POSScreen: React.FC<POSScreenProps> = ({
       setIsPaymentModalOpen(false);
       setCompletedTransaction(saved);
       setProducts(getProducts());
+      // Transaksi sudah tersimpan: kosongkan keranjang sekarang juga, supaya menutup struk
+      // tidak menyisakan pesanan lama (yang bisa terbayar dua kali).
+      handleClearCart();
+      setOrderType('Dine In');
     } catch (err: any) {
       setIsPaymentModalOpen(false);
       setNotice(err?.message || 'Transaksi gagal disimpan.');
@@ -444,6 +473,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             storeSettings={storeSettings}
             onUpdateQty={handleUpdateCartQty}
             onRemoveItem={handleRemoveCartItem}
+            onUpdateNotes={handleUpdateCartNotes}
             onClearCart={handleClearCart}
             onCheckout={() => setIsPaymentModalOpen(true)}
             checkoutBlockedReason={checkoutBlockedReason}
