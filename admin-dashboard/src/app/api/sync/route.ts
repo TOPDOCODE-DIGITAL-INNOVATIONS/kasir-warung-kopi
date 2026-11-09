@@ -66,7 +66,7 @@ async function authenticate(
 
   let supabase: SupabaseClient
   try {
-    supabase = createAdminClient()
+    supabase = createAdminClient(token)
   } catch (e) {
     console.error(e)
     return { error: json({ success: false, error: 'Server belum dikonfigurasi (env Supabase)' }, 500) }
