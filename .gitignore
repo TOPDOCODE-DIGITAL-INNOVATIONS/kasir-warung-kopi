@@ -9,3 +9,20 @@ coverage/
 *.tsbuildinfo
 .env*
 !.env.example
+
+# Downloaded backups and local database exports
+/backups/
+/exports/
+/dumps/
+backup-*.json
+backup-*.csv
+backup_warkop_pos_*.json
+warkop_pos_postgres_dump_*.sql
+rekap_????-??.txt
+*.dump
+*.backup
+dump-*.sql
+dump_*.sql
+
+# Local operational data
+/data-transaksi.txt
