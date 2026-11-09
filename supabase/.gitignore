@@ -1,0 +1,16 @@
+# Supabase
+.branches
+.temp
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local
+
+# Local seed data contains account credentials and operational records.
+/seed.sql
+/seed.local.sql
+/seeds/*.local.sql
+
+# Local JWT signing keys
+/signing_keys.json

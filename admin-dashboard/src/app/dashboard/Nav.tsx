@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History } from 'lucide-react'
+import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup } from 'lucide-react'
 
 const LINKS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -12,6 +12,7 @@ const LINKS = [
   { href: '/dashboard/products', label: 'Produk', icon: Package },
   { href: '/dashboard/businesses', label: 'Cabang & Token', icon: Building2 },
   { href: '/dashboard/sync', label: 'Sinkronisasi', icon: RefreshCw },
+  { href: '/dashboard/backup', label: 'Backup', icon: DatabaseBackup },
 ]
 
 export default function Nav({ mobile = false }: { mobile?: boolean }) {
