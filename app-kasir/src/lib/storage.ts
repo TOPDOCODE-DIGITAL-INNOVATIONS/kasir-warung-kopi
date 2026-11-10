@@ -181,29 +181,7 @@ function runMigrations(): void {
   const cashiers = readJSON<Cashier[]>(STORAGE_KEYS.CASHIERS, []);
   let changed = false;
 
-  // Migrasi nama contoh lama (Budi/Siti/Agus) ke daftar tim terbaru (Fajar, Wulan, Melya, Widya)
-  const legacyNames: Record<string, string> = {
-    'Budi Santoso': 'Fajar',
-    'Siti Rahma': 'Wulan',
-    'Agus Warkop': 'Melya',
-  };
-  cashiers.forEach((c) => {
-    if (legacyNames[c.name]) {
-      c.name = legacyNames[c.name];
-      changed = true;
-    }
-  });
-  if (
-    cashiers.some((c) => c.id === 'c-1' && c.name === 'Fajar') &&
-    !cashiers.some((c) => c.id === 'c-4' || c.name.toLowerCase() === 'widya')
-  ) {
-    const widyaSeed = INITIAL_CASHIERS.find((c) => c.id === 'c-4');
-    if (widyaSeed) {
-      cashiers.push({ ...widyaSeed });
-      changed = true;
-    }
-  }
-
+  // Nama dan daftar kasir mengikuti edit pengguna / hasil sinkronisasi, bukan seed contoh.
   if (migrateCashierPins(cashiers)) {
     changed = true;
   }

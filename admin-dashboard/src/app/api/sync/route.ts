@@ -268,14 +268,26 @@ export async function POST(request: Request) {
     if (config && configEditedAt) {
       const current = business.pos_config_updated_at ? new Date(business.pos_config_updated_at).toISOString() : null
       if (!current || configEditedAt > current) {
-        const { error } = await supabase
+        let update = supabase
           .from('businesses')
           .update({ pos_config: config, pos_config_updated_at: configEditedAt })
           .eq('id', businessId)
+        update = business.pos_config_updated_at
+          ? update.eq('pos_config_updated_at', business.pos_config_updated_at)
+          : update.is('pos_config_updated_at', null)
+        const { data: accepted, error } = await update.select('id')
         if (error) throw error
-        await mirrorProducts(supabase, businessId, list(config.products), now)
-        configAccepted = true
-        configUpdatedAt = configEditedAt
+        if (accepted?.length) {
+          await mirrorProducts(supabase, businessId, list(config.products), now)
+          configAccepted = true
+          configUpdatedAt = configEditedAt
+        } else {
+          // A concurrent admin/device write won. Let the client pull its current version.
+          const { data: latest, error: readError } = await supabase.from('businesses')
+            .select('pos_config_updated_at').eq('id', businessId).single()
+          if (readError) throw readError
+          configUpdatedAt = latest.pos_config_updated_at
+        }
       }
     } else if (legacyProducts.length && !business.pos_config) {
       // Kasir versi lama (belum kirim data master): pertahankan perilaku lama.
