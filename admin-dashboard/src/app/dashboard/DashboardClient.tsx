@@ -32,7 +32,7 @@ function Card({ label, value, hint, icon: Icon, tone }: {
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-500 mb-1">{label}</p>
-          <h3 className="text-xl font-bold text-gray-900 truncate">{value}</h3>
+          <h3 className="text-xl font-bold text-gray-900 truncate" title={value}>{value}</h3>
         </div>
         <div className={`w-11 h-11 shrink-0 rounded-lg flex items-center justify-center ${tone}`}>
           <Icon className="w-5 h-5" />
