@@ -34,6 +34,17 @@ function afterCursor(columns: string[], row: BackupRow): string {
 
 async function* datasetRows(dataset: BackupDataset, context: ExportContext): AsyncGenerator<BackupRow> {
   const { db, businesses, filters, signal } = context
+  const menu = new Map<string, BackupRow>()
+  if (dataset === 'products') {
+    for (const business of businesses) {
+      const config = business.pos_config as { products?: unknown[] } | null
+      for (const item of Array.isArray(config?.products) ? config.products : []) {
+        if (item && typeof item === 'object' && typeof (item as BackupRow).id === 'string') {
+          menu.set(`${business.id}:${(item as BackupRow).id}`, item as BackupRow)
+        }
+      }
+    }
+  }
   if (dataset === 'businesses' || dataset === 'pos_config') {
     for (const business of businesses) {
       const row: BackupRow = { ...business }
@@ -84,7 +95,17 @@ async function* datasetRows(dataset: BackupDataset, context: ExportContext): Asy
       const { data, error } = await query
       if (error) throw new Error(`Gagal mengambil ${dataset}.`)
       if (!data?.length) break
-      for (const row of data) yield row as BackupRow
+      for (const row of data) {
+        if (dataset !== 'products') { yield row as BackupRow; continue }
+        const stored = row.raw && typeof row.raw === 'object' ? row.raw as BackupRow : {}
+        const latest = { ...(menu.get(`${row.business_id}:${row.id}`) ?? {}) }
+        delete latest._inventory
+        // POS options are current in pos_config; keep the private admin journal
+        // from products and operational values from their typed columns.
+        const raw = { ...stored, ...latest, id: row.id, name: row.name, categoryId: row.category_id,
+          price: row.price, costPrice: row.cost_price, stock: row.stock, isAvailable: row.is_available }
+        yield { ...row, raw } as BackupRow
+      }
       cursor = data[data.length - 1] as BackupRow
     }
   }

@@ -56,7 +56,7 @@ Pos_sync_enabled=false membuat token POS tidak dapat menimpa nilai produk yang d
 
 Produk yang hilang dari daftar menu ditandai tidak tersedia, dengan filter pos_managed=true dan pos_sync_enabled=true. Daftar kosong juga diproses. Bahan buy-only dan produk yang mematikan sync tidak ikut dibersihkan. Baris yang mempunyai relasi inventory tidak dihapus fisik oleh pembersihan sync.
 
-Pos_config tetap merupakan konfigurasi/cache bersama menu, kategori, kasir dan pengaturan untuk perangkat; bukan tabel master inventory kedua. Pengelolaan inventory melalui UI dan adaptor perubahan admin ke menu POS tetap pekerjaan berikutnya. Tidak diperlukan perubahan format transaksi atau ID perangkat pada penggabungan ini.
+Pos_config tetap merupakan konfigurasi/cache bersama menu, kategori, kasir dan pengaturan untuk perangkat; bukan tabel master inventory kedua. Pengelolaan produk dasar di admin dan pengiriman perubahan ke menu POS kini tersedia; lihat [Pengelolaan Produk & Stok](product-management.md). Editor resep dan konsumsi bahan otomatis tetap pekerjaan berikutnya. Tidak diperlukan perubahan format transaksi atau ID perangkat pada penggabungan ini.
 
 ### Resep dan pembelian
 
