@@ -59,10 +59,10 @@ export default async function HistoryPage() {
         </p>
       )}
 
-      <BookRulesClient key={businessId ?? 'none'} businesses={businesses} rules={allRules} today={dayKey(new Date())} />
+      <BookRulesClient key={`book-rules-${businessId ?? 'none'}`} businesses={businesses} rules={allRules} today={dayKey(new Date())} />
 
       <HistoryClient
-        key={businessId ?? 'none'}
+        key={`history-${businessId ?? 'none'}`}
         rules={allRules}
         businesses={businesses}
         defaultBusinessId={businessId ?? ''}

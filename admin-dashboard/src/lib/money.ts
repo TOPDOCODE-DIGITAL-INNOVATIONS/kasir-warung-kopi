@@ -16,3 +16,18 @@ export function parseMoney(input: string): number {
 export function formatMoney(n: number): string {
   return n.toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }
+
+/** Format saat mengetik; koma desimal dan nol di belakangnya tetap dipertahankan. */
+export function formatRupiahInput(input: string): string {
+  const cleaned = input.replace(/[^\d,]/g, '')
+  if (!cleaned) return ''
+  const comma = cleaned.indexOf(',')
+  const integer = (comma < 0 ? cleaned : cleaned.slice(0, comma)).replace(/^0+(?=\d)/, '') || '0'
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+  return comma < 0 ? grouped : `${grouped},${cleaned.slice(comma + 1).replace(/,/g, '').slice(0, 6)}`
+}
+
+/** Nilai formulir tanpa pemisah ribuan; tidak dibulatkan menjadi dua desimal. */
+export function rupiahInputValue(formatted: string): string {
+  return formatted.replace(/\./g, '').replace(',', '.').replace(/\.$/, '')
+}
