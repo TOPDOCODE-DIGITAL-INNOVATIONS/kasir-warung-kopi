@@ -21,7 +21,7 @@ export const BACKUP_TIMEZONE = TZ
 export const BACKUP_COLUMNS: Record<BackupDataset, string[]> = {
   businesses: ['id', 'owner_id', 'name', 'address', 'created_at', 'last_synced_at', 'last_device_code'],
   pos_config: ['business_id', 'pos_config', 'pos_config_updated_at'],
-  products: ['business_id', 'id', 'name', 'category_id', 'price', 'cost_price', 'stock', 'is_available', 'raw', 'synced_at'],
+  products: ['business_id', 'id', 'inventory_id', 'owner_id', 'sku', 'name', 'description', 'base_unit_id', 'can_buy', 'can_sell', 'is_active', 'pos_managed', 'pos_sync_enabled', 'cost_source', 'stock_mode', 'min_stock', 'category_id', 'price', 'cost_price', 'stock', 'is_available', 'raw', 'created_at', 'updated_at', 'synced_at'],
   transactions: ['business_id', 'id', 'created_at', 'device_code', 'shift_id', 'cashier_id', 'cashier_name', 'order_type', 'customer_name', 'customer_phone', 'items', 'subtotal', 'discount_amount', 'discount_reason', 'tax_amount', 'grand_total', 'payment_type', 'payment_detail', 'amount_paid', 'change_amount', 'overpay_amount', 'status', 'cancel_reason', 'cancelled_at', 'cancelled_by', 'debt_status', 'debt_paid_at', 'debt_paid_method', 'debt_paid_shift_id', 'notes', 'synced_at'],
   expenses: ['business_id', 'id', 'scope', 'date', 'category', 'amount', 'note', 'from_drawer', 'shift_id', 'created_by', 'created_at', 'synced_at'],
   shifts: ['business_id', 'id', 'cashier_id', 'cashier_name', 'start_time', 'end_time', 'starting_cash', 'ending_cash_actual', 'expected_cash', 'total_sales_cash', 'total_sales_non_cash', 'total_sales_debt', 'expenses_cash', 'total_transactions', 'status', 'raw', 'synced_at'],
