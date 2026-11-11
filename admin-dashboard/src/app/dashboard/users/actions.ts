@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext } from '@/lib/business-context'
 import { AVATAR_COLORS, CASHIER_ROLES, avatarColor, type CashierRow, type UserActionResult } from './types'
 
 type Row = Record<string, unknown>
@@ -29,17 +29,12 @@ async function readBusinesses(supabase: Supabase, ownerId: string, includeCashie
   return rows
 }
 
-export async function getCashierUsers(businessId: string | null) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  // Bounded batch queries, independent of the number of cashiers. Never fetch products/settings for this list.
-  const [branchRows, configRows] = await Promise.all([
-    readBusinesses(supabase, user.id, false, null),
-    businessId && !isUuid(businessId) ? Promise.resolve([]) : readBusinesses(supabase, user.id, true, businessId),
-  ])
-  const businesses = branchRows.map((row) => ({ id: String(row.id), name: String(row.name) }))
+export async function getCashierUsers(requestedBusinessId: string | null) {
+  const { supabase, user, businesses: ownedBusinesses, businessId } = await getBusinessContext()
+  if (requestedBusinessId && requestedBusinessId !== businessId) throw new Error('Cabang tidak sesuai dengan cabang aktif.')
+  // Only the selected config is fetched; never a query per cashier.
+  const configRows = businessId ? await readBusinesses(supabase, user.id, true, businessId) : []
+  const businesses = ownedBusinesses.filter(b => b.id === businessId)
   const users: CashierRow[] = configRows.flatMap((business) => {
     const cashiers = Array.isArray(business.cashiers) ? business.cashiers : []
     return cashiers.filter((cashier): cashier is Row => isRow(cashier) && typeof cashier.id === 'string' && typeof cashier.name === 'string')
@@ -67,9 +62,8 @@ async function changeCashier(formData: FormData, remove: boolean): Promise<UserA
     if (!AVATAR_COLORS.some((allowed) => allowed.value === color)) return fail('Pilih warna avatar yang tersedia.')
   }
 
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return fail('Sesi berakhir. Silakan masuk kembali.')
+  const { supabase, user, businessId: activeBusinessId } = await getBusinessContext()
+  if (businessId !== activeBusinessId) return fail('Cabang aktif sudah berubah. Muat ulang halaman sebelum mencoba lagi.')
   const { data: business, error } = await supabase.from('businesses')
     .select('id,pos_config,pos_config_updated_at').eq('id', businessId).eq('owner_id', user.id).maybeSingle()
   if (error) return fail('Gagal memeriksa data cabang. Silakan coba kembali.')

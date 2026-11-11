@@ -1,12 +1,11 @@
 import Link from 'next/link'
 import { unstable_rethrow } from 'next/navigation'
-import BusinessSelect from '../BusinessSelect'
-import { pickBusinessId } from '@/lib/business-filter'
+import { getBusinessContext } from '@/lib/business-context'
 import { getCashierUsers } from './actions'
 import UsersClient from './UsersClient'
 
-export default async function UsersPage({ searchParams }: { searchParams: Promise<{ b?: string | string[] }> }) {
-  const businessId = pickBusinessId((await searchParams).b)
+export default async function UsersPage() {
+  const { businessId } = await getBusinessContext()
   let data: Awaited<ReturnType<typeof getCashierUsers>> | undefined
   let errorMessage = ''
   try {
@@ -22,11 +21,7 @@ export default async function UsersPage({ searchParams }: { searchParams: Promis
         <h1 className="text-2xl font-bold text-gray-900">Kelola User</h1>
         <p className="text-gray-500 text-sm mt-1">Kelola profil dan hak akses kasir pada setiap cabang usaha Anda.</p>
       </div>
-      <section aria-labelledby="user-branch-filter" className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-        <h2 id="user-branch-filter" className="text-sm font-semibold text-gray-900">Filter Cabang</h2>
-        <p className="text-sm text-gray-500 mt-1">Pilih cabang untuk melihat daftar user kasirnya.</p>
-        <div className="mt-4 w-full sm:max-w-xs"><BusinessSelect businesses={data?.businesses ?? []} /></div>
-      </section>
+
       {errorMessage ? <p role="alert" className="text-sm text-red-600 bg-red-50 p-4 rounded-lg">{errorMessage}</p>
         : data?.invalidBusiness ? <p role="alert" className="text-sm text-red-600 bg-red-50 p-4 rounded-lg">Cabang tidak ditemukan atau tidak dapat diakses. Pilih cabang lain.</p>
           : data?.businesses.length === 0 ? (

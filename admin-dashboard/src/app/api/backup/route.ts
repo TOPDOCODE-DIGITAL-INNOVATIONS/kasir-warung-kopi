@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext } from '@/lib/business-context'
 import { createAdminClient } from '@/utils/supabase/admin'
 import {
   BACKUP_COLUMNS, BACKUP_DATASETS, BACKUP_TIMEZONE,
@@ -183,7 +184,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Key server untuk backup belum dikonfigurasi.' }, { status: 503 })
   }
 
-  // Otorisasi seluruh cabang sebelum client admin digunakan, termasuk tabel tanpa policy baca owner.
+  const { businessId } = await getBusinessContext()
+  if (!businessId) return NextResponse.json({ error: 'Buat cabang terlebih dahulu.' }, { status: 404 })
+  if (filters.businessId && filters.businessId !== businessId) {
+    return NextResponse.json({ error: 'Cabang aktif sudah berubah. Muat ulang halaman sebelum mengunduh backup.' }, { status: 409 })
+  }
+  filters.businessId = businessId
+
+  // Otorisasi cabang aktif sebelum client admin digunakan, termasuk tabel tanpa policy baca owner.
   const businesses: Business[] = []
   let lastId: string | undefined
   while (true) {

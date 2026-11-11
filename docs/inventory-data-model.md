@@ -158,7 +158,7 @@ Contoh data tahap pertama:
 | Coffee Latte | pcs | Tidak | Ya | Rp6.000 | Rp22.000 |
 | Air mineral | pcs | Ya | Ya | Rp3.000 | Rp5.000 |
 
-Tampilan admin yang diusulkan terdiri atas judul/deskripsi, panel filter cabang, filter jenis barang Semua/Beli/Jual, dan tabel dengan aksi tambah/edit/arsip. Jenis Beli/Jual merupakan hasil filter atas dua penanda pada master. Saat membuat barang, pengguna mengisi nama, satuan, penanda beli/jual, cabang, modal manual, dan harga jual bila relevan. SKU dan deskripsi bersifat opsional.
+Tampilan admin terdiri atas judul/deskripsi, filter jenis barang Semua/Beli/Jual, dan tabel dengan aksi tambah/edit/arsip. Cabang mengikuti pemilih **Cabang aktif** di sidebar. Jenis Beli/Jual merupakan hasil filter atas dua penanda pada master. Saat membuat barang, pengguna mengisi nama, satuan, penanda beli/jual, modal manual, dan harga jual bila relevan. SKU dan deskripsi bersifat opsional.
 
 Katalog owner dapat dipilih kembali ketika barang dipakai di cabang lain. Harga dan modal dapat berbeda untuk setiap cabang. Perubahan nama dan satuan berlaku pada identitas katalog bersama, sedangkan perubahan harga berlaku pada cabang yang diedit.
 

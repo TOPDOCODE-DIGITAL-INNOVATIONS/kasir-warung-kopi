@@ -4,9 +4,9 @@ Implementasi 11 November 2026. Tidak menambah atau mengedit migration; memakai t
 
 ## Alur pengguna
 
-- Filter cabang memakai komponen yang sama dengan halaman admin lain.
+- Cabang produk mengikuti **Cabang aktif** di sidebar, sesuai [konteks cabang admin](business-context.md).
 - Tab **Semua Produk**, **Produk Jual**, **Produk Beli** memakai `can_sell`/`can_buy`. Barang dapat muncul pada kedua tab.
-- **Produk Baru** mengisi cabang, nama, SKU opsional, satuan dasar, penanda beli/jual, harga, modal acuan opsional, kategori, deskripsi, ketersediaan, dan stok minimum.
+- **Produk Baru** memakai cabang aktif. Pengguna mengisi nama, SKU opsional, satuan dasar, penanda beli/jual, harga, modal acuan opsional, kategori, deskripsi, ketersediaan, dan stok minimum.
 - **Catat jumlah stok** menentukan stok terbatas atau sentinel `-1` yang ditampilkan sebagai `∞`. Resep tidak wajib. Satuan dasar tetap saat edit agar histori tidak berubah.
 - Stok awal dapat menjadi saldo awal/manual atau **pembelian pertama** bila barang bisa dibeli.
 - Aksi tabel: edit, tambah stok, riwayat, hapus. Hapus mengarsipkan dan mengeluarkan barang dari menu POS, sambil mempertahankan histori dan relasi.

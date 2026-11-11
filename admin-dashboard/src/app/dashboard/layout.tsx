@@ -1,16 +1,12 @@
-import { createClient } from '@/utils/supabase/server'
-import { redirect } from 'next/navigation'
+import { getBusinessContext } from '@/lib/business-context'
 import { LogOut, Store } from 'lucide-react'
 import Nav from './Nav'
+import BusinessContextSelect from './BusinessContextSelect'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient()
-  const { data } = await supabase.auth.getClaims()
-  const user = data?.claims
-
-  if (!user) redirect('/login')
+  const { user, businesses, businessId } = await getBusinessContext()
 
   const signOut = (
     <form action="/auth/signout" method="post">
@@ -30,6 +26,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
         <Nav />
         <div className="p-4 border-t border-gray-200">
+          <BusinessContextSelect businesses={businesses} businessId={businessId} />
           <div className="mb-3 px-4">
             <p className="text-sm font-medium text-gray-900 truncate">{user.email}</p>
             <p className="text-xs text-gray-500">Owner</p>
@@ -46,9 +43,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
           <div className="w-28">{signOut}</div>
         </div>
         <Nav mobile />
+        <div className="px-4"><BusinessContextSelect businesses={businesses} businessId={businessId} /></div>
       </header>
 
-      <main className="flex-1 min-w-0 p-4 md:p-8">{children}</main>
+      <main key={businessId ?? 'no-business'} className="flex-1 min-w-0 p-4 md:p-8">{children}</main>
     </div>
   )
 }

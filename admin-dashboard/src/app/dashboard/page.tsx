@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext } from '@/lib/business-context'
 import { pickBusinessId } from '@/lib/business-filter'
 import DashboardClient from './DashboardClient'
 import { formatRange } from '@/lib/book-period'
@@ -22,12 +22,9 @@ export default async function DashboardPage({
   searchParams: Promise<{ b?: string | string[] }>
 }) {
   const businessId = pickBusinessId((await searchParams).b)
-  const supabase = await createClient()
-
-  const [{ data: businesses }, { data, error }] = await Promise.all([
-    supabase.from('businesses').select('id, name').order('created_at'),
-    supabase.rpc('dashboard_summary', { p_business: businessId, p_days: 7 }),
-  ])
+  const { supabase, businesses } = await getBusinessContext()
+  // Overview deliberately uses its own optional filter, independent of the sidebar.
+  const { data, error } = await supabase.rpc('dashboard_summary', { p_business: businessId, p_days: 7 })
 
   if (!businesses || businesses.length === 0) {
     return (

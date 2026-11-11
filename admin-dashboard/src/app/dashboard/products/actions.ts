@@ -2,8 +2,9 @@
 
 import { createHash } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
+import { unstable_rethrow } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext, requireBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { addStock, amount, decimal, events, isRow, metadata, multiply, number, productForPos, scaled, summarizeSales, uuid, withEvent, type Row } from './domain'
 import type { ActionResult, HistoryData, ProductPageData, StockEvent } from './types'
 
@@ -21,20 +22,20 @@ async function rows(query: (from: number, to: number) => PromiseLike<{ data: unk
   }
 }
 async function session() {
-  const db = await createClient()
-  const { data: { user } } = await db.auth.getUser()
-  if (!user) throw new Error('Sesi berakhir. Silakan masuk kembali.')
+  const { supabase: db, user } = await requireBusinessContext()
   return { db, owner: user.id }
 }
 async function branch(db: DB, owner: string, id: string) {
   if (!uuid(id)) throw new Error('Cabang tidak valid.')
+  await requireBusinessContext(id)
   const { data, error } = await db.from('businesses').select('id,name,pos_config,pos_config_updated_at').eq('id', id).eq('owner_id', owner).maybeSingle()
   if (error || !data) throw new Error('Cabang tidak ditemukan atau tidak dapat diakses.')
   return data as Row
 }
 async function product(db: DB, owner: string, id: string): Promise<Row> {
   if (!uuid(id)) throw new Error('Produk tidak valid.')
-  const { data, error } = await db.from('products').select('*').eq('inventory_id', id).eq('owner_id', owner).maybeSingle()
+  const { businessId } = await requireBusinessContext()
+  const { data, error } = await db.from('products').select('*').eq('inventory_id', id).eq('owner_id', owner).eq('business_id', businessId).maybeSingle()
   if (error || !data) throw new Error('Produk tidak ditemukan atau tidak dapat diakses.')
   return data as Row
 }
@@ -44,7 +45,10 @@ function text(form: FormData, name: string, max = 500) {
   return value
 }
 const checked = (form: FormData, key: string) => form.get(key) === 'on'
-const fail = (error: unknown, refresh = false): ActionResult => ({ success: false, message: error instanceof Error ? error.message : 'Perubahan belum berhasil disimpan. Silakan coba kembali.', refresh })
+function fail(error: unknown, refresh = false): ActionResult {
+  unstable_rethrow(error)
+  return { success: false, message: error instanceof Error ? error.message : 'Perubahan belum berhasil disimpan. Silakan coba kembali.', refresh }
+}
 function invalidate() {
   revalidatePath('/dashboard/products')
   revalidatePath('/dashboard')
@@ -66,13 +70,12 @@ function noPending(p: Row, operation?: string) {
 }
 
 /** Bounded page queries, never a query per product/transaction item. */
-export async function getProductsPage(businessId: string | null): Promise<ProductPageData> {
-  const db = await createClient()
-  const { data: { user } } = await db.auth.getUser()
-  if (!user) redirect('/login')
+export async function getProductsPage(requestedBusinessId: string | null): Promise<ProductPageData> {
+  const { supabase: db, user, businessId } = await getBusinessContext()
+  if (requestedBusinessId && requestedBusinessId !== businessId) throw new Error('Cabang tidak sesuai dengan cabang aktif.')
   const owner = user.id
   const [businesses, units] = await Promise.all([
-    rows((a, z) => db.from('businesses').select('id,name,categories:pos_config->categories').eq('owner_id', owner).order('id').range(a, z)),
+    rows((a, z) => db.from('businesses').select('id,name,categories:pos_config->categories').eq('owner_id', owner).eq('id', businessId ?? EMPTY_BUSINESS_ID).order('id').range(a, z)),
     rows((a, z) => db.from('units').select('id,name,code').order('id').range(a, z)),
   ])
   const branches = businesses.map(b => ({ id: String(b.id), name: String(b.name), categories: Array.isArray(b.categories) ? b.categories.filter(isRow).map(c => ({ id: String(c.id), name: String(c.name) })) : [] }))
@@ -84,7 +87,7 @@ export async function getProductsPage(businessId: string | null): Promise<Produc
     rows((a, z) => db.from('transactions').select('business_id,id,items').eq('status', 'completed').in('business_id', branchIds).order('business_id').order('id').range(a, z)),
     rows((a, z) => db.from('purchase_lines').select('id,product_id,quantity_base,line_total,purchases!inner(status)').eq('owner_id', owner).eq('purchases.status', 'posted').in('business_id', branchIds).order('id').range(a, z)),
     rows((a, z) => db.from('suppliers').select('id,name').eq('owner_id', owner).eq('is_active', true).order('id').range(a, z)),
-    rows((a, z) => db.from('item_units').select('id,product_id,label,factor_to_base').eq('owner_id', owner).eq('is_active', true).order('id').range(a, z)),
+    rows((a, z) => db.from('item_units').select('id,product_id,label,factor_to_base,products!inner(business_id)').eq('owner_id', owner).eq('is_active', true).in('products.business_id', branchIds).order('id').range(a, z)),
     rows((a, z) => db.from('recipes').select('id,product_id').eq('owner_id', owner).eq('status', 'active').in('business_id', branchIds).order('id').range(a, z)),
   ])
   const sold = summarizeSales(transactions)
@@ -294,7 +297,7 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
       const quantity = track && !firstPurchase ? amount(form.get('initial_quantity') || '0', 'Stok awal') : '0'
       const stock = track ? number(quantity) : -1
       const signature = createHash('sha256').update(JSON.stringify({ businessId, fields, baseUnit, track, firstPurchase, quantity })).digest('hex')
-      const { data: existing, error } = await db.from('products').select('*').eq('inventory_id', operation).eq('owner_id', owner).maybeSingle()
+      const { data: existing, error } = await db.from('products').select('*').eq('inventory_id', operation).eq('owner_id', owner).eq('business_id', businessId).maybeSingle()
       if (error) throw new Error('Gagal memeriksa produk baru.')
       if (existing) {
         if (metadata(existing.raw).creationSignature !== signature) throw new Error('Permintaan produk ini sudah tersimpan dengan data berbeda. Buka ulang dialog.')
