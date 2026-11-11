@@ -32,7 +32,7 @@ function Card({ label, value, hint, icon: Icon, tone }: {
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-500 mb-1">{label}</p>
-          <h3 className="text-xl font-bold text-gray-900 truncate">{value}</h3>
+          <h3 className="text-xl font-bold text-gray-900 truncate" title={value}>{value}</h3>
         </div>
         <div className={`w-11 h-11 shrink-0 rounded-lg flex items-center justify-center ${tone}`}>
           <Icon className="w-5 h-5" />
@@ -46,13 +46,18 @@ function Card({ label, value, hint, icon: Icon, tone }: {
 export default function DashboardClient(p: Props) {
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Overview Penjualan</h1>
-          <p className="text-gray-500 text-sm mt-1">Data dari kasir yang sudah tersinkronisasi.</p>
-        </div>
-        <BusinessSelect businesses={p.businesses} />
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Overview Penjualan</h1>
+        <p className="text-gray-500 text-sm mt-1">Data dari kasir yang sudah tersinkronisasi.</p>
       </div>
+
+      <section aria-labelledby="branch-filter-title" className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+        <h2 id="branch-filter-title" className="text-sm font-semibold text-gray-900">Filter Cabang</h2>
+        <p className="text-sm text-gray-500 mt-1">Pilih cabang untuk melihat ringkasan, grafik penjualan, dan produk terlarisnya.</p>
+        <div className="mt-4 w-full sm:max-w-xs">
+          <BusinessSelect businesses={p.businesses} />
+        </div>
+      </section>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <Card label="Penjualan Hari Ini" value={rupiah(p.todayRevenue)} hint={`${p.todayCount} transaksi`} icon={TrendingUp} tone="bg-green-50 text-green-600" />

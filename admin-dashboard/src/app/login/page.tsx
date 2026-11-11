@@ -1,5 +1,6 @@
 import { login } from './actions'
 import { Coffee } from 'lucide-react'
+import Link from 'next/link'
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ message?: string }> }) {
   const { message } = await searchParams
@@ -61,6 +62,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               Masuk Dashboard
             </button>
           </form>
+          <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+            Belum punya akun?{' '}
+            <Link href="/register" className="font-semibold text-blue-600 hover:text-blue-700 hover:underline dark:text-blue-400">
+              Daftar akun
+            </Link>
+          </p>
         </div>
       </div>
     </div>

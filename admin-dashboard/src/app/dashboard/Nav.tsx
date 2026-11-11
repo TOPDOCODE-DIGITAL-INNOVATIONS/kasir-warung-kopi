@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup } from 'lucide-react'
+import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup, Users } from 'lucide-react'
 
 const LINKS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -10,6 +10,7 @@ const LINKS = [
   { href: '/dashboard/expenses', label: 'Pengeluaran', icon: Wallet },
   { href: '/dashboard/history', label: 'Data Lama & Rekap', icon: History },
   { href: '/dashboard/products', label: 'Produk', icon: Package },
+  { href: '/dashboard/users', label: 'Kelola User', icon: Users },
   { href: '/dashboard/businesses', label: 'Cabang & Token', icon: Building2 },
   { href: '/dashboard/sync', label: 'Sinkronisasi', icon: RefreshCw },
   { href: '/dashboard/backup', label: 'Backup', icon: DatabaseBackup },

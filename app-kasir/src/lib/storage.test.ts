@@ -482,6 +482,21 @@ describe('penyimpanan & sync bertahap', () => {
 });
 
 describe('sync dua arah antar perangkat', () => {
+  it('edit dan hapus kasir dari dashboard tetap berlaku setelah aplikasi dimuat ulang', () => {
+    const cashiers = getCashiers()
+      .filter((cashier) => cashier.id !== 'c-4')
+      .map((cashier) => cashier.id === 'c-2' ? { ...cashier, name: 'Budi Santoso', role: 'Supervisor' as const, avatarColor: 'bg-violet-600 text-white' } : cashier);
+    applyPulledData({
+      config: { products: getProducts(), categories: [], cashiers, settings: {} },
+      configUpdatedAt: '2999-01-01T00:00:00.000Z',
+    });
+
+    __resetStorageStateForTests();
+    const restored = getCashiers();
+    expect(restored.some((cashier) => cashier.id === 'c-4')).toBe(false);
+    expect(restored.find((cashier) => cashier.id === 'c-2')).toEqual(cashiers.find((cashier) => cashier.id === 'c-2'));
+  });
+
   const remoteTx = (id: string, extra: Partial<Transaction> = {}): Transaction => ({
     id,
     timestamp: '2026-11-07T03:00:00.000Z',
