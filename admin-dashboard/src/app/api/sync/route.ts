@@ -95,9 +95,8 @@ function parseConfig(v: unknown): Row | null {
   return { products: c.products, categories: c.categories, cashiers: c.cashiers, settings: c.settings }
 }
 
-/** Cerminan katalog untuk halaman Produk di dashboard: upsert semua, hapus yang sudah tidak ada. */
+/** Perbarui master products dari POS tanpa menghapus bahan atau relasi inventory. */
 async function mirrorProducts(supabase: SupabaseClient, businessId: string, products: Row[], now: string) {
-  if (!products.length) return
   const rows = products.map((p) => {
     // Gambar (bisa berupa data URL besar) tidak ikut disimpan.
     const raw = { ...p }
@@ -109,18 +108,22 @@ async function mirrorProducts(supabase: SupabaseClient, businessId: string, prod
       category_id: str(p.categoryId),
       price: num(p.price),
       cost_price: optNum(p.costPrice),
-      stock: Math.trunc(num(p.stock)),
+      stock: num(p.stock),
       is_available: p.isAvailable !== false,
       raw,
       synced_at: now,
     }
   })
-  const { error } = await supabase.from('products').upsert(rows, { onConflict: 'business_id,id' })
-  if (error) throw error
+  if (rows.length) {
+    const { error } = await supabase.from('products').upsert(rows, { onConflict: 'business_id,id' })
+    if (error) throw error
+  }
   const { error: delError } = await supabase
     .from('products')
-    .delete()
+    .update({ is_available: false })
     .eq('business_id', businessId)
+    .eq('pos_managed', true)
+    .eq('pos_sync_enabled', true)
     .lt('synced_at', now)
   if (delError) throw delError
 }

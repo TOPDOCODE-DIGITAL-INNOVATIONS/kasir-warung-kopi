@@ -1,5 +1,8 @@
 -- =====================================================================
 -- Skema database Kasir Warung Kopi (Supabase / PostgreSQL)
+-- Referensi bootstrap legacy. Struktur terkini (termasuk inventory) dikelola
+-- oleh supabase/migrations/*.sql; gunakan `npx supabase migration up` untuk lokal.
+-- Jangan menjalankan file bootstrap ini sebagai pengganti migration inventory.
 -- Jalankan sekali di Supabase Dashboard -> SQL Editor -> New query -> Run.
 -- Aman dijalankan ulang (idempotent).
 --
