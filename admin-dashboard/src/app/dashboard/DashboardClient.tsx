@@ -53,7 +53,7 @@ export default function DashboardClient(p: Props) {
 
       <section aria-labelledby="branch-filter-title" className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
         <h2 id="branch-filter-title" className="text-sm font-semibold text-gray-900">Filter Cabang</h2>
-        <p className="text-sm text-gray-500 mt-1">Overview dapat menampilkan semua cabang. Filter ini terpisah dari cabang aktif di sidebar.</p>
+        <p className="text-sm text-gray-500 mt-1">Overview dapat menampilkan semua cabang. Filter ini terpisah dari cabang aktif di header.</p>
         <div className="mt-4 w-full sm:max-w-xs">
           <BusinessSelect businesses={p.businesses} />
         </div>

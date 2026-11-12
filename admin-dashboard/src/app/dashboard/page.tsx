@@ -23,7 +23,7 @@ export default async function DashboardPage({
 }) {
   const businessId = pickBusinessId((await searchParams).b)
   const { supabase, businesses } = await getBusinessContext()
-  // Overview deliberately uses its own optional filter, independent of the sidebar.
+  // Overview deliberately uses its own optional filter, independent of the header context.
   const { data, error } = await supabase.rpc('dashboard_summary', { p_business: businessId, p_days: 7 })
 
   if (!businesses || businesses.length === 0) {
