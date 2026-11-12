@@ -9,7 +9,12 @@ import {
   Coffee,
   ChevronRight,
   Sparkles,
+  ClipboardList,
+  Save,
+  Pencil,
+  Check,
 } from 'lucide-react';
+import { RupiahInput } from '../RupiahInput';
 import { CartItem, StoreSettings } from '../../types';
 import { formatIDR } from '../../lib/storage';
 
@@ -26,10 +31,16 @@ interface CartPanelProps {
   storeSettings: StoreSettings;
   onUpdateQty: (cartItemId: string, newQty: number) => void;
   onRemoveItem: (cartItemId: string) => void;
+  onUpdateNotes: (cartItemId: string, notes: string) => void;
   onClearCart: () => void;
   onCheckout: () => void;
   /** Jika diisi, tombol checkout dinonaktifkan dan alasan ini ditampilkan */
   checkoutBlockedReason?: string | null;
+  /** Draf yang sedang dibuka di keranjang (null = pesanan baru) */
+  activeDraftLabel?: string | null;
+  draftCount: number;
+  onOpenDrafts: () => void;
+  onSaveDraft: () => void;
 }
 
 export const CartPanel: React.FC<CartPanelProps> = ({
@@ -45,12 +56,29 @@ export const CartPanel: React.FC<CartPanelProps> = ({
   storeSettings,
   onUpdateQty,
   onRemoveItem,
+  onUpdateNotes,
   onClearCart,
   onCheckout,
   checkoutBlockedReason,
+  activeDraftLabel,
+  draftCount,
+  onOpenDrafts,
+  onSaveDraft,
 }) => {
   const checkoutDisabled = cart.length === 0 || Boolean(checkoutBlockedReason);
   const [showDiscountInput, setShowDiscountInput] = useState(false);
+  // Baris yang catatannya sedang diedit
+  const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
+  const [notesDraft, setNotesDraft] = useState('');
+
+  const startEditNotes = (cartItemId: string, current?: string) => {
+    setEditingNotesId(cartItemId);
+    setNotesDraft(current ?? '');
+  };
+  const commitNotes = () => {
+    if (editingNotesId) onUpdateNotes(editingNotesId, notesDraft);
+    setEditingNotesId(null);
+  };
 
   // Subtotal calculation
   const subtotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -85,16 +113,34 @@ export const CartPanel: React.FC<CartPanelProps> = ({
           </span>
         </div>
 
+        <div className="flex items-center gap-1.5">
+        <button
+          onClick={onOpenDrafts}
+          className="text-[10px] text-[#3E2723] font-bold border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-stone-100 transition-colors flex items-center gap-1"
+          title="Draf pesanan / bayar nanti"
+        >
+          <ClipboardList className="w-3 h-3" />
+          <span>DRAF</span>
+          {draftCount > 0 && (
+            <span className="bg-amber-500 text-white rounded-full px-1.5 text-[9px] font-black">{draftCount}</span>
+          )}
+        </button>
         {cart.length > 0 && (
           <button
             onClick={onClearCart}
             className="text-[10px] text-[#8D6E63] hover:text-[#3E2723] font-bold border border-[#D7CCC8] px-2 py-0.5 rounded hover:bg-stone-100 transition-colors flex items-center gap-1"
           >
             <Trash2 className="w-3 h-3" />
-            <span>KOSONGKAN</span>
+            <span>{activeDraftLabel ? 'TUTUP' : 'KOSONGKAN'}</span>
           </button>
         )}
+        </div>
       </div>
+      {activeDraftLabel && (
+        <div className="shrink-0 px-3.5 py-1.5 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-900 font-semibold">
+          Draf: <b>{activeDraftLabel}</b> — tambah item lalu simpan lagi, atau bayar sekarang.
+        </div>
+      )}
       
 
       {/* Order Type Tabs & Customer Input */}
@@ -165,11 +211,48 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                     </div>
                   )}
 
-                  {/* Notes */}
-                  {item.notes && (
-                    <p className="text-[10px] text-amber-800 italic mt-0.5">
-                      Catatan: "{item.notes}"
-                    </p>
+                  {/* Notes (bisa diubah langsung di keranjang) */}
+                  {editingNotesId === item.cartItemId ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        commitNotes();
+                      }}
+                      className="flex items-center gap-1 mt-1"
+                    >
+                      <input
+                        autoFocus
+                        type="text"
+                        value={notesDraft}
+                        placeholder="mis. less sugar, tanpa es"
+                        onChange={(e) => setNotesDraft(e.target.value)}
+                        onBlur={commitNotes}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setEditingNotesId(null);
+                        }}
+                        className="flex-1 min-w-0 bg-amber-50 border border-amber-300 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:border-amber-700"
+                      />
+                      <button
+                        type="submit"
+                        onMouseDown={(e) => e.preventDefault()}
+                        className="p-0.5 rounded bg-amber-700 text-white"
+                        aria-label="Simpan catatan"
+                      >
+                        <Check className="w-3 h-3" />
+                      </button>
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startEditNotes(item.cartItemId, item.notes)}
+                      className={`mt-0.5 text-[10px] flex items-center gap-1 text-left ${
+                        item.notes ? 'text-amber-800 italic' : 'text-stone-400 hover:text-[#3E2723]'
+                      }`}
+                      title="Ubah catatan"
+                    >
+                      <Pencil className="w-2.5 h-2.5 shrink-0" />
+                      <span>{item.notes ? `Catatan: "${item.notes}"` : 'Tambah catatan'}</span>
+                    </button>
                   )}
 
                   <div className="text-[11px] font-semibold text-[#5D4037] mt-0.5">
@@ -266,13 +349,23 @@ export const CartPanel: React.FC<CartPanelProps> = ({
                   </button>
                 </div>
 
-                <input
-                  type="number"
-                  placeholder={discountType === 'rp' ? 'Nominal' : 'Persen'}
-                  value={discountAmount || ''}
-                  onChange={(e) => setDiscountAmount(Number(e.target.value))}
-                  className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#3E2723]"
-                />
+                {discountType === 'rp' ? (
+                  <RupiahInput
+                    placeholder="Nominal"
+                    value={discountAmount || 0}
+                    onChange={setDiscountAmount}
+                    className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pr-2 py-1 text-xs focus:outline-none focus:border-[#3E2723]"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Persen"
+                    value={discountAmount || ''}
+                    onChange={(e) => setDiscountAmount(Math.min(100, Number(e.target.value.replace(/\D/g, '')) || 0))}
+                    className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-2 py-1 text-xs focus:outline-none focus:border-[#3E2723]"
+                  />
+                )}
               </div>
             </div>
           )}
@@ -311,6 +404,15 @@ export const CartPanel: React.FC<CartPanelProps> = ({
             {checkoutBlockedReason}
           </p>
         )}
+        <button
+          type="button"
+          onClick={onSaveDraft}
+          disabled={cart.length === 0}
+          className="w-full py-2 bg-white border border-[#3E2723] text-[#3E2723] hover:bg-[#FAF8F6] font-extrabold text-xs rounded transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Save className="w-4 h-4" />
+          <span>{activeDraftLabel ? 'SIMPAN PERUBAHAN DRAF' : 'SIMPAN DRAF (BAYAR NANTI)'}</span>
+        </button>
         <button
           onClick={onCheckout}
           disabled={checkoutDisabled}

@@ -19,7 +19,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="min-h-screen bg-gray-50 md:flex">
-      <aside className="w-64 bg-white border-r border-gray-200 hidden md:flex flex-col sticky top-0 h-screen">
+      <aside className="print:hidden w-64 bg-white border-r border-gray-200 hidden md:flex flex-col sticky top-0 h-screen">
         <div className="h-16 flex items-center px-6 border-b border-gray-200">
           <Store className="w-6 h-6 text-blue-600 mr-2" />
           <span className="text-lg font-bold text-gray-900">KasirKu Admin</span>
@@ -35,7 +35,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </div>
       </aside>
 
-      <header className="md:hidden bg-white border-b border-gray-200">
+      <header className="print:hidden md:hidden bg-white border-b border-gray-200">
         <div className="h-14 flex items-center justify-between px-4">
           <span className="flex items-center font-bold">
             <Store className="w-5 h-5 text-blue-600 mr-2" /> KasirKu Admin

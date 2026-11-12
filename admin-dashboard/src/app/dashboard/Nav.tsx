@@ -7,8 +7,9 @@ import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, Histor
 const LINKS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/transactions', label: 'Transaksi', icon: Receipt },
+  { href: '/dashboard/recap', label: 'Rekap Keuangan', icon: FileBarChart },
   { href: '/dashboard/expenses', label: 'Pengeluaran', icon: Wallet },
-  { href: '/dashboard/history', label: 'Data Lama & Rekap', icon: History },
+  { href: '/dashboard/history', label: 'Data Lama & Tutup Buku', icon: History },
   { href: '/dashboard/products', label: 'Produk', icon: Package },
   { href: '/dashboard/users', label: 'Kelola User', icon: Users },
   { href: '/dashboard/businesses', label: 'Cabang & Token', icon: Building2 },

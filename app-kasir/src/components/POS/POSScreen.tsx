@@ -1,19 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, Coffee, Lock, AlertTriangle, X } from 'lucide-react';
-import { Product, Category, CartItem, SelectedOption, Cashier, Shift, StoreSettings, Transaction } from '../../types';
+import { Product, Category, CartItem, SelectedOption, Cashier, Shift, StoreSettings, Transaction, DraftOrder } from '../../types';
 import {
   getProducts,
   getCategories,
   saveTransaction,
   getStockIssues,
+  getDrafts,
+  saveDraft,
+  deleteDraft,
+  draftItemsForCart,
   POS_UPDATE_EVENT,
 } from '../../lib/storage';
+import { DraftListModal, SaveDraftModal } from './DraftModals';
 import { shouldAutoPrint } from '../../lib/printer';
 import { ProductCard } from './ProductCard';
 import { OptionModal } from './OptionModal';
 import { CartPanel } from './CartPanel';
 import { PaymentModal } from './PaymentModal';
 import { ReceiptModal } from './ReceiptModal';
+
+/** Kunci baris keranjang: produk + opsi + catatan yang sama digabung dalam satu baris. */
+function makeCartItemId(productId: string, selectedOptions: SelectedOption[], notes: string): string {
+  const optionsKey = selectedOptions.map((o) => `${o.groupName}:${o.choiceLabel}`).join('|');
+  return `${productId}-${optionsKey}-${notes.trim()}`;
+}
 
 interface POSScreenProps {
   activeCashier: Cashier;
@@ -22,6 +33,8 @@ interface POSScreenProps {
   storeSettings: StoreSettings;
   cart: CartItem[];
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
+  activeDraftId: string | null;
+  setActiveDraftId: (id: string | null) => void;
 }
 
 export const POSScreen: React.FC<POSScreenProps> = ({
@@ -31,6 +44,8 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   storeSettings,
   cart,
   setCart,
+  activeDraftId,
+  setActiveDraftId,
 }) => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -52,11 +67,41 @@ export const POSScreen: React.FC<POSScreenProps> = ({
 
   // Pesan peringatan singkat (stok habis, dll.)
   const [notice, setNotice] = useState<string | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
+
+  // Draf pesanan (bayar nanti)
+  const [drafts, setDrafts] = useState<DraftOrder[]>(() => getDrafts());
+  const [isDraftListOpen, setIsDraftListOpen] = useState(false);
+  const [isSaveDraftOpen, setIsSaveDraftOpen] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const activeDraftRef = useRef<string | null>(activeDraftId);
+  activeDraftRef.current = activeDraftId;
+  const activeDraft = drafts.find((d) => d.id === activeDraftId) ?? null;
+
+  // Kembali ke tab POS dengan draf terbuka: pulihkan info pesanannya.
+  useEffect(() => {
+    const d = activeDraftId ? getDrafts().find((x) => x.id === activeDraftId) : null;
+    if (d) {
+      setOrderType(d.orderType);
+      setCustomerName(d.label);
+      setDiscountAmount(d.discountAmount);
+      setDiscountType(d.discountType);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const load = () => {
       setProducts(getProducts());
       setCategories(getCategories());
+      const list = getDrafts();
+      setDrafts(list);
+      // Draf yang sedang dibuka sudah dibayar/dihapus di perangkat lain
+      const openId = activeDraftRef.current;
+      if (openId && !list.some((d) => d.id === openId)) {
+        activeDraftRef.current = null;
+        setActiveDraftId(null);
+        setNotice('Draf ini sudah dibayar atau dihapus di perangkat lain. Periksa keranjang sebelum melanjutkan.');
+      }
     };
     load();
     // Muat ulang saat stok/menu berubah dari layar lain
@@ -69,6 +114,12 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     const t = setTimeout(() => setNotice(null), 4000);
     return () => clearTimeout(t);
   }, [notice]);
+
+  useEffect(() => {
+    if (!successNotice) return;
+    const t = setTimeout(() => setSuccessNotice(null), 3000);
+    return () => clearTimeout(t);
+  }, [successNotice]);
 
   /** Jumlah produk ini di keranjang (semua varian opsi), opsional tanpa satu baris tertentu. */
   const qtyInCart = (productId: string, excludeCartItemId?: string) =>
@@ -112,9 +163,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     const extrasSum = selectedOptions.reduce((acc, opt) => acc + opt.extraPrice, 0);
     const unitPrice = product.price + extrasSum;
 
-    // Create unique key for cart matching
-    const optionsKey = selectedOptions.map((o) => `${o.groupName}:${o.choiceLabel}`).join('|');
-    const cartItemId = `${product.id}-${optionsKey}-${notes}`;
+    const cartItemId = makeCartItemId(product.id, selectedOptions, notes);
 
     setCart((prev) => {
       const existingIdx = prev.findIndex((item) => item.cartItemId === cartItemId);
@@ -162,6 +211,27 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     );
   };
 
+  /** Ubah catatan item di keranjang. Jika jadi sama persis dengan baris lain, keduanya digabung. */
+  const handleUpdateCartNotes = (cartItemId: string, notes: string) => {
+    setCart((prev) => {
+      const item = prev.find((it) => it.cartItemId === cartItemId);
+      if (!item) return prev;
+      const clean = notes.trim();
+      const newId = makeCartItemId(item.product.id, item.selectedOptions, clean);
+      if (newId === cartItemId && (item.notes ?? '') === clean) return prev;
+      const twin = prev.find((it) => it.cartItemId === newId && it !== item);
+      if (twin) {
+        const qty = twin.quantity + item.quantity;
+        return prev
+          .filter((it) => it !== item)
+          .map((it) => (it === twin ? { ...it, quantity: qty, totalPrice: it.unitPrice * qty } : it));
+      }
+      return prev.map((it) =>
+        it === item ? { ...it, cartItemId: newId, notes: clean || undefined } : it
+      );
+    });
+  };
+
   const handleRemoveCartItem = (cartItemId: string) => {
     setCart((prev) => prev.filter((item) => item.cartItemId !== cartItemId));
   };
@@ -170,6 +240,61 @@ export const POSScreen: React.FC<POSScreenProps> = ({
     setCart([]);
     setCustomerName('');
     setDiscountAmount(0);
+    // Draf tetap tersimpan; keranjang hanya dilepas dari draf.
+    activeDraftRef.current = null;
+    setActiveDraftId(null);
+  };
+
+  const handleSaveDraft = (label: string, notes: string) => {
+    try {
+      const saved = saveDraft(
+        {
+          id: activeDraftId ?? undefined,
+          label,
+          notes,
+          orderType,
+          items: cart,
+          discountAmount,
+          discountType,
+        },
+        activeCashier.name
+      );
+      setIsSaveDraftOpen(false);
+      setDraftError(null);
+      handleClearCart();
+      setOrderType('Dine In');
+      setSuccessNotice(`Draf "${saved.label}" tersimpan.`);
+    } catch (err: any) {
+      setDraftError(err?.message || 'Draf gagal disimpan.');
+    }
+  };
+
+  const handleOpenDraft = (d: DraftOrder) => {
+    if (d.id !== activeDraftId && cart.length > 0) {
+      const ok = window.confirm(
+        activeDraftId
+          ? 'Perubahan draf yang sedang dibuka belum disimpan akan hilang. Buka draf lain?'
+          : 'Keranjang saat ini akan diganti dengan draf ini. Lanjutkan?'
+      );
+      if (!ok) return;
+    }
+    setCart(draftItemsForCart(d));
+    setOrderType(d.orderType);
+    setCustomerName(d.label);
+    setDiscountAmount(d.discountAmount);
+    setDiscountType(d.discountType);
+    activeDraftRef.current = d.id;
+    setActiveDraftId(d.id);
+    setIsDraftListOpen(false);
+  };
+
+  const handleDeleteDraft = (d: DraftOrder) => {
+    if (!window.confirm(`Hapus draf "${d.label}"? Pesanan ini tidak akan tercatat sebagai penjualan.`)) return;
+    if (d.id === activeDraftId) {
+      activeDraftRef.current = null;
+      setActiveDraftId(null);
+    }
+    deleteDraft(d.id);
   };
 
   // Subtotal & GrandTotal calculation for payment modal
@@ -190,9 +315,20 @@ export const POSScreen: React.FC<POSScreenProps> = ({
   const handlePaymentSuccess = (transaction: Transaction) => {
     try {
       const saved = saveTransaction(transaction);
+      // Draf yang dibayar dihapus (perangkat lain ikut menghapusnya saat sync).
+      if (activeDraftId) {
+        const paidDraftId = activeDraftId;
+        activeDraftRef.current = null;
+        setActiveDraftId(null);
+        deleteDraft(paidDraftId);
+      }
       setIsPaymentModalOpen(false);
       setCompletedTransaction(saved);
       setProducts(getProducts());
+      // Transaksi sudah tersimpan: kosongkan keranjang sekarang juga, supaya menutup struk
+      // tidak menyisakan pesanan lama (yang bisa terbayar dua kali).
+      handleClearCart();
+      setOrderType('Dine In');
     } catch (err: any) {
       setIsPaymentModalOpen(false);
       setNotice(err?.message || 'Transaksi gagal disimpan.');
@@ -239,6 +375,15 @@ export const POSScreen: React.FC<POSScreenProps> = ({
           >
             Buka Shift
           </button>
+        </div>
+      )}
+
+      {successNotice && (
+        <div
+          role="status"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-sm w-[calc(100%-2rem)] bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-xl px-3 py-2.5"
+        >
+          {successNotice}
         </div>
       )}
 
@@ -328,12 +473,41 @@ export const POSScreen: React.FC<POSScreenProps> = ({
             storeSettings={storeSettings}
             onUpdateQty={handleUpdateCartQty}
             onRemoveItem={handleRemoveCartItem}
+            onUpdateNotes={handleUpdateCartNotes}
             onClearCart={handleClearCart}
             onCheckout={() => setIsPaymentModalOpen(true)}
             checkoutBlockedReason={checkoutBlockedReason}
+            activeDraftLabel={activeDraft?.label ?? null}
+            draftCount={drafts.length}
+            onOpenDrafts={() => setIsDraftListOpen(true)}
+            onSaveDraft={() => {
+              setDraftError(null);
+              setIsSaveDraftOpen(true);
+            }}
           />
         </div>
       </div>
+
+      {isDraftListOpen && (
+        <DraftListModal
+          drafts={drafts}
+          activeDraftId={activeDraftId}
+          onOpen={handleOpenDraft}
+          onDelete={handleDeleteDraft}
+          onClose={() => setIsDraftListOpen(false)}
+        />
+      )}
+
+      {isSaveDraftOpen && (
+        <SaveDraftModal
+          initialLabel={customerName || activeDraft?.label || ''}
+          initialNotes={activeDraft?.notes}
+          isUpdate={!!activeDraft}
+          error={draftError}
+          onSave={handleSaveDraft}
+          onClose={() => setIsSaveDraftOpen(false)}
+        />
+      )}
 
       {/* Option Selector Modal */}
       {selectedProductForOptions && (
