@@ -8,6 +8,7 @@ export type ProductRow = {
   baseUnitId: string; unitCode: string; canBuy: boolean; canSell: boolean
   price: number; cost: number | null; stock: number; minStock: number; available: boolean
   version: string; soldQuantity: number; soldAmount: number; boughtQuantity: number; boughtAmount: number
+  stockUpdatedAt: string | null
   hasRecipe: boolean; pendingOperation: string | null
 }
 export type ProductPageData = {
@@ -23,4 +24,5 @@ export type StockEvent = {
 export type HistoryData = {
   events: StockEvent[]
   purchases: { id: string; date: string; number: string; supplier: string; quantity: number; amount: number; status: string }[]
+  adjustments: { id: string; mode: string; before: number; after: number; delta: number; reason: string; date: string; by: string }[]
 }

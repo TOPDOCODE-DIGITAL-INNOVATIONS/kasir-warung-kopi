@@ -34,6 +34,15 @@ export function addStock(stock: number, quantity: string): number {
   if (total > BigInt(999_999_999) * SCALE) throw new Error('Stok akhir melebihi batas yang diperbolehkan.')
   return Number(decimal(total))
 }
+export function stockChange(stock: number, mode: string, quantity: string): number {
+  if (stock < 0) throw new Error('Pelacakan stok tidak aktif.')
+  if (!['count', 'usage', 'damage', 'addition'].includes(mode)) throw new Error('Pilih jenis pencatatan stok.')
+  const qty = scaled(amount(quantity, 'Jumlah', mode !== 'count'))
+  const result = mode === 'count' ? qty : scaled(stock) + (mode === 'addition' ? qty : -qty)
+  if (result < BigInt(0)) throw new Error('Jumlah pengurangan melebihi stok tercatat.')
+  if (result > BigInt(999_999_999) * SCALE) throw new Error('Stok akhir melebihi batas.')
+  return Number(decimal(result))
+}
 export function metadata(raw: unknown): Row {
   return isRow(raw) && isRow(raw._inventory) ? raw._inventory : { version: 1, events: [] }
 }

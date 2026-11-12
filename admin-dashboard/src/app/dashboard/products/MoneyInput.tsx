@@ -3,8 +3,8 @@
 import { useLayoutEffect, useRef, useState, type ChangeEvent } from 'react'
 import { formatRupiahInput, rupiahInputValue } from '@/lib/money'
 
-export default function MoneyInput({ id, name, defaultValue, required, className, placeholder = '0' }: {
-  id: string; name: string; defaultValue?: number | null; required?: boolean; className: string; placeholder?: string
+export default function MoneyInput({ id, name, defaultValue, required, className, placeholder = '0', onValueChange }: {
+  id: string; name: string; defaultValue?: number | null; required?: boolean; className: string; placeholder?: string; onValueChange?: (value: string) => void
 }) {
   const [value, setValue] = useState(() => defaultValue == null ? '' : defaultValue.toLocaleString('id-ID', { maximumFractionDigits: 6 }))
   const ref = useRef<HTMLInputElement>(null)
@@ -22,6 +22,7 @@ export default function MoneyInput({ id, name, defaultValue, required, className
   function change(event: ChangeEvent<HTMLInputElement>) {
     const node = event.currentTarget
     const next = formatRupiahInput(node.value)
+    onValueChange?.(rupiahInputValue(next))
     // Preserve the caret when editing a digit in the middle of a grouped amount.
     const digitsBefore = node.value.slice(0, node.selectionStart ?? node.value.length).replace(/[^\d,]/g, '').length
     let position = 0, count = 0
