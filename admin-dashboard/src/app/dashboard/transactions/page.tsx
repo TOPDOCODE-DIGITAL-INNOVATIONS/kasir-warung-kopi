@@ -1,30 +1,20 @@
-import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { formatDateTime, rupiah, PAYMENT_LABELS } from '@/lib/format'
-import { pickBusinessId } from '@/lib/business-filter'
-import BusinessSelect from '../BusinessSelect'
 
 type Item = { quantity?: number; product?: { name?: string }; selectedOptions?: { choiceLabel?: string }[] }
 
-export default async function TransactionsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ b?: string | string[] }>
-}) {
-  const businessId = pickBusinessId((await searchParams).b)
-  const supabase = await createClient()
+export default async function TransactionsPage() {
+  const { supabase, businessId } = await getBusinessContext()
 
-  let query = supabase
+  const query = supabase
     .from('transactions')
     .select(
       'id, created_at, cashier_name, order_type, customer_name, items, grand_total, overpay_amount, payment_type, payment_detail, status, debt_status, businesses(name)'
     )
     .order('created_at', { ascending: false })
     .limit(300)
-  if (businessId) query = query.eq('business_id', businessId)
-  const [{ data: businesses }, { data: transactions, error }] = await Promise.all([
-    supabase.from('businesses').select('id, name').order('created_at'),
-    query,
-  ])
+    .eq('business_id', businessId ?? EMPTY_BUSINESS_ID)
+  const { data: transactions, error } = await query
 
   return (
     <div className="space-y-6">
@@ -33,7 +23,6 @@ export default async function TransactionsPage({
           <h1 className="text-2xl font-bold text-gray-900">Riwayat Transaksi</h1>
           <p className="text-gray-500 text-sm mt-1">300 transaksi terakhir yang disinkronisasi dari kasir.</p>
         </div>
-        <BusinessSelect businesses={businesses ?? []} />
       </div>
 
       {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error.message}</p>}

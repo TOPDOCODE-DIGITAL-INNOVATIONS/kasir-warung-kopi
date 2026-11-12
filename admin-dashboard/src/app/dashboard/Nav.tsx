@@ -19,7 +19,7 @@ const LINKS = [
 export default function Nav({ mobile = false }: { mobile?: boolean }) {
   const pathname = usePathname()
   return (
-    <nav className={mobile ? 'flex gap-1 overflow-x-auto px-4 pb-3' : 'flex-1 p-4 space-y-1'}>
+    <nav className={mobile ? 'flex gap-1 overflow-x-auto px-4 pb-3' : 'flex-1 overflow-y-auto p-4 space-y-1'}>
       {LINKS.map(({ href, label, icon: Icon }) => {
         const active = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
         return (

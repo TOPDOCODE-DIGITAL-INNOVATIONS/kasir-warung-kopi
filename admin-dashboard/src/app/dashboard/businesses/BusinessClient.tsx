@@ -77,7 +77,7 @@ export default function BusinessClient({
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center">
-          <h2 className="font-semibold text-lg text-gray-900">Daftar Cabang</h2>
+          <h2 className="font-semibold text-lg text-gray-900">Cabang Aktif</h2>
           <button
             onClick={() => {
               setIsAdding(true)

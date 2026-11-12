@@ -13,7 +13,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
   initialBusinessId: string | null
   unavailable: boolean
 }) {
-  const [businessId, setBusinessId] = useState(businesses.some((business) => business.id === initialBusinessId) ? initialBusinessId! : '')
+  const businessId = initialBusinessId ?? ''
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [pending, setPending] = useState<string | null>(null)
@@ -25,7 +25,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
   const filters = { businessId: businessId || null, start, end }
   const invalid = validateBackupFilters(filters)
   const disabled = !!pending || !!invalid || unavailable || businesses.length === 0
-  const branchLabel = businesses.find((business) => business.id === businessId)?.name ?? 'Semua cabang'
+  const branchLabel = businesses.find((business) => business.id === businessId)?.name ?? 'Belum ada cabang'
   const periodLabel = start && end && !invalid ? formatRange(start, end) : start ? `Mulai ${start}` : end ? `Sampai ${end}` : 'Seluruh periode'
 
   async function download(dataset: BackupDataset | 'all', format: BackupFormat, itemsOnly = false) {
@@ -78,7 +78,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
           <DatabaseBackup className="w-6 h-6 text-blue-600 shrink-0" />
           <div>
             <h2 className="font-semibold text-lg text-gray-900">Backup Data</h2>
-            <p className="text-sm text-gray-500 mt-1">Pilih cabang dan periode, lalu unduh kategori data yang dibutuhkan.</p>
+            <p className="text-sm text-gray-500 mt-1">Pilih periode, lalu unduh kategori data dari cabang aktif.</p>
           </div>
         </div>
 
@@ -88,10 +88,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label htmlFor="backup-business" className="block text-sm font-medium text-gray-700 mb-1.5">Cabang</label>
-                <select id="backup-business" value={businessId} onChange={(event) => setBusinessId(event.target.value)} className="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5 disabled:opacity-50">
-                  <option value="">Semua Cabang</option>
-                  {businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}
-                </select>
+                <input id="backup-business" readOnly value={branchLabel} className="w-full rounded-lg border border-gray-200 bg-gray-50 p-2.5 text-sm text-gray-900" />
               </div>
               <div>
                 <label htmlFor="backup-start" className="block text-sm font-medium text-gray-700 mb-1.5">Tanggal mulai</label>
@@ -126,7 +123,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
             </div>
             <div className="flex flex-wrap justify-between items-start gap-2">
               <p id="backup-date-help" className="text-xs text-gray-500">Kosongkan tanggal untuk seluruh periode. Rentang mencakup hari terakhir dalam WIB.</p>
-              <button type="button" onClick={() => { setBusinessId(''); setStart(''); setEnd(''); setError(null) }} className="text-xs font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50">Reset filter</button>
+              <button type="button" onClick={() => { setStart(''); setEnd(''); setError(null) }} className="text-xs font-medium text-blue-600 hover:text-blue-700 disabled:opacity-50">Reset filter</button>
             </div>
           </fieldset>
 

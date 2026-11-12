@@ -1,26 +1,16 @@
-import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { rupiah } from '@/lib/format'
-import { pickBusinessId } from '@/lib/business-filter'
-import BusinessSelect from '../BusinessSelect'
 
-export default async function ExpensesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ b?: string | string[] }>
-}) {
-  const businessId = pickBusinessId((await searchParams).b)
-  const supabase = await createClient()
+export default async function ExpensesPage() {
+  const { supabase, businessId } = await getBusinessContext()
 
-  let query = supabase
+  const query = supabase
     .from('expenses')
     .select('id, scope, date, category, amount, note, from_drawer, created_by, businesses(name)')
     .order('date', { ascending: false })
     .limit(300)
-  if (businessId) query = query.eq('business_id', businessId)
-  const [{ data: businesses }, { data: expenses, error }] = await Promise.all([
-    supabase.from('businesses').select('id, name').order('created_at'),
-    query,
-  ])
+    .eq('business_id', businessId ?? EMPTY_BUSINESS_ID)
+  const { data: expenses, error } = await query
 
   return (
     <div className="space-y-6">
@@ -29,7 +19,6 @@ export default async function ExpensesPage({
           <h1 className="text-2xl font-bold text-gray-900">Pengeluaran</h1>
           <p className="text-gray-500 text-sm mt-1">Pengeluaran harian & bulanan yang dicatat di kasir.</p>
         </div>
-        <BusinessSelect businesses={businesses ?? []} />
       </div>
 
       {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error.message}</p>}

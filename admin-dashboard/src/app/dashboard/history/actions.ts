@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/utils/supabase/server'
+import { requireBusinessContext } from '@/lib/business-context'
 import { parseMoney } from '@/lib/money'
 
 function parseAmount(v: FormDataEntryValue | null): number {
@@ -28,7 +28,7 @@ export async function saveSummary(formData: FormData) {
   const overpay = parseAmount(formData.get('overpay'))
   if (sales === 0 && expenses === 0 && overpay === 0) throw new Error('Isi total penjualan atau pengeluaran')
 
-  const supabase = await createClient()
+  const { supabase } = await requireBusinessContext(businessId)
   const { error } = await supabase
     .from('manual_summaries')
     .upsert(
@@ -40,8 +40,8 @@ export async function saveSummary(formData: FormData) {
 }
 
 export async function deleteSummary(id: string) {
-  const supabase = await createClient()
-  const { error } = await supabase.from('manual_summaries').delete().eq('id', id)
+  const { supabase, businessId } = await requireBusinessContext()
+  const { error } = await supabase.from('manual_summaries').delete().eq('id', id).eq('business_id', businessId)
   if (error) throw new Error(error.message)
   revalidatePath('/dashboard', 'layout')
 }
@@ -58,7 +58,7 @@ export async function saveBookRule(formData: FormData) {
   }
   if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) throw new Error('Tanggal berlaku tidak valid')
 
-  const supabase = await createClient()
+  const { supabase } = await requireBusinessContext(businessId)
   const { error } = await supabase
     .from('book_period_rules')
     .upsert(
@@ -70,8 +70,8 @@ export async function saveBookRule(formData: FormData) {
 }
 
 export async function deleteBookRule(id: string) {
-  const supabase = await createClient()
-  const { error } = await supabase.from('book_period_rules').delete().eq('id', id)
+  const { supabase, businessId } = await requireBusinessContext()
+  const { error } = await supabase.from('book_period_rules').delete().eq('id', id).eq('business_id', businessId)
   if (error) throw new Error(error.message)
   revalidatePath('/dashboard', 'layout')
 }

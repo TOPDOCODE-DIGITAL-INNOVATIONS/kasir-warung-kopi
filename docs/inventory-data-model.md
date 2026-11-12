@@ -56,7 +56,7 @@ Pos_sync_enabled=false membuat token POS tidak dapat menimpa nilai produk yang d
 
 Produk yang hilang dari daftar menu ditandai tidak tersedia, dengan filter pos_managed=true dan pos_sync_enabled=true. Daftar kosong juga diproses. Bahan buy-only dan produk yang mematikan sync tidak ikut dibersihkan. Baris yang mempunyai relasi inventory tidak dihapus fisik oleh pembersihan sync.
 
-Pos_config tetap merupakan konfigurasi/cache bersama menu, kategori, kasir dan pengaturan untuk perangkat; bukan tabel master inventory kedua. Pengelolaan inventory melalui UI dan adaptor perubahan admin ke menu POS tetap pekerjaan berikutnya. Tidak diperlukan perubahan format transaksi atau ID perangkat pada penggabungan ini.
+Pos_config tetap merupakan konfigurasi/cache bersama menu, kategori, kasir dan pengaturan untuk perangkat; bukan tabel master inventory kedua. Pengelolaan produk dasar di admin dan pengiriman perubahan ke menu POS kini tersedia; lihat [Pengelolaan Produk & Stok](product-management.md). Editor resep dan konsumsi bahan otomatis tetap pekerjaan berikutnya. Tidak diperlukan perubahan format transaksi atau ID perangkat pada penggabungan ini.
 
 ### Resep dan pembelian
 
@@ -158,7 +158,7 @@ Contoh data tahap pertama:
 | Coffee Latte | pcs | Tidak | Ya | Rp6.000 | Rp22.000 |
 | Air mineral | pcs | Ya | Ya | Rp3.000 | Rp5.000 |
 
-Tampilan admin yang diusulkan terdiri atas judul/deskripsi, panel filter cabang, filter jenis barang Semua/Beli/Jual, dan tabel dengan aksi tambah/edit/arsip. Jenis Beli/Jual merupakan hasil filter atas dua penanda pada master. Saat membuat barang, pengguna mengisi nama, satuan, penanda beli/jual, cabang, modal manual, dan harga jual bila relevan. SKU dan deskripsi bersifat opsional.
+Tampilan admin terdiri atas judul/deskripsi, filter jenis barang Semua/Beli/Jual, dan tabel dengan aksi tambah/edit/arsip. Cabang mengikuti pemilih **Cabang aktif** di sidebar. Jenis Beli/Jual merupakan hasil filter atas dua penanda pada master. Saat membuat barang, pengguna mengisi nama, satuan, penanda beli/jual, modal manual, dan harga jual bila relevan. SKU dan deskripsi bersifat opsional.
 
 Katalog owner dapat dipilih kembali ketika barang dipakai di cabang lain. Harga dan modal dapat berbeda untuk setiap cabang. Perubahan nama dan satuan berlaku pada identitas katalog bersama, sedangkan perubahan harga berlaku pada cabang yang diedit.
 

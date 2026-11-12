@@ -1,8 +1,6 @@
-import { createClient } from '@/utils/supabase/server'
-import { pickBusinessId } from '@/lib/business-filter'
+import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { dayKey, rupiah } from '@/lib/format'
 import { formatRange } from '@/lib/book-period'
-import BusinessSelect from '../BusinessSelect'
 import HistoryClient from './HistoryClient'
 import BookRulesClient, { type Rule } from './BookRulesClient'
 
@@ -18,30 +16,24 @@ type Recap = {
   tx_count: number
 }
 
-export default async function HistoryPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ b?: string | string[] }>
-}) {
-  const businessId = pickBusinessId((await searchParams).b)
-  const supabase = await createClient()
+export default async function HistoryPage() {
+  const { supabase, businesses: ownedBusinesses, businessId } = await getBusinessContext()
+  const businesses = ownedBusinesses.filter(b => b.id === businessId)
 
-  let entriesQuery = supabase
+  const entriesQuery = supabase
     .from('manual_summaries')
     .select('id, business_id, period, date, sales, expenses, overpay, note, businesses(name)')
     .order('date', { ascending: false })
     .limit(500)
-  if (businessId) entriesQuery = entriesQuery.eq('business_id', businessId)
+    .eq('business_id', businessId ?? EMPTY_BUSINESS_ID)
 
-  const [{ data: businesses }, { data: entries, error }, { data: recap, error: recapError }, { data: rules }] =
+  const [{ data: entries, error }, { data: recap, error: recapError }, { data: rules }] =
     await Promise.all([
-      supabase.from('businesses').select('id, name').order('created_at'),
       entriesQuery,
-      supabase.rpc('book_recap', { p_business: businessId, p_limit: 36 }),
-      supabase.from('book_period_rules').select('id, business_id, start_day, effective_from'),
+      businessId ? supabase.rpc('book_recap', { p_business: businessId, p_limit: 36 }) : Promise.resolve({ data: [], error: null }),
+      supabase.from('book_period_rules').select('id, business_id, start_day, effective_from').eq('business_id', businessId ?? EMPTY_BUSINESS_ID),
     ])
   const allRules = (rules ?? []) as Rule[]
-  const shownBusinesses = (businesses ?? []).filter((b) => !businessId || b.id === businessId)
 
   const rows = ((recap ?? []) as Recap[]).map((r) => {
     const sales = Number(r.sales_pos) + Number(r.overpay_pos) + Number(r.sales_manual)
@@ -59,7 +51,6 @@ export default async function HistoryPage({
             Masukkan total penjualan & pengeluaran dari periode sebelum memakai aplikasi kasir.
           </p>
         </div>
-        <BusinessSelect businesses={businesses ?? []} />
       </div>
 
       {(error || recapError) && (
@@ -68,12 +59,13 @@ export default async function HistoryPage({
         </p>
       )}
 
-      <BookRulesClient businesses={shownBusinesses} rules={allRules} today={dayKey(new Date())} />
+      <BookRulesClient key={`book-rules-${businessId ?? 'none'}`} businesses={businesses} rules={allRules} today={dayKey(new Date())} />
 
       <HistoryClient
+        key={`history-${businessId ?? 'none'}`}
         rules={allRules}
-        businesses={businesses ?? []}
-        defaultBusinessId={businessId ?? businesses?.[0]?.id ?? ''}
+        businesses={businesses}
+        defaultBusinessId={businessId ?? ''}
         entries={(entries ?? []).map((e) => ({
           id: e.id,
           business_id: e.business_id,
