@@ -1,10 +1,6 @@
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
-import { formatDateTime, rupiah, PAYMENT_LABELS } from '@/lib/format'
 import Link from 'next/link'
-import { createClient } from '@/utils/supabase/server'
 import { rupiah, dayKey, PAYMENT_LABELS } from '@/lib/format'
-import { pickBusinessId } from '@/lib/business-filter'
-import BusinessSelect from '../BusinessSelect'
 import TransactionList from './TransactionList'
 import { TX_COLUMNS, type TxRow } from './types'
 
@@ -21,27 +17,13 @@ function nextDay(d: string) {
 
 export default async function TransactionsPage({ searchParams }: { searchParams: Promise<Params> }) {
   const sp = await searchParams
-  const businessId = pickBusinessId(sp.b)
+  const { supabase, businessId } = await getBusinessContext()
   const today = dayKey(new Date())
   const from = isDate(sp.from) ? sp.from! : today
   const to = isDate(sp.to) ? sp.to! : from
   const status = sp.status ?? ''
   const pay = sp.pay ?? ''
   const q = (sp.q ?? '').trim()
-
-export default async function TransactionsPage() {
-  const { supabase, businessId } = await getBusinessContext()
-
-  const query = supabase
-    .from('transactions')
-    .select(
-      'id, created_at, cashier_name, order_type, customer_name, items, grand_total, overpay_amount, payment_type, payment_detail, status, debt_status, businesses(name)'
-    )
-    .order('created_at', { ascending: false })
-    .limit(300)
-    .eq('business_id', businessId ?? EMPTY_BUSINESS_ID)
-  const { data: transactions, error } = await query
-  const supabase = await createClient()
 
   const build = (columns: string) => {
     let query = supabase
@@ -51,7 +33,7 @@ export default async function TransactionsPage() {
       .lt('created_at', `${nextDay(to)}T00:00:00+07:00`)
       .order('created_at', { ascending: false })
       .limit(LIMIT)
-    if (businessId) query = query.eq('business_id', businessId)
+    query = query.eq('business_id', businessId ?? EMPTY_BUSINESS_ID)
     if (status === 'completed' || status === 'cancelled') query = query.eq('status', status)
     if (status === 'unpaid') query = query.eq('payment_type', 'hutang').eq('debt_status', 'unpaid').eq('status', 'completed')
     if (pay && PAYMENT_LABELS[pay]) query = query.eq('payment_type', pay)
@@ -62,11 +44,8 @@ export default async function TransactionsPage() {
     return query
   }
 
-  const [{ data: businesses }, firstTry] = await Promise.all([
-    supabase.from('businesses').select('id, name').order('created_at'),
-    build(TX_COLUMNS + ', edit_history'),
-  ])
-  // Kolom edit_history mungkin belum ada jika schema.sql terbaru belum dijalankan.
+  const firstTry = await build(TX_COLUMNS + ', edit_history')
+  // Kolom edit_history mungkin belum ada jika migration terbaru belum dijalankan.
   const result = firstTry.error ? await build(TX_COLUMNS) : firstTry
   const transactions = (result.data ?? []) as unknown as TxRow[]
   const error = result.error
@@ -87,7 +66,6 @@ export default async function TransactionsPage() {
 
   const quick = (label: string, f: string, t: string) => {
     const params = new URLSearchParams()
-    if (businessId) params.set('b', businessId)
     params.set('from', f)
     params.set('to', t)
     const active = f === from && t === to && !status && !pay && !q
@@ -127,7 +105,6 @@ export default async function TransactionsPage() {
       </div>
 
       <form method="get" className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
-        {businessId && <input type="hidden" name="b" value={businessId} />}
         <label className="text-xs text-gray-500 space-y-1">
           <span>Dari</span>
           <input type="date" name="from" defaultValue={from} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900" />
@@ -196,7 +173,7 @@ export default async function TransactionsPage() {
       )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <TransactionList transactions={transactions} showBusiness={!businessId && (businesses?.length ?? 0) > 1} />
+        <TransactionList transactions={transactions} showBusiness={false} />
       </div>
     </div>
   )

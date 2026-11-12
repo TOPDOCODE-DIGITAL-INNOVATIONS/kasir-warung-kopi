@@ -1,11 +1,9 @@
 import Link from 'next/link'
 import { Wallet, CalendarDays, CalendarRange, Archive } from 'lucide-react'
-import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { rupiah, formatDateTime } from '@/lib/format'
-import { pickBusinessId } from '@/lib/business-filter'
 import { anchorDate, formatRange } from '@/lib/book-period'
 import { resolvePeriod, fetchAll } from '@/lib/report-period'
-import BusinessSelect from '../BusinessSelect'
 import PeriodSelect from '../PeriodSelect'
 
 type Exp = {
@@ -32,10 +30,10 @@ export default async function ExpensesPage({
   searchParams: Promise<{ b?: string | string[]; p?: string; cat?: string }>
 }) {
   const sp = await searchParams
-  const businessId = pickBusinessId(sp.b)
-  const supabase = await createClient()
-  const { data: businesses } = await supabase.from('businesses').select('id, name').order('created_at')
-  const { start, end, options } = await resolvePeriod(supabase, businessId, businesses ?? [], sp.p)
+  const { supabase, businessId, businesses: ownedBusinesses } = await getBusinessContext()
+  const businesses = ownedBusinesses.filter(b => b.id === businessId)
+  const scopedBusinessId = businessId ?? EMPTY_BUSINESS_ID
+  const { start, end, options } = await resolvePeriod(supabase, scopedBusinessId, businesses, sp.p)
 
   const res = await fetchAll<Exp>((from, to) => {
     let q = supabase
@@ -46,7 +44,7 @@ export default async function ExpensesPage({
       .order('date', { ascending: false })
       .order('created_at', { ascending: false })
       .range(from, to)
-    if (businessId) q = q.eq('business_id', businessId)
+    q = q.eq('business_id', scopedBusinessId)
     return q
   })
   const inPeriod = res.data.filter((e) => {
@@ -85,9 +83,9 @@ export default async function ExpensesPage({
   }
   const groupList = [...groups].sort(([a], [b]) => (a[0] !== b[0] ? (a[0] === 'M' ? -1 : 1) : b.localeCompare(a)))
 
-  const showBiz = !businessId && (businesses?.length ?? 0) > 1
+  const showBiz = false
   const href = (c: string) => {
-    const q = new URLSearchParams({ ...(businessId ? { b: businessId } : {}), p: `${start}_${end}` })
+    const q = new URLSearchParams({ p: `${start}_${end}` })
     if (c) q.set('cat', c)
     return `/dashboard/expenses?${q}`
   }
@@ -100,7 +98,6 @@ export default async function ExpensesPage({
           <p className="text-gray-500 text-sm mt-1">Periode {formatRange(start, end)} · dicatat dari aplikasi kasir.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <BusinessSelect businesses={businesses ?? []} />
           <PeriodSelect options={options} value={`${start}_${end}`} />
         </div>
       </div>

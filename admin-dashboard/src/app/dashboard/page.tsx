@@ -23,13 +23,13 @@ export default async function DashboardPage({
   searchParams: Promise<{ b?: string | string[] }>
 }) {
   const businessId = pickBusinessId((await searchParams).b)
-  const supabase = await createClient()
+  const { supabase, businesses } = await getBusinessContext()
+  // Overview keeps its own optional branch filter; all other pages use the active context.
 
   let recentQuery = supabase.from('transactions').select(TX_COLUMNS).order('created_at', { ascending: false }).limit(10)
   if (businessId) recentQuery = recentQuery.eq('business_id', businessId)
 
-  const [{ data: businesses }, { data, error }, { data: recent }] = await Promise.all([
-    supabase.from('businesses').select('id, name').order('created_at'),
+  const [{ data, error }, { data: recent }] = await Promise.all([
     supabase.rpc('dashboard_summary', { p_business: businessId, p_days: 7 }),
     recentQuery,
   ])
@@ -82,7 +82,7 @@ export default async function DashboardPage({
       }))}
       recent={(recent ?? []) as unknown as TxRow[]}
       showBusiness={!businessId && businesses.length > 1}
-      transactionsHref={businessId ? `/dashboard/transactions?b=${businessId}` : '/dashboard/transactions'}
+      transactionsHref="/dashboard/transactions"
       topProducts={summary.top_products.map((p) => ({ name: p.name, qty: Number(p.qty) }))}
     />
   )

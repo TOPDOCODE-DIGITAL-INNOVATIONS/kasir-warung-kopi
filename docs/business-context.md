@@ -1,12 +1,12 @@
 # Konteks cabang admin
 
-Pemilih **Cabang aktif** berada di sidebar, di atas identitas owner. Pada layar kecil pemilih tersedia di bawah navigasi. Daftarnya hanya berisi cabang milik akun yang login. Saat belum ada pilihan, cabang pertama menurut waktu pembuatan dan ID digunakan. Akun tanpa cabang mendapat kondisi kosong dan tautan membuat cabang.
+Pemilih **Cabang aktif** berada di header, di sebelah menu akun. Header tersedia pada desktop dan layar kecil. Menu akun menampilkan nama, email, role Owner, serta tombol Keluar. Sidebar tetap selebar 256px; pada layar kecil navigasi dibuka lewat tombol menu. Daftarnya hanya berisi cabang milik akun yang login. Saat belum ada pilihan, cabang pertama menurut waktu pembuatan dan ID digunakan. Akun tanpa cabang mendapat kondisi kosong dan tautan membuat cabang.
 
 Pilihan disimpan selama satu tahun dalam cookie HTTP-only `kasir_active_business`, berlaku untuk seluruh dashboard. Cookie hanya menyimpan preferensi: server selalu memeriksa kembali kepemilikan cabang. Cookie tidak valid, cabang yang sudah dihapus, atau cookie dari akun lain kembali ke cabang pertama yang dapat diakses. Kegagalan membaca cabang menghasilkan error, bukan kueri tanpa filter.
 
-Transaksi, pengeluaran, data lama dan rekap, produk, user kasir, Cabang & Token, sinkronisasi, dan backup hanya menggunakan cabang aktif. Parameter lama `?b=` pada halaman-halaman tersebut tidak mengganti konteks. Ganti cabang melalui sidebar. Membuat cabang baru otomatis memilih cabang tersebut.
+Transaksi, pengeluaran, data lama dan rekap, produk, user kasir, Cabang & Token, sinkronisasi, dan backup hanya menggunakan cabang aktif. Parameter lama `?b=` pada halaman-halaman tersebut tidak mengganti konteks. Ganti cabang melalui header. Membuat cabang baru otomatis memilih cabang tersebut.
 
-**Overview merupakan pengecualian.** Filter lokalnya tetap memakai `?b=`. Tanpa filter, total, grafik, dan produk terlaris mencakup semua cabang milik owner, termasuk ketika sidebar memilih satu cabang. Mengubah filter Overview tidak mengubah cabang aktif.
+**Overview merupakan pengecualian.** Filter lokalnya tetap memakai `?b=`. Tanpa filter, total, grafik, dan produk terlaris mencakup semua cabang milik owner, termasuk ketika header memilih satu cabang. Mengubah filter Overview tidak mengubah cabang aktif.
 
 Server Action produk, user, cabang, dan rekap memeriksa konteks sebelum menulis. ID produk/rekap/aturan buku juga dibatasi ke cabang aktif. Formulir dari cabang sebelumnya ditolak atau tidak dapat mengubah baris cabang lain. Klien halaman direset saat cabang berganti agar dialog dan isian lama tidak terbawa. Tab lain menerima konteks terbaru pada permintaan berikutnya; tampilan tab yang masih terbuka perlu dimuat ulang.
 

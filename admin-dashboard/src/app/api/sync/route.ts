@@ -244,8 +244,9 @@ async function syncDrafts(
 
 /**
  * Upsert yang tetap jalan walau database belum dimigrasi: jika PostgREST menolak karena kolom
- * belum ada (PGRST204, mis. `edit_history` sebelum SQL terbaru dijalankan), kolom itu dibuang
- * lalu dicoba lagi, supaya satu kolom baru tidak memacetkan seluruh sync kasir.
+ * belum ada (PGRST204), kolom kompatibilitas itu dibuang lalu dicoba lagi.
+ * Riwayat koreksi wajib disimpan: edit_history yang belum dimigrasi harus gagal
+ * agar kasir tidak menandai koreksi sebagai tersinkron padahal auditnya hilang.
  */
 async function upsertTolerant(supabase: SupabaseClient, table: string, rows: Row[]) {
   let current = rows
@@ -259,6 +260,7 @@ async function upsertTolerant(supabase: SupabaseClient, table: string, rows: Row
       return
     }
     const missing = error.code === 'PGRST204' ? /'([^']+)' column/.exec(error.message)?.[1] : undefined
+    if (missing === 'edit_history') throw new Error('Riwayat koreksi belum dapat disimpan. Jalankan migration database terbaru sebelum mengulangi sync.')
     if (!missing || dropped.includes(missing)) throw error
     dropped.push(missing)
     current = current.map((r) => {
@@ -304,7 +306,7 @@ export async function POST(request: Request) {
   const deletedDraftIds = Array.isArray(body.deletedDraftIds)
     ? body.deletedDraftIds.filter((x): x is string => typeof x === 'string')
     : []
-  const config = parseConfig(body.config)
+  let config = parseConfig(body.config)
   // Jam perangkat bisa lebih cepat; jangan biarkan versi data master melampaui jam server.
   const editedAt = ts(body.configEditedAt)
   const configEditedAt = editedAt && editedAt > now ? now : editedAt
