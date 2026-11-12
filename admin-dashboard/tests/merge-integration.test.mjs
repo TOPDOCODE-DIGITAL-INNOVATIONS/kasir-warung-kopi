@@ -156,14 +156,14 @@ test('transaction filters and report queries honor global context even with anot
 
 test('Overview keeps all-branch totals and recent transactions independently of global context', async () => {
   const fixture = database()
-  fixture.tables.transactions.push({ business_id: 'a', id: 'a', grand_total: 10000 }, { business_id: 'b', id: 'b', grand_total: 20000 })
+  fixture.tables.transactions.push(...['a', 'b'].map(id => ({ business_id: id, id, created_at: '2026-11-12T08:00:00+07:00', status: 'completed', grand_total: id === 'a' ? 10000 : 20000, items: [] })))
   const page = request(fixture, 'a')('app/dashboard/page.tsx').default
-  const all = await page({ searchParams: Promise.resolve({}) })
-  assert.equal(all.props.todayRevenue, 30000)
-  assert.equal(all.props.recent.length, 2)
-  assert.equal(all.props.transactionsHref, '/dashboard/transactions')
-  const filtered = await page({ searchParams: Promise.resolve({ b: 'b' }) })
-  assert.equal(filtered.props.todayRevenue, 20000)
-  assert.equal(filtered.props.recent.length, 1)
-  assert.equal(filtered.props.recent[0].business_id, 'b')
+  const range = { from: '2026-11-12', to: '2026-11-12' }
+  const all = child(await page({ searchParams: Promise.resolve(range) }), 'DashboardClient').props
+  assert.equal(all.summary.sales, 30000)
+  assert.equal(all.summary.recent.length, 2)
+  const filtered = child(await page({ searchParams: Promise.resolve({ ...range, b: 'b' }) }), 'DashboardClient').props
+  assert.equal(filtered.summary.sales, 20000)
+  assert.equal(filtered.summary.recent.length, 1)
+  assert.equal(filtered.summary.recent[0].business_id, 'b')
 })
