@@ -413,6 +413,8 @@ export const TransactionsHistory: React.FC<TransactionsHistoryProps> = ({
       {/* View Receipt Modal */}
       {selectedTxForReceipt && (
         <ReceiptModal
+          key={selectedTxForReceipt.id}
+          variant="history"
           transaction={selectedTxForReceipt}
           storeSettings={storeSettings}
           onClose={() => setSelectedTxForReceipt(null)}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Printer, Share2, Copy, PlusCircle, CheckCircle2, X, Loader2 } from 'lucide-react';
+import { Printer, Share2, Copy, PlusCircle, CheckCircle2, X, Loader2, ShoppingBag, ReceiptText } from 'lucide-react';
 import { StoreSettings, Transaction } from '../../types';
 import { formatIDR } from '../../lib/storage';
 import {
@@ -10,6 +10,7 @@ import {
   printLines,
 } from '../../lib/printer';
 import { ThermalReceiptPreview, ThermalReceiptPrintPortal } from './ThermalReceipt';
+import { TransactionOrderDetails } from './TransactionOrderDetails';
 
 interface ReceiptModalProps {
   transaction: Transaction;
@@ -18,6 +19,7 @@ interface ReceiptModalProps {
   onNewTransaction: () => void;
   /** Cetak otomatis saat modal dibuka (setelah pembayaran) */
   autoPrint?: boolean;
+  variant?: 'payment' | 'history';
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({
@@ -26,7 +28,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   onClose,
   onNewTransaction,
   autoPrint,
+  variant = 'payment',
 }) => {
+  const [view, setView] = React.useState<'details' | 'receipt'>(variant === 'history' ? 'details' : 'receipt');
+  const modalId = React.useId();
+  const tabRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
   const [isCopied, setIsCopied] = React.useState(false);
   const [isPrinting, setIsPrinting] = React.useState(false);
   const [printError, setPrintError] = React.useState<string | null>(null);
@@ -133,35 +139,66 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-white border border-[#D7CCC8] text-[#2C2420] rounded-xl max-w-md w-full overflow-hidden shadow-2xl flex flex-col my-auto">
+      <div role="dialog" aria-modal="true" aria-labelledby={`${modalId}-title`} className={`bg-white border border-[#D7CCC8] text-[#2C2420] rounded-xl ${variant === 'history' ? 'max-w-xl' : 'max-w-md'} max-h-[calc(100dvh-2rem)] w-full overflow-hidden shadow-2xl flex flex-col my-auto`}>
         {/* Printable Header Bar (Hidden during print) */}
-        <div className="p-3.5 bg-[#3E2723] text-white flex items-center justify-between">
+        <div className="p-3.5 bg-[#3E2723] text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-[#D7CCC8]" />
-            <span className="font-extrabold text-xs uppercase tracking-tight text-white">Pembayaran Berhasil!</span>
+            {variant === 'history' ? <ShoppingBag className="w-5 h-5 text-[#D7CCC8]" /> : <CheckCircle2 className="w-5 h-5 text-[#D7CCC8]" />}
+            <span id={`${modalId}-title`} className="font-extrabold text-xs uppercase tracking-tight text-white">{variant === 'history' ? 'Detail Transaksi' : 'Pembayaran Berhasil!'}</span>
           </div>
 
           <button
             onClick={onClose}
+            aria-label="Tutup detail transaksi"
             className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded transition-all"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Pratinjau struk: sama persis dengan yang dikirim ke printer thermal */}
-        <div className="p-4 bg-[#EFEBE9] max-h-[60vh] overflow-y-auto">
-          <ThermalReceiptPreview lines={lines} paper={paper} />
-          <p className="text-center text-[10px] text-stone-500 mt-2">
-            Kertas {paper}mm · {method === 'browser' ? 'Cetak via dialog browser' : method === 'rawbt' ? 'Cetak via RawBT' : 'Cetak via Bluetooth'}
-          </p>
+        <div role="tablist" aria-label="Tampilan transaksi" className="grid grid-cols-2 gap-1 p-2 bg-[#F9F8F7] border-b border-[#D7CCC8] shrink-0">
+          {(['details', 'receipt'] as const).map((tab, index) => (
+            <button
+              key={tab}
+              ref={(element) => { tabRefs.current[index] = element; }}
+              type="button"
+              role="tab"
+              id={`${modalId}-${tab}-tab`}
+              aria-selected={view === tab}
+              aria-controls={`${modalId}-${tab}-panel`}
+              tabIndex={view === tab ? 0 : -1}
+              onClick={() => setView(tab)}
+              onKeyDown={(event) => {
+                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const next = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - index;
+                setView(next === 0 ? 'details' : 'receipt');
+                tabRefs.current[next]?.focus();
+              }}
+              className={`flex items-center justify-center gap-1.5 rounded py-2 px-2 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-[#3E2723] ${view === tab ? 'bg-[#3E2723] text-white shadow-sm' : 'text-stone-500 hover:bg-[#EFEBE9] hover:text-[#3E2723]'}`}
+            >
+              {tab === 'details' ? <ShoppingBag className="w-3.5 h-3.5" /> : <ReceiptText className="w-3.5 h-3.5" />}
+              {tab === 'details' ? 'Detail Pesanan' : 'Pratinjau Struk'}
+            </button>
+          ))}
+        </div>
+
+        <div role="tabpanel" id={`${modalId}-${view}-panel`} aria-labelledby={`${modalId}-${view}-tab`} tabIndex={0} className="p-3 sm:p-4 bg-[#EFEBE9] min-h-0 max-h-[60vh] overflow-y-auto">
+          {view === 'details' ? <TransactionOrderDetails transaction={transaction} /> : (
+            <>
+              <ThermalReceiptPreview lines={lines} paper={paper} />
+              <p className="text-center text-[10px] text-stone-500 mt-2">
+                Kertas {paper}mm · {method === 'browser' ? 'Cetak via dialog browser' : method === 'rawbt' ? 'Cetak via RawBT' : 'Cetak via Bluetooth'}
+              </p>
+            </>
+          )}
         </div>
 
         {/* Hanya untuk cetak via browser: elemen ini satu-satunya yang tercetak */}
         {method === 'browser' && <ThermalReceiptPrintPortal lines={lines} paper={paper} />}
 
         {/* Action Buttons (Hidden when printing) */}
-        <div className="p-3.5 bg-[#F9F8F7] border-t border-[#D7CCC8] space-y-2">
+        <div className="p-3.5 bg-[#F9F8F7] border-t border-[#D7CCC8] space-y-2 shrink-0">
           {printOk && !printError && (
             <p className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5">
               Struk terkirim ke printer.
@@ -200,11 +237,11 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
           </div>
 
           <button
-            onClick={onNewTransaction}
+            onClick={variant === 'history' ? onClose : onNewTransaction}
             className="w-full py-2.5 bg-[#3E2723] hover:bg-[#5D4037] text-white font-bold rounded text-xs uppercase flex items-center justify-center gap-2 transition-all shadow"
           >
-            <PlusCircle className="w-4 h-4" />
-            <span>TRANSAKSI BARU</span>
+            {variant === 'history' ? <X className="w-4 h-4" /> : <PlusCircle className="w-4 h-4" />}
+            <span>{variant === 'history' ? 'TUTUP DETAIL' : 'TRANSAKSI BARU'}</span>
           </button>
         </div>
       </div>
