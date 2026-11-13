@@ -1,13 +1,14 @@
 'use server'
 
-import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext, requireBusinessContext, setBusinessCookie, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { revalidatePath } from 'next/cache'
 
 export async function getBusinesses() {
-  const supabase = await createClient()
+  const { supabase, businessId } = await getBusinessContext()
   const { data, error } = await supabase
     .from('businesses')
     .select('id, name, address, sync_token, last_synced_at, last_device_code, created_at')
+    .eq('id', businessId ?? EMPTY_BUSINESS_ID)
     .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)
@@ -22,26 +23,22 @@ function readForm(formData: FormData) {
 }
 
 export async function addBusiness(formData: FormData) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
-  const { error } = await supabase.from('businesses').insert({ ...readForm(formData), owner_id: user.id })
+  const { supabase, user } = await getBusinessContext()
+  const { data, error } = await supabase.from('businesses').insert({ ...readForm(formData), owner_id: user.id }).select('id').single()
   if (error) throw new Error(error.message)
+  await setBusinessCookie(data.id)
   revalidatePath('/dashboard', 'layout')
 }
 
 export async function updateBusiness(id: string, formData: FormData) {
-  const supabase = await createClient()
+  const { supabase } = await requireBusinessContext(id)
   const { error } = await supabase.from('businesses').update(readForm(formData)).eq('id', id)
   if (error) throw new Error(error.message)
   revalidatePath('/dashboard', 'layout')
 }
 
 export async function deleteBusiness(id: string) {
-  const supabase = await createClient()
+  const { supabase } = await requireBusinessContext(id)
   const { error } = await supabase.from('businesses').delete().eq('id', id)
   if (error) throw new Error(error.message)
   revalidatePath('/dashboard', 'layout')
@@ -51,8 +48,8 @@ export async function deleteBusiness(id: string) {
 export async function regenerateSyncToken(id: string) {
   const bytes = crypto.getRandomValues(new Uint8Array(32))
   const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-  const supabase = await createClient()
+  const { supabase } = await requireBusinessContext(id)
   const { error } = await supabase.from('businesses').update({ sync_token: token }).eq('id', id)
   if (error) throw new Error(error.message)
-  revalidatePath('/dashboard/businesses')
+  revalidatePath('/dashboard', 'layout')
 }

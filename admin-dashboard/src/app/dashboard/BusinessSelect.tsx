@@ -8,10 +8,9 @@ export default function BusinessSelect({ businesses }: { businesses: { id: strin
   const params = useSearchParams()
   const value = params.get('b') ?? 'all'
 
-  if (businesses.length < 2) return null
-
   return (
     <select
+      aria-label="Pilih cabang"
       value={value}
       onChange={(e) => {
         const next = new URLSearchParams(params)
@@ -20,7 +19,7 @@ export default function BusinessSelect({ businesses }: { businesses: { id: strin
         const qs = next.toString()
         router.push(qs ? `${pathname}?${qs}` : pathname)
       }}
-      className="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg block p-2.5 shadow-sm"
+      className="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg block p-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
     >
       <option value="all">Semua Cabang</option>
       {businesses.map((b) => (

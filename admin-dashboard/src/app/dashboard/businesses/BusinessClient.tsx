@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { addBusiness, updateBusiness, deleteBusiness, regenerateSyncToken } from './actions'
-import { Plus, Edit, Trash2, Copy, Eye, EyeOff, RotateCw, Check, Link2 } from 'lucide-react'
+import { Plus, Edit, Trash2, Copy, Eye, EyeOff, RotateCw, Check, Link2, ExternalLink } from 'lucide-react'
 import { formatDateTime } from '@/lib/format'
 
 type Business = {
@@ -77,7 +77,7 @@ export default function BusinessClient({
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center">
-          <h2 className="font-semibold text-lg text-gray-900">Daftar Cabang</h2>
+          <h2 className="font-semibold text-lg text-gray-900">Cabang Aktif</h2>
           <button
             onClick={() => {
               setIsAdding(true)
@@ -155,6 +155,7 @@ export default function BusinessClient({
           ) : (
             initialBusinesses.map((b) => {
               const visible = shownToken === b.id
+              const cashierLink = `${kasirUrl}#token=${b.sync_token}`
               return (
                 <li key={b.id} className="p-4 md:p-6 space-y-3">
                   <div className="flex items-start justify-between gap-3">
@@ -224,7 +225,18 @@ export default function BusinessClient({
                   <div className="flex flex-wrap items-center gap-1 text-sm">
                     <span className="text-gray-600 mr-1">Link kasir:</span>
                     {/* Token di bagian # tidak terkirim ke server/log; kasir menyimpannya lalu menghapusnya dari URL. */}
-                    <CopyButton text={`${kasirUrl}#token=${b.sync_token}`} label="Salin link kasir" />
+                    <a
+                      href={cashierLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={`Buka kasir ${b.name} di tab baru`}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Buka Kasir
+                      <span className="sr-only">{b.name}, di tab baru</span>
+                    </a>
+                    <CopyButton text={cashierLink} label="Salin link kasir" />
                     <span className="text-xs text-gray-500 w-full">
                       Buka link ini di HP mana pun: menu, kasir, pengaturan, dan transaksi cabang ini langsung ikut
                       tersinkron. Bagikan hanya ke kasir yang dipercaya (link berisi token).

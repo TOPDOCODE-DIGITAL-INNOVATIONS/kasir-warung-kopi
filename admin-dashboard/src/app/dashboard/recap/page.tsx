@@ -1,10 +1,8 @@
 import Link from 'next/link'
-import { createClient } from '@/utils/supabase/server'
-import { pickBusinessId } from '@/lib/business-filter'
+import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { rupiah, dayKey, PAYMENT_LABELS } from '@/lib/format'
 import { anchorDate, formatRange } from '@/lib/book-period'
 import { resolvePeriod, nextDay, daysBetween, fetchAll } from '@/lib/report-period'
-import BusinessSelect from '../BusinessSelect'
 import PeriodSelect from '../PeriodSelect'
 import PrintButton from './PrintButton'
 
@@ -26,10 +24,10 @@ const dayFmt = new Intl.DateTimeFormat('id-ID', { weekday: 'short', day: 'numeri
 
 export default async function RecapPage({ searchParams }: { searchParams: Promise<{ b?: string | string[]; p?: string }> }) {
   const sp = await searchParams
-  const businessId = pickBusinessId(sp.b)
-  const supabase = await createClient()
-  const { data: businesses } = await supabase.from('businesses').select('id, name').order('created_at')
-  const period = await resolvePeriod(supabase, businessId, businesses ?? [], sp.p)
+  const { supabase, businessId, businesses: ownedBusinesses } = await getBusinessContext()
+  const businesses = ownedBusinesses.filter(b => b.id === businessId)
+  const scopedBusinessId = businessId ?? EMPTY_BUSINESS_ID
+  const period = await resolvePeriod(supabase, scopedBusinessId, businesses, sp.p)
   const { start, end } = period
   const inRange = (d: string) => {
     const a = anchorDate(d)
@@ -45,7 +43,7 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
         .lt('created_at', `${nextDay(end)}T00:00:00+07:00`)
         .order('created_at')
         .range(from, to)
-      if (businessId) q = q.eq('business_id', businessId)
+      q = q.eq('business_id', scopedBusinessId)
       return q
     }),
     fetchAll<Exp>((from, to) => {
@@ -56,7 +54,7 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
         .lte('date', end)
         .order('date')
         .range(from, to)
-      if (businessId) q = q.eq('business_id', businessId)
+      q = q.eq('business_id', scopedBusinessId)
       return q
     }),
     fetchAll<Manual>((from, to) => {
@@ -66,7 +64,7 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
         .gte('date', start.slice(0, 7))
         .lte('date', end)
         .range(from, to)
-      if (businessId) q = q.eq('business_id', businessId)
+      q = q.eq('business_id', scopedBusinessId)
       return q
     }),
   ])
@@ -145,8 +143,8 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
     }
   const topProducts = [...products].sort((a, b) => b[1].qty - a[1].qty).slice(0, 10)
 
-  const bizName = businessId ? businesses?.find((b) => b.id === businessId)?.name : 'Semua cabang'
-  const withB = (path: string) => `${path}?${new URLSearchParams({ ...(businessId ? { b: businessId } : {}), p: `${start}_${end}` })}`
+  const bizName = businesses[0]?.name ?? 'Belum ada cabang'
+  const withPeriod = (path: string) => `${path}?${new URLSearchParams({ p: `${start}_${end}` })}`
 
   return (
     <div className="space-y-6 max-w-6xl">
@@ -158,7 +156,6 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
           </p>
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
-          <BusinessSelect businesses={businesses ?? []} />
           <PeriodSelect options={period.options} value={`${start}_${end}`} />
           <PrintButton />
         </div>
@@ -240,7 +237,7 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
           <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
             <div className="flex justify-between items-center mb-3">
               <h2 className="font-bold text-gray-900">Pengeluaran per Kategori</h2>
-              <Link href={withB('/dashboard/expenses')} className="text-xs text-blue-600 hover:underline print:hidden">
+              <Link href={withPeriod('/dashboard/expenses')} className="text-xs text-blue-600 hover:underline print:hidden">
                 Rincian
               </Link>
             </div>

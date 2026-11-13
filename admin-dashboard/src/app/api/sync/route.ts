@@ -66,7 +66,7 @@ async function authenticate(
 
   let supabase: SupabaseClient
   try {
-    supabase = createAdminClient()
+    supabase = createAdminClient(token)
   } catch (e) {
     console.error(e)
     return { error: json({ success: false, error: 'Server belum dikonfigurasi (env Supabase)' }, 500) }
@@ -95,13 +95,51 @@ function parseConfig(v: unknown): Row | null {
   return { products: c.products, categories: c.categories, cashiers: c.cashiers, settings: c.settings }
 }
 
-/** Cerminan katalog untuk halaman Produk di dashboard: upsert semua, hapus yang sudah tidak ada. */
+/** An old device must not reintroduce an archived item or a buy-only ingredient. */
+async function reconcileProductConfig(supabase: SupabaseClient, businessId: string, config: Row): Promise<Row> {
+  const incoming = list(config.products)
+  const existing = new Map<string, Row>()
+  for (let start = 0; start < incoming.length; start += 500) {
+    const { data, error } = await supabase.from('products')
+      .select('id,name,price,cost_price,stock,category_id,description,is_available,is_active,can_sell,pos_sync_enabled')
+      .eq('business_id', businessId).in('id', incoming.slice(start, start + 500).map(p => String(p.id)))
+    if (error) throw error
+    for (const p of data ?? []) existing.set(String(p.id), p)
+  }
+  const products = new Map<string, Row>()
+  for (const incomingProduct of incoming) {
+    const p = { ...incomingProduct }
+    delete p._inventory
+    const stored = existing.get(String(p.id))
+    if (stored && (!stored.is_active || !stored.can_sell)) continue
+    products.set(String(p.id), stored?.pos_sync_enabled === false ? {
+      ...p, name: stored.name, price: num(stored.price), costPrice: stored.cost_price === null ? undefined : num(stored.cost_price),
+      stock: num(stored.stock), categoryId: stored.category_id || 'uncategorized',
+      description: stored.description || '', isAvailable: stored.is_available !== false,
+    } : p)
+  }
+  return { ...config, products: [...products.values()] }
+}
+
+/** Perbarui master products dari POS tanpa menghapus bahan atau relasi inventory. */
 async function mirrorProducts(supabase: SupabaseClient, businessId: string, products: Row[], now: string) {
-  if (!products.length) return
+  // Never replace raw on an existing row: the first admin stock event could be
+  // written after this lookup. Omitting the column also protects that race.
+  // Latest POS options remain in businesses.pos_config; raw retains its snapshot
+  // and the append-only admin inventory journal without a per-product query.
+  const existingIds = new Set<string>()
+  for (let start = 0; start < products.length; start += 500) {
+    const ids = products.slice(start, start + 500).map(p => String(p.id))
+    const { data, error } = await supabase.from('products')
+      .select('id').eq('business_id', businessId).in('id', ids)
+    if (error) throw error
+    for (const row of data ?? []) existingIds.add(String(row.id))
+  }
   const rows = products.map((p) => {
     // Gambar (bisa berupa data URL besar) tidak ikut disimpan.
     const raw = { ...p }
     delete raw.imageUrl
+    delete raw._inventory
     return {
       business_id: businessId,
       id: p.id,
@@ -109,18 +147,29 @@ async function mirrorProducts(supabase: SupabaseClient, businessId: string, prod
       category_id: str(p.categoryId),
       price: num(p.price),
       cost_price: optNum(p.costPrice),
-      stock: Math.trunc(num(p.stock)),
+      stock: num(p.stock),
       is_available: p.isAvailable !== false,
       raw,
       synced_at: now,
     }
   })
-  const { error } = await supabase.from('products').upsert(rows, { onConflict: 'business_id,id' })
-  if (error) throw error
+  const ordinary = rows.filter(row => !existingIds.has(String(row.id)))
+  const protectedRows = rows.filter(row => existingIds.has(String(row.id))).map(row => {
+    const { raw: ignored, ...fields } = row
+    void ignored
+    return fields
+  })
+  for (const batch of [ordinary, protectedRows]) {
+    if (!batch.length) continue
+    const { error } = await supabase.from('products').upsert(batch, { onConflict: 'business_id,id' })
+    if (error) throw error
+  }
   const { error: delError } = await supabase
     .from('products')
-    .delete()
+    .update({ is_available: false })
     .eq('business_id', businessId)
+    .eq('pos_managed', true)
+    .eq('pos_sync_enabled', true)
     .lt('synced_at', now)
   if (delError) throw delError
 }
@@ -195,8 +244,9 @@ async function syncDrafts(
 
 /**
  * Upsert yang tetap jalan walau database belum dimigrasi: jika PostgREST menolak karena kolom
- * belum ada (PGRST204, mis. `edit_history` sebelum SQL terbaru dijalankan), kolom itu dibuang
- * lalu dicoba lagi, supaya satu kolom baru tidak memacetkan seluruh sync kasir.
+ * belum ada (PGRST204), kolom kompatibilitas itu dibuang lalu dicoba lagi.
+ * Riwayat koreksi wajib disimpan: edit_history yang belum dimigrasi harus gagal
+ * agar kasir tidak menandai koreksi sebagai tersinkron padahal auditnya hilang.
  */
 async function upsertTolerant(supabase: SupabaseClient, table: string, rows: Row[]) {
   let current = rows
@@ -210,6 +260,7 @@ async function upsertTolerant(supabase: SupabaseClient, table: string, rows: Row
       return
     }
     const missing = error.code === 'PGRST204' ? /'([^']+)' column/.exec(error.message)?.[1] : undefined
+    if (missing === 'edit_history') throw new Error('Riwayat koreksi belum dapat disimpan. Jalankan migration database terbaru sebelum mengulangi sync.')
     if (!missing || dropped.includes(missing)) throw error
     dropped.push(missing)
     current = current.map((r) => {
@@ -255,7 +306,7 @@ export async function POST(request: Request) {
   const deletedDraftIds = Array.isArray(body.deletedDraftIds)
     ? body.deletedDraftIds.filter((x): x is string => typeof x === 'string')
     : []
-  const config = parseConfig(body.config)
+  let config = parseConfig(body.config)
   // Jam perangkat bisa lebih cepat; jangan biarkan versi data master melampaui jam server.
   const editedAt = ts(body.configEditedAt)
   const configEditedAt = editedAt && editedAt > now ? now : editedAt
@@ -265,6 +316,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (config) config = await reconcileProductConfig(supabase, businessId, config)
     if (transactions.length) {
       const rows = transactions.map((t) => ({
         business_id: businessId,
@@ -372,14 +424,26 @@ export async function POST(request: Request) {
     if (config && configEditedAt) {
       const current = business.pos_config_updated_at ? new Date(business.pos_config_updated_at).toISOString() : null
       if (!current || configEditedAt > current) {
-        const { error } = await supabase
+        let update = supabase
           .from('businesses')
           .update({ pos_config: config, pos_config_updated_at: configEditedAt })
           .eq('id', businessId)
+        update = business.pos_config_updated_at
+          ? update.eq('pos_config_updated_at', business.pos_config_updated_at)
+          : update.is('pos_config_updated_at', null)
+        const { data: accepted, error } = await update.select('id')
         if (error) throw error
-        await mirrorProducts(supabase, businessId, list(config.products), now)
-        configAccepted = true
-        configUpdatedAt = configEditedAt
+        if (accepted?.length) {
+          await mirrorProducts(supabase, businessId, list(config.products), now)
+          configAccepted = true
+          configUpdatedAt = configEditedAt
+        } else {
+          // A concurrent admin/device write won. Let the client pull its current version.
+          const { data: latest, error: readError } = await supabase.from('businesses')
+            .select('pos_config_updated_at').eq('id', businessId).single()
+          if (readError) throw readError
+          configUpdatedAt = latest.pos_config_updated_at
+        }
       }
     } else if (legacyProducts.length && !business.pos_config) {
       // Kasir versi lama (belum kirim data master): pertahankan perilaku lama.

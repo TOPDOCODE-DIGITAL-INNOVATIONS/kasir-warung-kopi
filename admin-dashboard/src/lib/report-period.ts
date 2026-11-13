@@ -17,8 +17,10 @@ export async function resolvePeriod(
   businesses: { id: string }[],
   p: string | undefined
 ): Promise<ResolvedPeriod> {
+  let rulesQuery = supabase.from('book_period_rules').select('business_id, start_day, effective_from')
+  if (businessId) rulesQuery = rulesQuery.eq('business_id', businessId)
   const [{ data: rules }, { data: recap }] = await Promise.all([
-    supabase.from('book_period_rules').select('business_id, start_day, effective_from'),
+    rulesQuery,
     supabase.rpc('book_recap', { p_business: businessId, p_limit: 36 }),
   ])
   const ruleBiz = businessId ?? businesses[0]?.id

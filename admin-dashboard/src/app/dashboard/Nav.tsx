@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, FileBarChart } from 'lucide-react'
+import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup, Users, FileBarChart } from 'lucide-react'
 
 const LINKS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -11,31 +11,34 @@ const LINKS = [
   { href: '/dashboard/expenses', label: 'Pengeluaran', icon: Wallet },
   { href: '/dashboard/history', label: 'Data Lama & Tutup Buku', icon: History },
   { href: '/dashboard/products', label: 'Produk', icon: Package },
+  { href: '/dashboard/users', label: 'Kelola User', icon: Users },
   { href: '/dashboard/businesses', label: 'Cabang & Token', icon: Building2 },
   { href: '/dashboard/sync', label: 'Sinkronisasi', icon: RefreshCw },
+  { href: '/dashboard/backup', label: 'Backup', icon: DatabaseBackup },
 ]
 
-export default function Nav({ mobile = false }: { mobile?: boolean }) {
+export default function Nav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname()
   return (
-    <nav className={mobile ? 'flex gap-1 overflow-x-auto px-4 pb-3' : 'flex-1 p-4 space-y-1'}>
-      {LINKS.map(({ href, label, icon: Icon }) => {
-        const active = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
-        return (
-          <Link
-            key={href}
-            href={href}
-            className={
-              (mobile ? 'shrink-0 px-3 py-2 text-sm ' : 'px-4 py-3 ') +
-              'flex items-center rounded-lg transition-colors ' +
-              (active ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-gray-600 hover:bg-gray-100')
-            }
-          >
-            <Icon className={(mobile ? 'w-4 h-4 mr-2' : 'w-5 h-5 mr-3') + (active ? ' text-blue-600' : '')} />
-            <span>{label}</span>
-          </Link>
-        )
-      })}
+    <nav aria-label="Navigasi utama" className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+      <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">Menu utama</p>
+      <ul className="space-y-0.5">
+        {LINKS.map(({ href, label, icon: Icon }) => {
+          const active = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
+          return (
+            <li key={href}>
+              <Link href={href} onClick={onNavigate} aria-current={active ? 'page' : undefined}
+                className={
+                  'relative flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-blue-600 ' +
+                  (active ? "bg-blue-50 font-semibold text-blue-700 before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-sm before:bg-blue-600 before:content-['']" : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800')
+                }>
+                <Icon aria-hidden="true" className={'h-5 w-5 shrink-0 ' + (active ? 'text-blue-600' : 'text-gray-400')} />
+                <span>{label}</span>
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
     </nav>
   )
 }

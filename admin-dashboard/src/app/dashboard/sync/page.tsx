@@ -1,13 +1,13 @@
 import Link from 'next/link'
 import { Smartphone, Server } from 'lucide-react'
-import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { formatDateTime } from '@/lib/format'
 import { getSiteUrl } from '@/lib/site-url'
 
 export default async function SyncPage() {
-  const supabase = await createClient()
+  const { supabase, businessId } = await getBusinessContext()
   const [{ data: businesses }, siteUrl] = await Promise.all([
-    supabase.from('businesses').select('id, name, last_synced_at, last_device_code').order('created_at'),
+    supabase.from('businesses').select('id, name, last_synced_at, last_device_code').eq('id', businessId ?? EMPTY_BUSINESS_ID),
     getSiteUrl(),
   ])
 

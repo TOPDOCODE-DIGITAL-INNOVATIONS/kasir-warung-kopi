@@ -1,5 +1,8 @@
 -- =====================================================================
 -- Skema database Kasir Warung Kopi (Supabase / PostgreSQL)
+-- Referensi bootstrap legacy. Struktur terkini (termasuk inventory) dikelola
+-- oleh supabase/migrations/*.sql; gunakan `npx supabase migration up` untuk lokal.
+-- Jangan menjalankan file bootstrap ini sebagai pengganti migration inventory.
 -- Jalankan sekali di Supabase Dashboard -> SQL Editor -> New query -> Run.
 -- Aman dijalankan ulang (idempotent).
 --
@@ -254,6 +257,37 @@ begin
     execute format('drop policy if exists "owner read %1$s" on public.%1$I', t);
     execute format(
       'create policy "owner read %1$s" on public.%1$I for select using (business_id in (select id from public.businesses where owner_id = auth.uid()))',
+      t
+    );
+  end loop;
+end $$;
+
+-- Mendukung /api/sync memakai NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY + header x-sync-token
+-- (sehingga SUPABASE_SERVICE_ROLE_KEY bersifat opsional).
+create or replace function public.sync_token_business_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select id from public.businesses
+  where sync_token = nullif((coalesce(nullif(current_setting('request.headers', true), ''), '{}')::jsonb)->>'x-sync-token', '')
+  limit 1
+$$;
+
+drop policy if exists "sync token select businesses" on public.businesses;
+drop policy if exists "sync token update businesses" on public.businesses;
+create policy "sync token select businesses" on public.businesses for select using (id = public.sync_token_business_id());
+create policy "sync token update businesses" on public.businesses for update using (id = public.sync_token_business_id()) with check (id = public.sync_token_business_id());
+
+do $$
+declare t text;
+begin
+  foreach t in array array['products', 'transactions', 'expenses', 'shifts', 'deleted_records'] loop
+    execute format('drop policy if exists "sync token all %1$s" on public.%1$I', t);
+    execute format(
+      'create policy "sync token all %1$s" on public.%1$I for all using (business_id = public.sync_token_business_id()) with check (business_id = public.sync_token_business_id())',
       t
     );
   end loop;

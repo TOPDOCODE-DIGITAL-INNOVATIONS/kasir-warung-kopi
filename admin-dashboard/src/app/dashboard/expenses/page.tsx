@@ -1,12 +1,11 @@
 import Link from 'next/link'
 import { Wallet, CalendarDays, CalendarRange, Archive } from 'lucide-react'
-import { createClient } from '@/utils/supabase/server'
+import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { rupiah, formatDateTime } from '@/lib/format'
-import { pickBusinessId } from '@/lib/business-filter'
 import { anchorDate, formatRange } from '@/lib/book-period'
 import { resolvePeriod, fetchAll } from '@/lib/report-period'
-import BusinessSelect from '../BusinessSelect'
 import PeriodSelect from '../PeriodSelect'
+import ExpenseEntry from './ExpenseEntry'
 
 type Exp = {
   id: string
@@ -18,6 +17,11 @@ type Exp = {
   from_drawer: boolean
   created_by: string | null
   created_at: string | null
+  product_name: string | null
+  quantity: number | string | null
+  unit_label: string | null
+  entry_group_id: string | null
+  supplier_name: string | null
   businesses: { name: string } | null
 }
 
@@ -32,21 +36,21 @@ export default async function ExpensesPage({
   searchParams: Promise<{ b?: string | string[]; p?: string; cat?: string }>
 }) {
   const sp = await searchParams
-  const businessId = pickBusinessId(sp.b)
-  const supabase = await createClient()
-  const { data: businesses } = await supabase.from('businesses').select('id, name').order('created_at')
-  const { start, end, options } = await resolvePeriod(supabase, businessId, businesses ?? [], sp.p)
+  const { supabase, businessId, businesses: ownedBusinesses } = await getBusinessContext()
+  const businesses = ownedBusinesses.filter(b => b.id === businessId)
+  const scopedBusinessId = businessId ?? EMPTY_BUSINESS_ID
+  const { start, end, options } = await resolvePeriod(supabase, scopedBusinessId, businesses, sp.p)
 
   const res = await fetchAll<Exp>((from, to) => {
     let q = supabase
       .from('expenses')
-      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, businesses(name)')
+      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, businesses(name)')
       .gte('date', start.slice(0, 7))
       .lte('date', end)
       .order('date', { ascending: false })
       .order('created_at', { ascending: false })
       .range(from, to)
-    if (businessId) q = q.eq('business_id', businessId)
+    q = q.eq('business_id', scopedBusinessId)
     return q
   })
   const inPeriod = res.data.filter((e) => {
@@ -85,9 +89,9 @@ export default async function ExpensesPage({
   }
   const groupList = [...groups].sort(([a], [b]) => (a[0] !== b[0] ? (a[0] === 'M' ? -1 : 1) : b.localeCompare(a)))
 
-  const showBiz = !businessId && (businesses?.length ?? 0) > 1
+  const showBiz = false
   const href = (c: string) => {
-    const q = new URLSearchParams({ ...(businessId ? { b: businessId } : {}), p: `${start}_${end}` })
+    const q = new URLSearchParams({ p: `${start}_${end}` })
     if (c) q.set('cat', c)
     return `/dashboard/expenses?${q}`
   }
@@ -97,10 +101,10 @@ export default async function ExpensesPage({
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Pengeluaran</h1>
-          <p className="text-gray-500 text-sm mt-1">Periode {formatRange(start, end)} · dicatat dari aplikasi kasir.</p>
+          <p className="text-gray-500 text-sm mt-1">Periode {formatRange(start, end)} · pengeluaran dari admin dan kasir.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <BusinessSelect businesses={businesses ?? []} />
+          <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} />
           <PeriodSelect options={options} value={`${start}_${end}`} />
         </div>
       </div>
@@ -183,7 +187,10 @@ export default async function ExpensesPage({
                           {catKey(e)}
                           {e.from_drawer && <span className="ml-2 text-xs font-normal px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">dari laci</span>}
                         </p>
+                        {e.product_name && <p className="mt-1 text-sm text-gray-700">{e.product_name}{e.quantity != null ? ` · ${Number(e.quantity).toLocaleString('id-ID', { maximumFractionDigits: 6 })} ${e.unit_label === 'l' ? 'L' : e.unit_label ?? ''}` : ''}</p>}
+                        {e.entry_group_id && <p className="mt-1 text-xs text-gray-400">Kelompok input: {e.entry_group_id.slice(0, 8)}</p>}
                         {e.note && <p className="text-sm text-gray-600 break-words">{e.note}</p>}
+                        {e.supplier_name && <p className="mt-1 text-xs text-gray-500">Supplier: {e.supplier_name}</p>}
                         <p className="text-xs text-gray-400 mt-0.5">
                           {[
                             e.created_by,
