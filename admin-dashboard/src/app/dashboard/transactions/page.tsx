@@ -1,5 +1,7 @@
+import DataPanel from '@/components/DataPanel'
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
-import Link from 'next/link'
+import Link from '@/components/LoadingLink'
+import FilterForm, { FilterSubmit } from '@/components/FilterForm'
 import { rupiah, dayKey, PAYMENT_LABELS } from '@/lib/format'
 import TransactionList from './TransactionList'
 import { TX_COLUMNS, type TxRow } from './types'
@@ -104,7 +106,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
         {quick('30 hari', shift(-29), today)}
       </div>
 
-      <form method="get" className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
+      <FilterForm action="/dashboard/transactions" className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
         <label className="text-xs text-gray-500 space-y-1">
           <span>Dari</span>
           <input type="date" name="from" defaultValue={from} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900" />
@@ -143,10 +145,10 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
             className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900"
           />
         </label>
-        <button className="col-span-2 md:col-span-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg py-2">
+        <FilterSubmit className="col-span-2 md:col-span-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg py-2">
           Terapkan
-        </button>
-      </form>
+        </FilterSubmit>
+      </FilterForm>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="Total Penjualan" value={rupiah(sales)} hint={`${done.length} transaksi selesai`} />
@@ -181,10 +183,10 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
 
 function Stat({ label, value, hint, tone = 'text-gray-900' }: { label: string; value: string; hint: string; tone?: string }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
+    <DataPanel compact className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
       <p className="text-xs font-medium text-gray-500">{label}</p>
       <p className={`text-lg font-bold truncate ${tone}`}>{value}</p>
       <p className="text-xs text-gray-400">{hint}</p>
-    </div>
+    </DataPanel>
   )
 }

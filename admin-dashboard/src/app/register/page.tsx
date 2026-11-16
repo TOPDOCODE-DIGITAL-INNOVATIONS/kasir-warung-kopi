@@ -1,5 +1,7 @@
 'use client'
 
+import LoadingSpinner from '@/components/LoadingSpinner'
+
 import { useActionState } from 'react'
 import Link from 'next/link'
 import { Coffee } from 'lucide-react'
@@ -61,7 +63,7 @@ export default function RegisterPage() {
               )}
               <button type="submit" disabled={pending}
                 className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
-                {pending ? 'Mendaftarkan akun...' : 'Daftar Akun'}
+                {pending && <LoadingSpinner className="mr-2" />}{pending ? 'Mendaftarkan akun...' : 'Daftar Akun'}
               </button>
             </form>
           )}

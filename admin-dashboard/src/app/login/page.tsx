@@ -1,6 +1,7 @@
 import { login } from './actions'
 import { Coffee } from 'lucide-react'
 import Link from 'next/link'
+import SubmitButton from '@/components/SubmitButton'
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ message?: string }> }) {
   const { message } = await searchParams
@@ -55,12 +56,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
               </p>
             )}
 
-            <button
+            <SubmitButton pendingLabel="Sedang masuk..."
               formAction={login}
               className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all"
             >
               Masuk Dashboard
-            </button>
+            </SubmitButton>
           </form>
           <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
             Belum punya akun?{' '}

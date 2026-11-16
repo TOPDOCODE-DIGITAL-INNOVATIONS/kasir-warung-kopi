@@ -1,4 +1,5 @@
-import Link from 'next/link'
+import DataPanel from '@/components/DataPanel'
+import Link from '@/components/LoadingLink'
 import { Wallet, CalendarDays, CalendarRange, Archive } from 'lucide-react'
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { rupiah, formatDateTime } from '@/lib/format'
@@ -129,7 +130,7 @@ export default async function ExpensesPage({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 self-start">
+        <DataPanel className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 self-start">
           <h2 className="font-bold text-gray-900 mb-1">Per Kategori</h2>
           <p className="text-xs text-gray-400 mb-4">Klik kategori untuk menyaring daftar.</p>
           {categories.length === 0 ? (
@@ -162,7 +163,7 @@ export default async function ExpensesPage({
               })}
             </ul>
           )}
-        </section>
+        </DataPanel>
 
         <section className="lg:col-span-2 space-y-3">
           {cat && (
@@ -176,12 +177,12 @@ export default async function ExpensesPage({
             </div>
           )}
           {groupList.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-sm text-gray-500">
+            <DataPanel className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-sm text-gray-500">
               Belum ada pengeluaran pada periode ini.
-            </div>
+            </DataPanel>
           ) : (
             groupList.map(([key, g]) => (
-              <div key={key} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <DataPanel key={key} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className={'flex justify-between items-center gap-3 px-4 py-2.5 border-b border-gray-100 ' + (key[0] === 'M' ? 'bg-purple-50/60' : 'bg-gray-50')}>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{g.title}</p>
@@ -218,7 +219,7 @@ export default async function ExpensesPage({
                     </li>
                   ))}
                 </ul>
-              </div>
+              </DataPanel>
             ))
           )}
         </section>
@@ -229,7 +230,7 @@ export default async function ExpensesPage({
 
 function Stat({ icon: Icon, label, value, hint, tone }: { icon: typeof Wallet; label: string; value: string; hint: string; tone: string }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
+    <DataPanel compact className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
       <div className="flex items-center gap-2 mb-2">
         <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${tone}`}>
           <Icon className="w-4 h-4" />
@@ -238,6 +239,6 @@ function Stat({ icon: Icon, label, value, hint, tone }: { icon: typeof Wallet; l
       </div>
       <p className="text-lg font-bold text-gray-900 truncate">{value}</p>
       <p className="text-xs text-gray-400">{hint}</p>
-    </div>
+    </DataPanel>
   )
 }

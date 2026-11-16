@@ -1,6 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import LoadingSpinner from '@/components/LoadingSpinner'
+import DataPanel from '@/components/DataPanel'
+import { useDataLoading } from '@/components/DataLoadingContext'
+
+import { useState, useTransition } from 'react'
 import { addBusiness, updateBusiness, deleteBusiness, regenerateSyncToken } from './actions'
 import { Plus, Edit, Trash2, Copy, Eye, EyeOff, RotateCw, Check, Link2, ExternalLink } from 'lucide-react'
 import { formatDateTime } from '@/lib/format'
@@ -44,22 +48,23 @@ export default function BusinessClient({
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [isAdding, setIsAdding] = useState(initialBusinesses.length === 0)
-  const [loading, setLoading] = useState(false)
+  const [loading, startTransition] = useTransition()
+  const routePending = useDataLoading()
+  const [operationKey, setOperationKey] = useState('save')
   const [shownToken, setShownToken] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const editing = editingId ? initialBusinesses.find((b) => b.id === editingId) : undefined
 
-  async function run(fn: () => Promise<void>) {
-    setLoading(true)
+  function run(fn: () => Promise<void>, key = 'save') {
+    setOperationKey(key)
     setError(null)
-    try {
-      await fn()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
+    return new Promise<void>(resolve => {
+      startTransition(async () => {
+        try { await fn() } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+        finally { resolve() }
+      })
+    })
   }
 
   return (
@@ -142,14 +147,14 @@ export default function BusinessClient({
                   disabled={loading}
                   className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
                 >
-                  {loading ? 'Menyimpan...' : 'Simpan'}
+                  {loading && operationKey === 'save' && <LoadingSpinner className="mr-2" />}{loading && operationKey === 'save' ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        <ul className="divide-y divide-gray-100">
+        <DataPanel loading={loading || routePending} label="Memuat cabang..."><ul className="divide-y divide-gray-100">
           {initialBusinesses.length === 0 ? (
             <li className="px-6 py-8 text-center text-gray-500 text-sm">Belum ada cabang usaha.</li>
           ) : (
@@ -183,7 +188,7 @@ export default function BusinessClient({
                         disabled={loading}
                         onClick={() => {
                           if (confirm(`Hapus cabang "${b.name}" beserta semua data transaksinya?`)) {
-                            run(() => deleteBusiness(b.id))
+                            run(() => deleteBusiness(b.id), `delete:${b.id}`)
                           }
                         }}
                         className="p-2 rounded hover:bg-red-50 text-red-600"
@@ -213,7 +218,7 @@ export default function BusinessClient({
                       disabled={loading}
                       onClick={() => {
                         if (confirm('Buat token baru? Kasir yang memakai token lama harus diisi ulang.')) {
-                          run(() => regenerateSyncToken(b.id))
+                          run(() => regenerateSyncToken(b.id), `token:${b.id}`)
                         }
                       }}
                       className="p-1.5 rounded hover:bg-gray-200 text-gray-600 flex items-center gap-1 text-xs"
@@ -246,7 +251,7 @@ export default function BusinessClient({
               )
             })
           )}
-        </ul>
+        </ul></DataPanel>
       </div>
     </div>
   )

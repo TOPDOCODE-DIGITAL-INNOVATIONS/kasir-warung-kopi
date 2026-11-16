@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePendingRefresh } from '@/hooks/usePendingRefresh'
+import LoadingSpinner from '@/components/LoadingSpinner'
+import DataPanel from '@/components/DataPanel'
 import { Edit, Trash2, X } from 'lucide-react'
 import { deleteCashier, updateCashier } from './actions'
 import { AVATAR_COLORS, CASHIER_ROLES, avatarColor, type CashierRow } from './types'
@@ -94,7 +96,7 @@ function EditUserModal({ user, onClose, onSaved }: { user: CashierRow; onClose: 
         <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
           <button type="button" disabled={pending} onClick={onClose} className={cancelClassName}>Batal</button>
           <button type="submit" disabled={pending} className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
-            {pending ? 'Menyimpan...' : 'Simpan Perubahan'}
+            {pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : 'Simpan Perubahan'}
           </button>
         </div>
       </form>
@@ -126,7 +128,7 @@ function DeleteUserModal({ user, onClose, onSaved }: { user: CashierRow; onClose
         <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
           <button type="button" disabled={pending} onClick={onClose} className={cancelClassName}>Batal</button>
           <button type="submit" disabled={pending} className="px-4 py-2 text-sm font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50">
-            {pending ? 'Menghapus...' : 'Hapus User'}
+            {pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menghapus...' : 'Hapus User'}
           </button>
         </div>
       </form>
@@ -135,7 +137,7 @@ function DeleteUserModal({ user, onClose, onSaved }: { user: CashierRow; onClose
 }
 
 export default function UsersClient({ users }: { users: CashierRow[] }) {
-  const router = useRouter()
+  const { refreshing, refresh } = usePendingRefresh()
   const [editing, setEditing] = useState<CashierRow | null>(null)
   const [deleting, setDeleting] = useState<CashierRow | null>(null)
   const [message, setMessage] = useState('')
@@ -145,7 +147,7 @@ export default function UsersClient({ users }: { users: CashierRow[] }) {
     setEditing(null)
     setDeleting(null)
     setMessage(value)
-    router.refresh()
+    refresh()
   }
 
   return (
@@ -156,8 +158,8 @@ export default function UsersClient({ users }: { users: CashierRow[] }) {
           <h2 className="font-semibold text-gray-900">Daftar User <span className="ml-2 text-sm font-normal text-gray-500">{users.length} user</span></h2>
           <p className="mt-1 text-sm text-gray-500">Profil kasir yang sudah tersinkronisasi dari perangkat. Perubahan akan diterima kasir pada sinkronisasi berikutnya.</p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-gray-600">
+        <DataPanel loading={refreshing} label="Memuat user..."><div className="overflow-x-auto">
+          <table aria-busy={refreshing} className="w-full text-left text-sm text-gray-600">
             <thead className="bg-gray-50 text-xs uppercase text-gray-700"><tr>
               {['Nama', 'Cabang', 'Role', 'PIN', 'Aksi'].map((column) => <th key={column} scope="col" className="px-4 py-3 font-medium">{column}</th>)}
             </tr></thead>
@@ -182,7 +184,7 @@ export default function UsersClient({ users }: { users: CashierRow[] }) {
                 })}
             </tbody>
           </table>
-        </div>
+        </div></DataPanel>
       </div>
       {editing && <EditUserModal user={editing} onClose={() => setEditing(null)} onSaved={saved} />}
       {deleting && <DeleteUserModal user={deleting} onClose={() => setDeleting(null)} onSaved={saved} />}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { X, ChevronRight, User, Store, Clock, ShoppingBag, StickyNote, History } from 'lucide-react'
 import { formatDateTime, rupiah, PAYMENT_LABELS } from '@/lib/format'
 import type { TxRow, TxItem } from './types'
+import DataPanel from '@/components/DataPanel'
 
 const num = (v: number | string | null | undefined) => Number(v) || 0
 
@@ -49,11 +50,11 @@ export default function TransactionList({
   const [selected, setSelected] = useState<TxRow | null>(null)
 
   if (transactions.length === 0) {
-    return <p className="px-4 py-10 text-center text-sm text-gray-500">Belum ada transaksi.</p>
+    return <DataPanel label="Memuat transaksi..."><p className="px-4 py-10 text-center text-sm text-gray-500">Belum ada transaksi.</p></DataPanel>
   }
 
   return (
-    <>
+    <DataPanel label="Memuat transaksi...">
       {/* Desktop: tabel */}
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left text-sm text-gray-600">
@@ -141,7 +142,7 @@ export default function TransactionList({
       </ul>
 
       {selected && <TransactionDetail tx={selected} onClose={() => setSelected(null)} />}
-    </>
+    </DataPanel>
   )
 }
 

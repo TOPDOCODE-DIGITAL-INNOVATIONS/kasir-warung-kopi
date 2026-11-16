@@ -86,7 +86,7 @@ function request(fixture, businessId = 'a') {
       if (name.startsWith('@/') || name.startsWith('.')) {
         const base = name.startsWith('@/') ? path.join(sourceRoot, name.slice(2)) : path.resolve(path.dirname(file), name)
         const dependency = ['.ts', '.tsx'].map(ext => base + ext).find(fs.existsSync)
-        if (/^['"]use client['"]/.test(fs.readFileSync(dependency, 'utf8'))) return { __esModule: true, default: path.basename(dependency, '.tsx') }
+        if (/^['"]use client['"]/.test(fs.readFileSync(dependency, 'utf8'))) return { __esModule: true, default: path.basename(dependency, '.tsx'), FilterSubmit: 'FilterSubmit' }
         return load(dependency)
       }
       return require(name)

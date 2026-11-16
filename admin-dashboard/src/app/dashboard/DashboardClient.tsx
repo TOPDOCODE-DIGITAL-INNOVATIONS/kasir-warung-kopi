@@ -1,5 +1,7 @@
 'use client'
 
+import DataPanel from '@/components/DataPanel'
+
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { useState } from 'react'
 import { TrendingUp, Receipt, Wallet, HandCoins, BookOpen, Expand } from 'lucide-react'
@@ -25,7 +27,7 @@ function Card({ label, value, hint, icon: Icon, tone }: {
   tone: string
 }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+    <DataPanel compact className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-gray-500 mb-1">{label}</p>
@@ -36,7 +38,7 @@ function Card({ label, value, hint, icon: Icon, tone }: {
         </div>
       </div>
       <p className="mt-3 text-xs text-gray-400">{hint}</p>
-    </div>
+    </DataPanel>
   )
 }
 
@@ -57,7 +59,7 @@ export default function DashboardClient(p: Props) {
       <p className="text-xs text-gray-400">Penjualan termasuk rekap manual. Catatan bulanan dihitung pada tanggal 1. Pemasukan di sini adalah nilai penjualan dan kelebihan pembayaran, termasuk penjualan bon.</p>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+        <DataPanel className="lg:col-span-2 bg-white rounded-xl shadow-sm p-5 border border-gray-100">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Penjualan</h3>
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -79,9 +81,9 @@ export default function DashboardClient(p: Props) {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </DataPanel>
 
-        <div className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 min-w-0">
+        <DataPanel className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 min-w-0">
           <div className="flex items-center justify-between gap-2 mb-4">
             <h3 className="text-lg font-bold text-gray-900">Produk Terlaris</h3>
             <button type="button" onClick={() => setShowProducts(true)} aria-haspopup="dialog" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50"><Expand className="h-3.5 w-3.5" />Lihat Semua</button>
@@ -101,7 +103,7 @@ export default function DashboardClient(p: Props) {
               ))}
             </ol>
           )}
-        </div>
+        </DataPanel>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">

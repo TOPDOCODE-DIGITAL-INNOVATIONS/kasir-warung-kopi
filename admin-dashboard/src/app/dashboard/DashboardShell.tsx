@@ -5,6 +5,7 @@ import { Menu, Store, X } from 'lucide-react'
 import Nav from './Nav'
 import BusinessContextSelect from './BusinessContextSelect'
 import UserMenu from './UserMenu'
+import { DataLoadingProvider } from '@/components/DataLoadingContext'
 
 function Brand() {
   return <div className="flex h-16 shrink-0 items-center gap-3 border-b border-gray-100 px-5">
@@ -28,7 +29,7 @@ export default function DashboardShell({ businesses, businessId, name, email, ch
     return () => desktop.removeEventListener('change', closeOnDesktop)
   }, [])
 
-  return <div className="flex h-dvh w-full overflow-hidden bg-gray-50 print:block print:h-auto print:overflow-visible">
+  return <DataLoadingProvider><div className="flex h-dvh w-full overflow-hidden bg-gray-50 print:block print:h-auto print:overflow-visible">
     <aside aria-label="Sidebar" className="print:hidden hidden h-full w-64 shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-linear-to-b from-white to-[#f8f9ff] md:flex">
       <Brand />
       <Nav />
@@ -61,5 +62,5 @@ export default function DashboardShell({ businesses, businessId, name, email, ch
       </header>
       {children}
     </div>
-  </div>
+  </div></DataLoadingProvider>
 }
