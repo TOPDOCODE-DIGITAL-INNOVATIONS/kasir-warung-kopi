@@ -450,6 +450,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                   <ProductCard
                     key={product.id}
                     product={product}
+                    categoryIcon={categories.find(category => category.id === product.categoryId)?.iconName}
                     onSelect={handleSelectProduct}
                   />
                 ))}

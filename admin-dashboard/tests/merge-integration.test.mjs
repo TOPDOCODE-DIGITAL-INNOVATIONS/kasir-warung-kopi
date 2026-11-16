@@ -130,6 +130,19 @@ test('a database missing edit_history cannot acknowledge and silently discard a 
   assert.equal(fixture.tables.transactions.length, 0)
 })
 
+test('stale POS configs cannot replace or restore a photo managed in admin', async () => {
+  for (const imageUrl of ['https://images.test/admin.webp', null]) {
+    const fixture = database()
+    fixture.tables.products[0].image_url = imageUrl
+    fixture.tables.products[0].pos_sync_enabled = true
+    const stale = { ...config, products: [{ ...config.products[0], imageUrl: 'https://images.test/stale.webp' }] }
+    const response = await request(fixture)('app/api/sync/route.ts').POST(post({ config: stale, configEditedAt: new Date().toISOString() }))
+    assert.equal(response.status, 200)
+    assert.equal(fixture.tables.businesses[0].pos_config.products[0].imageUrl, imageUrl || undefined)
+    assert.equal(fixture.tables.products[0].image_url, imageUrl)
+  }
+})
+
 test('transaction filters and report queries honor global context even with another branch in the URL', async () => {
   for (const active of ['a', 'b', null]) {
     const fixture = database()

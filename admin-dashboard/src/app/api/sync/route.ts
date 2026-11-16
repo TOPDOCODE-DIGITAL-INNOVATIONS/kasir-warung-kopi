@@ -101,7 +101,7 @@ async function reconcileProductConfig(supabase: SupabaseClient, businessId: stri
   const existing = new Map<string, Row>()
   for (let start = 0; start < incoming.length; start += 500) {
     const { data, error } = await supabase.from('products')
-      .select('id,name,price,cost_price,stock,category_id,description,is_available,is_active,can_sell,pos_sync_enabled')
+      .select('id,name,price,cost_price,stock,category_id,description,is_available,is_active,can_sell,pos_sync_enabled,image_url')
       .eq('business_id', businessId).in('id', incoming.slice(start, start + 500).map(p => String(p.id)))
     if (error) throw error
     for (const p of data ?? []) existing.set(String(p.id), p)
@@ -112,6 +112,11 @@ async function reconcileProductConfig(supabase: SupabaseClient, businessId: stri
     delete p._inventory
     const stored = existing.get(String(p.id))
     if (stored && (!stored.is_active || !stored.can_sell)) continue
+    // Admin owns the photo; stale POS configs cannot restore a removed/replaced image.
+    if (stored) {
+      if (typeof stored.image_url === 'string' && stored.image_url) p.imageUrl = stored.image_url
+      else delete p.imageUrl
+    }
     products.set(String(p.id), stored?.pos_sync_enabled === false ? {
       ...p, name: stored.name, price: num(stored.price), costPrice: stored.cost_price === null ? undefined : num(stored.cost_price),
       stock: num(stored.stock), categoryId: stored.category_id || 'uncategorized',

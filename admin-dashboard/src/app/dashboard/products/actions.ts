@@ -7,10 +7,11 @@ import { createClient } from '@/utils/supabase/server'
 import { getBusinessContext, requireBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { amount, events, isRow, metadata, number, productForPos, summarizeSales, uuid, withEvent, type Row } from './domain'
 import type { ActionResult, HistoryData, ProductPageData, StockEvent } from './types'
+import { productImagePath, PRODUCT_IMAGE_BUCKET } from './image'
 
 type DB = Awaited<ReturnType<typeof createClient>>
 const PAGE = 500
-const productColumns = 'id,inventory_id,owner_id,business_id,name,sku,description,category_id,base_unit_id,can_buy,can_sell,price,cost_price,stock,min_stock,is_available,is_active,updated_at,stock_updated_at,pending:raw->_inventory->pending'
+const productColumns = 'id,inventory_id,owner_id,business_id,name,sku,description,category_id,base_unit_id,can_buy,can_sell,price,cost_price,stock,min_stock,is_available,is_active,updated_at,stock_updated_at,image_url,pending:raw->_inventory->pending'
 
 async function rows(query: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<Row[]> {
   const result: Row[] = []
@@ -107,6 +108,7 @@ export async function getProductsPage(requestedBusinessId: string | null): Promi
       baseUnitId: String(p.base_unit_id), unitCode: result.units.find(u => u.id === p.base_unit_id)?.code ?? 'pcs',
       canBuy: p.can_buy === true, canSell: p.can_sell === true, price: number(p.price), cost: p.cost_price === null ? null : number(p.cost_price),
       stock: number(p.stock), minStock: number(p.min_stock), available: p.is_available === true, version: String(p.updated_at), stockUpdatedAt: typeof p.stock_updated_at === 'string' ? p.stock_updated_at : null,
+      imageUrl: typeof p.image_url === 'string' ? p.image_url : null,
       soldQuantity: sales?.quantity ?? 0, soldAmount: sales?.amount ?? 0, boughtQuantity: purchase?.quantity ?? 0, boughtAmount: purchase?.amount ?? 0,
       hasRecipe: activeRecipes.has(String(p.inventory_id)), pendingOperation: typeof p.pending === 'string' ? p.pending : null,
     }
@@ -194,16 +196,33 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
     if (categoryId && !categories.some(c => c.id === categoryId)) throw new Error('Kategori tidak tersedia di cabang ini.')
     const fields: Row = { name, sku: text(form, 'sku', 100) || null, description: text(form, 'description', 1000) || null,
       category_id: categoryId || null, can_buy: canBuy, can_sell: canSell, price, cost_price: cost, min_stock: amount(form.get('min_stock') || '0', 'Stok minimum'), is_available: checked(form, 'is_available') }
+    const imageIntent = text(form, 'image_intent', 10) || 'keep'
+    if (!['keep','replace','remove'].includes(imageIntent)) throw new Error('Pilihan foto tidak valid.')
+    if (imageIntent === 'remove') fields.image_url = null
+    if (imageIntent === 'replace') {
+      const url = text(form, 'image_url', 2048)
+      const path = productImagePath(url, process.env.NEXT_PUBLIC_SUPABASE_URL!, owner, businessId, id || operation)
+      if (!path) throw new Error('Foto tidak sesuai dengan produk atau cabang ini. Unggah ulang foto.')
+      const split = path.lastIndexOf('/'), filename = path.slice(split + 1)
+      const { data: files, error } = await db.storage.from(PRODUCT_IMAGE_BUCKET).list(path.slice(0, split), { search: filename, limit: 2 })
+      if (error || !files?.some(file => file.name === filename)) throw new Error('Foto belum tersedia. Unggah ulang foto.')
+      fields.image_url = url
+    }
     let p: Row
     if (id) {
       p = await product(db, owner, id)
       if (p.business_id !== businessId || !p.is_active) throw new Error('Produk tidak sesuai cabang atau sudah dihapus.')
       noPending(p)
-      if (events(p.raw).some(e => e.id === operation)) return saved(db, owner, id, 'Perubahan sudah tersimpan.')
+      const fingerprint = createHash('sha256').update(JSON.stringify(fields)).digest('hex')
+      const existingEvent = events(p.raw).find(e => e.id === operation)
+      if (existingEvent) {
+        if (existingEvent.fingerprint && existingEvent.fingerprint !== fingerprint) throw new Error('Permintaan ini sudah tersimpan dengan data berbeda. Tutup dan buka ulang form.')
+        return saved(db, owner, id, 'Perubahan sudah tersimpan.')
+      }
       requireVersion(p, form)
       const stock = track ? (number(p.stock) === -1 ? 0 : number(p.stock)) : -1
       const event: StockEvent = { id: operation, kind: stock !== number(p.stock) ? 'tracking' : 'edit', at: new Date().toISOString(), quantity: 0,
-        before: number(p.stock), after: stock, reason: stock !== number(p.stock) ? 'Pengaturan pencatatan stok' : 'Perubahan data produk', status: 'complete' }
+        before: number(p.stock), after: stock, reason: stock !== number(p.stock) ? 'Pengaturan pencatatan stok' : 'Perubahan data produk', status: 'complete', fingerprint }
       const raw = { ...(isRow(p.raw) ? p.raw : {}), name, description: fields.description, categoryId: categoryId || 'uncategorized' }
       p = await update(db, owner, p, { ...fields, stock, stock_mode: stock === -1 ? 'none' : 'self', pos_managed: canSell, raw: withEvent(raw, event) })
     } else {

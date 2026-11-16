@@ -9,6 +9,7 @@ export type ProductRow = {
   price: number; cost: number | null; stock: number; minStock: number; available: boolean
   version: string; soldQuantity: number; soldAmount: number; boughtQuantity: number; boughtAmount: number
   stockUpdatedAt: string | null
+  imageUrl: string | null
   hasRecipe: boolean; pendingOperation: string | null
 }
 export type ProductPageData = {

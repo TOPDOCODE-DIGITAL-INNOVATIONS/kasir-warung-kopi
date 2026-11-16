@@ -8,6 +8,7 @@ import { completeProductPurchase, deleteProduct, getProductHistory, saveProduct,
 import type { ActionResult, HistoryData, ProductPageData, ProductRow } from './types'
 import MoneyInput from './MoneyInput'
 import StockCountModal from './StockCountModal'
+import ProductImageInput from './ProductImageInput'
 
 const input = 'w-full border border-gray-300 rounded-lg bg-white p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500'
 const secondary = 'px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50'
@@ -40,8 +41,8 @@ function Check({ name, label, value, onChange, help }: { name: string; label: st
 function Feedback({ error }: { error: string }) {
   return error ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p> : null
 }
-function Footer({ pending, onClose, label = 'Simpan' }: { pending: boolean; onClose: () => void; label?: string }) {
-  return <div className="flex justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending} onClick={onClose} className={secondary}>Batal</button><button type="submit" disabled={pending} className={primary}>{pending ? 'Menyimpan...' : label}</button></div>
+function Footer({ pending, onClose, label = 'Simpan', disabled = false }: { pending: boolean; onClose: () => void; label?: string; disabled?: boolean }) {
+  return <div className="flex justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending || disabled} onClick={onClose} className={secondary}>Batal</button><button type="submit" disabled={pending || disabled} className={primary}>{pending ? 'Menyimpan...' : label}</button></div>
 }
 function Identity({ product }: { product: ProductRow }) {
   return <><input type="hidden" name="inventory_id" value={product.inventoryId} /><input type="hidden" name="version" value={product.version} /></>
@@ -57,14 +58,34 @@ function ProductForm({ data, selectedBranch, product, onClose, onSaved, onRefres
   const [available, setAvailable] = useState(product?.available ?? true)
   const [unit, setUnit] = useState(product?.baseUnitId ?? data.units.find(u => u.code === 'pcs')?.id ?? '')
   const [pending, setPending] = useState(false), [error, setError] = useState('')
+  const [photo, setPhoto] = useState<File | null>(null), [removePhoto, setRemovePhoto] = useState(false)
+  const [processingPhoto, setProcessingPhoto] = useState(false)
+  const uploaded = useRef<{ file: File; url: string } | null>(null)
   const branch = data.businesses.find(b => b.id === business), unitCode = unitLabel(data.units.find(u => u.id === unit)?.code ?? '')
   async function submit(form: FormData) {
+    if (processingPhoto) return
     setPending(true); setError('')
-    try { const r = await saveProduct(form); if (r.success) onSaved(r.message); else { setError(r.message); if (r.refresh) onRefresh() } }
-    catch { setError('Produk belum berhasil disimpan. Silakan coba kembali.') }
+    try {
+      form.set('image_intent', photo ? 'replace' : removePhoto ? 'remove' : 'keep')
+      if (photo) {
+        if (uploaded.current?.file !== photo) {
+          const upload = new FormData()
+          upload.set('file', photo); upload.set('business_id', business); upload.set('product_id', product?.inventoryId ?? operation)
+          const response = await fetch('/api/products/image', { method: 'POST', body: upload })
+          const result = await response.json()
+          if (!response.ok || typeof result.url !== 'string') throw new Error(result.error || 'Foto belum berhasil diunggah.')
+          uploaded.current = { file: photo, url: result.url }
+        }
+        form.set('image_url', uploaded.current.url)
+      }
+      const r = await saveProduct(form)
+      if (r.success) onSaved(r.message)
+      else { setError(r.message); if (r.refresh) onRefresh() }
+    }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Produk belum berhasil disimpan. Silakan coba kembali.') }
     finally { setPending(false) }
   }
-  return <Modal title={product ? 'Edit Produk' : 'Produk Baru'} description="Atur identitas, harga, dan pencatatan stok produk cabang." wide pending={pending} onClose={onClose}>
+  return <Modal title={product ? 'Edit Produk' : 'Produk Baru'} description="Atur identitas, harga, dan pencatatan stok produk cabang." wide pending={pending || processingPhoto} onClose={onClose}>
     <form action={submit} className="space-y-5 p-5" aria-busy={pending}>
       <input type="hidden" name="operation_id" value={operation} /><input type="hidden" name="inventory_id" value={product?.inventoryId ?? ''} />
       <input type="hidden" name="version" value={product?.version ?? ''} />
@@ -87,6 +108,7 @@ function ProductForm({ data, selectedBranch, product, onClose, onSaved, onRefres
           <Field label="Stok minimum" htmlFor="product-min"><input id="product-min" name="min_stock" type="number" min="0" max="999999999" step="0.000001" defaultValue={product?.minStock ?? 0} className={input} /></Field>
         </div>
         <Field label="Deskripsi (opsional)" htmlFor="product-description"><textarea id="product-description" name="description" defaultValue={product?.description} rows={2} maxLength={1000} className={input} /></Field>
+        <ProductImageInput initialUrl={product?.imageUrl ?? null} file={photo} removed={removePhoto} onProcessingChange={setProcessingPhoto} onChange={(file, removed) => { setPhoto(file); setRemovePhoto(removed); uploaded.current = null }} />
         <Check name="is_available" label="Produk tersedia" value={available} onChange={setAvailable} />
         <section className="space-y-4 rounded-lg border border-gray-200 p-4" aria-label="Pengaturan stok">
           <Check name="track_stock" label="Catat jumlah stok" value={track} onChange={setTrack} help="Aktifkan untuk mencatat saldo stok dan melakukan opname." />
@@ -96,7 +118,7 @@ function ProductForm({ data, selectedBranch, product, onClose, onSaved, onRefres
           {!product && track && <Field label="Alasan stok awal" htmlFor="product-reason"><input id="product-reason" name="reason" required maxLength={500} defaultValue="Saldo awal produk" className={input} /></Field>}
         </section>
       </fieldset>
-      <Feedback error={error} /><Footer pending={pending} onClose={onClose} label={product ? 'Simpan Perubahan' : 'Tambah Produk'} />
+      <Feedback error={error} /><Footer pending={pending} disabled={processingPhoto} onClose={onClose} label={processingPhoto ? 'Memproses Foto...' : product ? 'Simpan Perubahan' : 'Tambah Produk'} />
     </form>
   </Modal>
 }
