@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
+import { platformAccount } from './platform-account'
 
 export const BUSINESS_COOKIE = 'kasir_active_business'
 // An empty account must never fall back to an unfiltered query.
@@ -11,6 +12,7 @@ export const getBusinessContext = cache(async () => {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+  const account = platformAccount(user)
 
   const businesses: { id: string; name: string }[] = []
   for (let from = 0; ; from += 500) {
@@ -23,7 +25,7 @@ export const getBusinessContext = cache(async () => {
   const preferred = (await cookies()).get(BUSINESS_COOKIE)?.value
   // Cookies are a preference, never authorization. Recheck ownership on every request.
   const businessId = businesses.find(b => b.id === preferred)?.id ?? businesses[0]?.id ?? null
-  return { supabase, user, businesses, businessId }
+  return { supabase, user, account, businesses, businessId }
 })
 
 export async function requireBusinessContext(expectedId?: string) {

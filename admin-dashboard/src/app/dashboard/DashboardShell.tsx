@@ -16,9 +16,9 @@ function Brand() {
   </div>
 }
 
-export default function DashboardShell({ businesses, businessId, name, email, children }: {
+export default function DashboardShell({ businesses, businessId, name, email, roleLabel, children }: {
   businesses: { id: string; name: string }[]; businessId: string | null
-  name: string; email: string; children: ReactNode
+  name: string; email: string; roleLabel: string; children: ReactNode
 }) {
   const drawer = useRef<HTMLDialogElement>(null)
 
@@ -59,7 +59,7 @@ export default function DashboardShell({ businesses, businessId, name, email, ch
         </button>
         <div className="ml-auto flex min-w-0 items-center gap-3">
           <div className="w-40 min-w-0 sm:w-52"><BusinessContextSelect businesses={businesses} businessId={businessId} /></div>
-          <UserMenu name={name} email={email} />
+          <UserMenu name={name} email={email} roleLabel={roleLabel} />
         </div>
       </header>
       {children}

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { LogOut } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 
-export default function UserMenu({ name, email }: { name: string; email: string }) {
+export default function UserMenu({ name, email, roleLabel }: { name: string; email: string; roleLabel: string }) {
   const ref = useRef<HTMLDetailsElement>(null)
   const trigger = useRef<HTMLElement>(null)
   const [signingOut, setSigningOut] = useState(false)
@@ -42,7 +42,7 @@ export default function UserMenu({ name, email }: { name: string; email: string 
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-gray-800" title={name}>{name}</p>
           <p className="truncate text-xs text-gray-400" title={email}>{email}</p>
-          <p className="mt-1 text-xs text-gray-500">Owner</p>
+          <p className="mt-1 text-xs text-gray-500">{roleLabel}</p>
         </div>
       </div>
       <form action="/auth/signout" method="post" className="p-1.5" onSubmit={() => setSigningOut(true)}>

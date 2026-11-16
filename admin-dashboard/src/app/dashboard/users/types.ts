@@ -27,3 +27,10 @@ export type CashierRow = {
 }
 
 export type UserActionResult = { success: boolean; message: string }
+
+export type CashierConfiguration = {
+  businessId: string
+  businessName: string
+  configVersion: string | null
+  ready: boolean
+}

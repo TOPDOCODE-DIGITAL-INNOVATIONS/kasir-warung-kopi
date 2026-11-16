@@ -37,8 +37,8 @@ export async function register(_previousState: RegisterState, formData: FormData
     password,
     options: {
       emailRedirectTo: `${await getSiteUrl()}/auth/confirm`,
-      // Descriptive user metadata; access to business data still uses owner_id and RLS.
-      data: { name, role: 'Owner' },
+      // Trusted role defaults are initialized by the database, never signup input.
+      data: { name },
     },
   })
 

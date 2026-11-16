@@ -4,9 +4,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { usePendingRefresh } from '@/hooks/usePendingRefresh'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import DataPanel from '@/components/DataPanel'
-import { Edit, Trash2, X } from 'lucide-react'
-import { deleteCashier, updateCashier } from './actions'
-import { AVATAR_COLORS, CASHIER_ROLES, avatarColor, type CashierRow } from './types'
+import { Edit, Plus, Trash2, X } from 'lucide-react'
+import { addCashier, deleteCashier, updateCashier } from './actions'
+import { AVATAR_COLORS, CASHIER_ROLES, avatarColor, type CashierConfiguration, type CashierRow } from './types'
 
 const inputClassName = 'w-full border border-gray-300 rounded-lg bg-white p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
 const cancelClassName = 'px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50'
@@ -44,6 +44,73 @@ function IdentityFields({ user }: { user: CashierRow }) {
     <input type="hidden" name="cashier_id" value={user.id} />
     <input type="hidden" name="config_version" value={user.configVersion ?? ''} />
   </>
+}
+
+function AddUserModal({ configuration, onClose, onSaved }: {
+  configuration: CashierConfiguration; onClose: () => void; onSaved: (message: string) => void
+}) {
+  const [name, setName] = useState('')
+  const [color, setColor] = useState<string>(AVATAR_COLORS[0].value)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState('')
+
+  async function submit(formData: FormData) {
+    setPending(true)
+    setError('')
+    try {
+      const result = await addCashier(formData)
+      if (result.success) onSaved(result.message)
+      else setError(result.message)
+    } catch { setError('User belum berhasil ditambahkan. Silakan coba kembali.') }
+    finally { setPending(false) }
+  }
+
+  return <UserModal title="Tambah User Kasir" description={`Profil kasir di ${configuration.businessName}`} pending={pending} onClose={onClose}>
+    <form action={submit} className="space-y-5 p-5" aria-busy={pending}>
+      <input type="hidden" name="business_id" value={configuration.businessId} />
+      <input type="hidden" name="config_version" value={configuration.configVersion ?? ''} />
+      <fieldset disabled={pending} className="space-y-4">
+        <div>
+          <label htmlFor="new-cashier-name" className="mb-2 block text-sm font-medium text-gray-700">Nama</label>
+          <input id="new-cashier-name" name="name" required maxLength={100} value={name} onChange={event => setName(event.target.value)} className={inputClassName} />
+        </div>
+        <div>
+          <label htmlFor="new-cashier-role" className="mb-2 block text-sm font-medium text-gray-700">Role kasir</label>
+          <select id="new-cashier-role" name="role" defaultValue="Kasir" className={inputClassName}>
+            {CASHIER_ROLES.map(role => <option key={role} value={role}>{role}</option>)}
+          </select>
+          <p className="mt-2 text-xs text-gray-500">Role ini berlaku di aplikasi kasir dan tidak memberikan akun login dashboard.</p>
+        </div>
+        <div>
+          <label htmlFor="new-cashier-color" className="mb-2 block text-sm font-medium text-gray-700">Warna avatar</label>
+          <div className="flex items-center gap-3">
+            <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white" style={{ backgroundColor: avatarColor(color).background }}>{name.trim().charAt(0).toUpperCase() || '?'}</span>
+            <select id="new-cashier-color" name="avatar_color" value={color} onChange={event => setColor(event.target.value)} className={inputClassName}>
+              {AVATAR_COLORS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="new-cashier-pin" className="mb-2 block text-sm font-medium text-gray-700">PIN kasir</label>
+            <input id="new-cashier-pin" name="pin" type="password" inputMode="numeric" autoComplete="new-password" required pattern="[0-9]{4,6}" minLength={4} maxLength={6} aria-describedby="new-cashier-pin-help" className={inputClassName} />
+          </div>
+          <div>
+            <label htmlFor="new-cashier-confirmation" className="mb-2 block text-sm font-medium text-gray-700">Konfirmasi PIN</label>
+            <input id="new-cashier-confirmation" name="pin_confirmation" type="password" inputMode="numeric" autoComplete="new-password" required pattern="[0-9]{4,6}" minLength={4} maxLength={6} className={inputClassName} />
+          </div>
+        </div>
+        <p id="new-cashier-pin-help" className="text-xs text-gray-500">Gunakan 4–6 digit angka. Profil dan PIN tersedia di perangkat kasir setelah sinkronisasi.</p>
+      </fieldset>
+      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
+      <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
+        <button type="button" disabled={pending} onClick={onClose} className={cancelClassName}>Batal</button>
+        <button type="submit" disabled={pending} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+          {pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : 'Tambah User'}
+        </button>
+      </div>
+    </form>
+  </UserModal>
 }
 
 function EditUserModal({ user, onClose, onSaved }: { user: CashierRow; onClose: () => void; onSaved: (message: string) => void }) {
@@ -136,16 +203,18 @@ function DeleteUserModal({ user, onClose, onSaved }: { user: CashierRow; onClose
   )
 }
 
-export default function UsersClient({ users }: { users: CashierRow[] }) {
+export default function UsersClient({ users, configuration }: { users: CashierRow[]; configuration: CashierConfiguration | null }) {
   const { refreshing, refresh } = usePendingRefresh()
   const [editing, setEditing] = useState<CashierRow | null>(null)
   const [deleting, setDeleting] = useState<CashierRow | null>(null)
   const [message, setMessage] = useState('')
+  const [adding, setAdding] = useState(false)
   const ownerCounts = new Map<string, number>()
   users.forEach((user) => { if (user.role === 'Owner') ownerCounts.set(user.businessId, (ownerCounts.get(user.businessId) ?? 0) + 1) })
   function saved(value: string) {
     setEditing(null)
     setDeleting(null)
+    setAdding(false)
     setMessage(value)
     refresh()
   }
@@ -154,10 +223,17 @@ export default function UsersClient({ users }: { users: CashierRow[] }) {
     <div className="space-y-4">
       {message && <p role="status" className="text-sm text-green-700 bg-green-50 p-3 rounded-lg">{message}</p>}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-5 border-b border-gray-100">
+        <div className="flex flex-wrap items-center justify-between gap-4 p-5 border-b border-gray-100">
+          <div>
           <h2 className="font-semibold text-gray-900">Daftar User <span className="ml-2 text-sm font-normal text-gray-500">{users.length} user</span></h2>
-          <p className="mt-1 text-sm text-gray-500">Profil kasir yang sudah tersinkronisasi dari perangkat. Perubahan akan diterima kasir pada sinkronisasi berikutnya.</p>
+          <p className="mt-1 text-sm text-gray-500">Kelola profil kasir cabang aktif. Perubahan diterima perangkat pada sinkronisasi berikutnya.</p>
+          </div>
+          <button type="button" disabled={!configuration?.ready || refreshing} onClick={() => { setMessage(''); setAdding(true) }}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
+            <Plus aria-hidden="true" className="h-4 w-4" />Tambah User
+          </button>
         </div>
+        {!configuration?.ready && <p className="px-5 py-3 text-sm text-amber-700 bg-amber-50">Sinkronkan aplikasi kasir terlebih dahulu agar konfigurasi cabang tersedia sebelum menambahkan user.</p>}
         <DataPanel loading={refreshing} label="Memuat user..."><div className="overflow-x-auto">
           <table aria-busy={refreshing} className="w-full text-left text-sm text-gray-600">
             <thead className="bg-gray-50 text-xs uppercase text-gray-700"><tr>
@@ -188,6 +264,7 @@ export default function UsersClient({ users }: { users: CashierRow[] }) {
       </div>
       {editing && <EditUserModal user={editing} onClose={() => setEditing(null)} onSaved={saved} />}
       {deleting && <DeleteUserModal user={deleting} onClose={() => setDeleting(null)} onSaved={saved} />}
+      {adding && configuration?.ready && <AddUserModal configuration={configuration} onClose={() => setAdding(false)} onSaved={saved} />}
     </div>
   )
 }

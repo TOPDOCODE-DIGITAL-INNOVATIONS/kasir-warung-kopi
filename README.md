@@ -7,7 +7,8 @@ kasir-warung-kopi/
 ├── app-kasir/         Aplikasi kasir (Vite + React, PWA offline) → disajikan di /kasir/
 ├── admin-dashboard/   Dashboard owner + API sync (Next.js)       → /, /dashboard, /api/sync
 ├── supabase/
-│   └── schema.sql     Skema database (jalankan sekali di Supabase)
+│   ├── migrations/    Perubahan database berurutan
+│   └── schema.sql     Referensi skema lama
 └── vercel.json        Konfigurasi Vercel Services (2 service, 1 domain)
 ```
 
@@ -25,15 +26,19 @@ Repo ini dideploy sebagai **satu project Vercel dengan 2 service**
 ## 1. Siapkan Supabase
 
 1. Buat project di [supabase.com](https://supabase.com).
-2. **SQL Editor → New query**, tempel isi `supabase/schema.sql`, lalu **Run**.
-3. **Authentication → Users → Add user → Create new user**: buat akun owner (email + password,
-   centang *Auto Confirm User*). Akun ini dipakai login ke dashboard.
-4. **Authentication → Sign In / Providers → matikan "Allow new users to sign up"**. Dashboard
-   tidak punya halaman daftar; tanpa langkah ini siapa pun bisa membuat akun lewat API Supabase
-   (datanya tetap terpisah karena RLS, tapi memakai kuota database Anda).
+2. Gunakan migration berurutan di `supabase/migrations` untuk menyiapkan database.
+   Untuk database yang sudah berisi data, cocokkan riwayat target terlebih dahulu;
+   jangan menjalankan reset atau mengulang baseline.
+3. Buat akun Owner melalui tautan **Daftar** pada halaman login, lalu konfirmasi email.
+   Akun juga dapat dibuat melalui **Authentication → Users** oleh pengelola.
+4. **Authentication → Sign In / Providers → aktifkan "Allow new users to sign up"**
+   jika pendaftaran mandiri diperlukan. Role Owner diinisialisasi di app_metadata;
+   pengguna tidak memilih role platform saat registrasi.
 5. **Project Settings → API**, catat: Project URL, `anon`/publishable key, dan `service_role` key.
 
-Jika nanti `schema.sql` diperbarui, cukup jalankan ulang seluruh isinya (aman, tidak menghapus data).
+`schema.sql` adalah referensi skema lama; perubahan berikutnya menggunakan migration
+baru. Rancangan role, batas fitur dan prosedur rollout ada di
+[Akun platform dan profil kasir](docs/platform-accounts.md).
 
 ## 2. Deploy ke Vercel
 
