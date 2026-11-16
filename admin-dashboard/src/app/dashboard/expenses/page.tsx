@@ -6,6 +6,7 @@ import { anchorDate, formatRange } from '@/lib/book-period'
 import { resolvePeriod, fetchAll } from '@/lib/report-period'
 import PeriodSelect from '../PeriodSelect'
 import ExpenseEntry from './ExpenseEntry'
+import ExpenseActions from './ExpenseActions'
 
 type Exp = {
   id: string
@@ -22,6 +23,8 @@ type Exp = {
   unit_label: string | null
   entry_group_id: string | null
   supplier_name: string | null
+  synced_at: string
+  purchase_line_id: string | null
   businesses: { name: string } | null
 }
 
@@ -44,7 +47,7 @@ export default async function ExpensesPage({
   const res = await fetchAll<Exp>((from, to) => {
     let q = supabase
       .from('expenses')
-      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, businesses(name)')
+      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, synced_at, purchase_line_id, businesses(name)')
       .gte('date', start.slice(0, 7))
       .lte('date', end)
       .order('date', { ascending: false })
@@ -201,7 +204,10 @@ export default async function ExpensesPage({
                             .join(' · ')}
                         </p>
                       </div>
-                      <span className="text-sm font-semibold text-gray-900 whitespace-nowrap">{rupiah(e.amount)}</span>
+                      <div className="flex shrink-0 items-start gap-2"><span className="pt-2 text-sm font-semibold text-gray-900 whitespace-nowrap">{rupiah(e.amount)}</span>
+                        {businessId && <ExpenseActions expense={{ id: e.id, businessId, scope: e.scope === 'monthly' ? 'monthly' : 'daily', date: e.date, category: e.category ?? '', amount: n(e.amount), note: e.note ?? '', version: e.synced_at, fromDrawer: e.from_drawer, purchaseLinked: !!e.purchase_line_id,
+                          financialLock: e.purchase_line_id ? 'Terkait pembelian dan stok. Kategori serta catatan dapat diperbaiki; jumlah, nominal, dan tanggal pembelian tetap dipertahankan.' : e.from_drawer ? 'Dari laci kasir. Kategori dan catatan dapat diperbaiki di sini; nominal dikoreksi melalui kasir pada shift asal yang masih aktif.' : null }} />}
+                      </div>
                     </li>
                   ))}
                 </ul>

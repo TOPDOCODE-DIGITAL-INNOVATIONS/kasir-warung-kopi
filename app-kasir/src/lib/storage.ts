@@ -1020,10 +1020,40 @@ export function addExpense(
   return expense;
 }
 
+export function updateExpense(id: string, input: Pick<Expense, 'scope' | 'date' | 'category' | 'amount' | 'note'>, expected: Expense): Expense {
+  const list = getExpenses(), index = list.findIndex(e => e.id === id);
+  if (index < 0) throw new Error('Pengeluaran tidak ditemukan. Muat ulang daftar.');
+  const previous = list[index];
+  if (JSON.stringify(previous) !== JSON.stringify(expected)) throw new Error('Pengeluaran sudah berubah. Tutup dan buka kembali form edit.');
+  if (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > 999_999_999 || Math.abs(input.amount * 100 - Math.round(input.amount * 100)) > 0.00001) throw new Error('Nominal harus lebih dari 0, maksimal Rp 999.999.999, dan maksimal dua angka desimal.');
+  if (!input.category.trim() || input.category.trim().length > 100) throw new Error('Kategori wajib diisi, maksimal 100 karakter.');
+  if ((input.note?.trim().length ?? 0) > 500) throw new Error('Catatan maksimal 500 karakter.');
+  const date = input.scope === 'monthly' ? `${input.date}-01` : input.date;
+  if (!['daily', 'monthly'].includes(input.scope) || !(input.scope === 'monthly' ? /^\d{4}-\d{2}$/ : /^\d{4}-\d{2}-\d{2}$/).test(input.date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) throw new Error('Tanggal pengeluaran tidak valid.');
+  const amount = input.amount;
+  const financialChanged = amount !== previous.amount || input.scope !== previous.scope || input.date !== previous.date;
+  const shift = getActiveShift();
+  if (financialChanged && previous.purchaseLineId) throw new Error('Pengeluaran terkait pembelian: hanya kategori dan catatan yang dapat diedit.');
+  if (financialChanged && previous.fromDrawer && (!shift || shift.id !== previous.shiftId)) throw new Error('Shift asal sudah ditutup atau tidak aktif di perangkat ini. Hanya kategori dan catatan yang dapat diedit.');
+  if (previous.fromDrawer && (input.date !== previous.date || input.scope !== previous.scope)) throw new Error('Tanggal dan jenis pengeluaran dari laci tetap mengikuti shift asal.');
+  const next: Expense = { ...previous, ...input, amount, category: input.category.trim(), note: input.note?.trim() || undefined, isSynced: false,
+    editBase: previous.editBase ?? { scope: previous.scope, date: previous.date, category: previous.category, amount: previous.amount, note: previous.note } };
+  if (previous.fromDrawer && shift && amount !== previous.amount) {
+    shift.expensesCash = Math.max(0, (shift.expensesCash ?? 0) + amount - previous.amount);
+    writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift);
+    markShiftDirty();
+  }
+  list[index] = next;
+  writeJSON(STORAGE_KEYS.EXPENSES, list);
+  notifyUpdate();
+  return next;
+}
+
 export function deleteExpense(id: string): { ok: boolean; message: string } {
   const list = getExpenses();
   const exp = list.find((e) => e.id === id);
   if (!exp) return { ok: false, message: 'Pengeluaran tidak ditemukan.' };
+  if (exp.purchaseLineId) return { ok: false, message: 'Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.' };
 
   let message = 'Pengeluaran dihapus.';
   if (exp.fromDrawer && exp.shiftId) {
@@ -1031,6 +1061,7 @@ export function deleteExpense(id: string): { ok: boolean; message: string } {
     if (shift && shift.id === exp.shiftId) {
       shift.expensesCash = Math.max(0, (shift.expensesCash ?? 0) - exp.amount);
       writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift);
+      markShiftDirty();
       message += ` Kembalikan ${formatIDR(exp.amount)} ke laci.`;
     } else {
       message += ' Shift asalnya sudah ditutup, rekap shift lama tidak diubah.';
@@ -1185,7 +1216,7 @@ export function markExpensesAsSynced(sent: Expense[], sentDeletedIds: string[] =
   writeJSON(
     STORAGE_KEYS.EXPENSES,
     getExpenses().map((e) =>
-      sentPrints.has(e.id) && sentPrints.get(e.id) === print(e) ? { ...e, isSynced: true, syncedAt: now } : e
+      sentPrints.has(e.id) && sentPrints.get(e.id) === print(e) ? { ...e, editBase: undefined, isSynced: true, syncedAt: now } : e
     )
   );
   if (sentDeletedIds.length > 0) {
@@ -1400,14 +1431,41 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
+        if (res.status === 409) {
+          let conflict: { expenseConflicts?: Expense[] } = {};
+          try { conflict = JSON.parse(errorText); } catch { /* Keep the original error below. */ }
+          if (conflict.expenseConflicts?.length) {
+            const sent = new Map(expBatch.map(e => [e.id, JSON.stringify(e)]));
+            const latest = new Map(conflict.expenseConflicts.map(e => [e.id, e]));
+            const shift = getActiveShift();
+            let drawerDelta = 0;
+            writeJSON(STORAGE_KEYS.EXPENSES, getExpenses().map(e => {
+              const remote = latest.get(e.id);
+              if (!remote || sent.get(e.id) !== JSON.stringify(e)) return e;
+              if (shift && e.fromDrawer && e.shiftId === shift.id) drawerDelta += (remote.fromDrawer && remote.shiftId === shift.id ? remote.amount : 0) - e.amount;
+              return { ...remote, isSynced: true, syncedAt: new Date().toISOString() };
+            }));
+            if (shift && drawerDelta) {
+              shift.expensesCash = Math.max(0, (shift.expensesCash ?? 0) + drawerDelta);
+              writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift); markShiftDirty();
+            }
+            notifyUpdate();
+            const message = 'Koreksi pengeluaran belum disimpan karena data telah berubah di admin/perangkat lain. Data terbaru sudah dimuat; periksa dan edit ulang.';
+            recordSyncError(message);
+            return { success: false, message, syncedCount: sentTx + sentExp + sentDel };
+          }
+        }
         const message = `Gagal Sync (HTTP ${res.status}): ${errorText || 'Respon server tidak valid'}`;
         recordSyncError(message);
         return { success: false, message: withProgress(message, sentTx, sentExp), syncedCount: sentTx + sentExp + sentDel };
       }
 
+      const body = await res.json().catch(() => null);
+      const data = body?.data;
+      if (Array.isArray(data?.deletedExpenseIds) && data.deletedExpenseIds.length) {
+        applyPulledData({ deletedExpenseIds: data.deletedExpenseIds });
+      }
       if (batch === 0) {
-        const body = await res.json().catch(() => null);
-        const data = body?.data;
         if (configDirtyAt && data?.configAccepted) {
           configSent = true;
           // Hanya bersihkan jika tidak ada perubahan baru selama request berjalan.
@@ -1659,6 +1717,12 @@ export function applyPulledData(data: PullResponse): number {
     if (deleted.size) {
       list = local.filter((e) => !deleted.has(e.id));
       expChanged += local.length - list.length;
+      const shift = getActiveShift();
+      const removedCash = shift ? local.filter(e => deleted.has(e.id) && e.fromDrawer && e.shiftId === shift.id).reduce((total, e) => total + e.amount, 0) : 0;
+      if (shift && removedCash) {
+        shift.expensesCash = Math.max(0, (shift.expensesCash ?? 0) - removedCash);
+        writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift); markShiftDirty();
+      }
     }
     const index = new Map(list.map((e, i) => [e.id, i]));
     remoteExp.forEach((r) => {

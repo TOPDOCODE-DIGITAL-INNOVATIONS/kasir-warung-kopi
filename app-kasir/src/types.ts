@@ -173,6 +173,11 @@ export interface Expense {
   createdAt: string;
   isSynced?: boolean;
   syncedAt?: string;
+  /** Versi server dan nilai sebelum koreksi, untuk mencegah saling menimpa. */
+  serverVersion?: string;
+  editBase?: Pick<Expense, 'scope' | 'date' | 'category' | 'amount' | 'note'>;
+  purchaseLineId?: string;
+  productName?: string;
 }
 
 export interface StoreSettings {

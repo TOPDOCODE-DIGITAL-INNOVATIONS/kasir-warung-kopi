@@ -8,7 +8,7 @@ export type Permission =
   | 'menu' // kelola katalog menu & stok
   | 'reports' // lihat laporan
   | 'expenses' // catat pengeluaran harian
-  | 'manageExpenses' // pengeluaran bulanan & hapus pengeluaran
+  | 'manageExpenses' // pengeluaran bulanan, edit & hapus pengeluaran
   | 'cashiers' // kelola akun kasir
   | 'settings' // pengaturan toko & sync
   | 'dataAdmin'; // backup, import, reset data

@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Wallet, Plus, Trash2, CalendarDays, CalendarRange } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Wallet, Plus, Pencil, Trash2, CalendarDays, CalendarRange } from 'lucide-react';
 import { RupiahInput } from './RupiahInput';
 import { Cashier, Expense, ExpenseScope, Shift } from '../types';
 import {
   addExpense,
+  updateExpense,
   deleteExpense,
   EXPENSE_CATEGORIES,
   formatIDR,
@@ -47,6 +48,22 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
   const [amount, setAmount] = useState<string>('');
   const [note, setNote] = useState<string>('');
   const [fromDrawer, setFromDrawer] = useState<boolean>(true);
+  const [editing, setEditing] = useState<Expense | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const financialLocked = !!editing && (!!editing.purchaseLineId || (!!editing.fromDrawer && editing.shiftId !== activeShift?.id));
+  const dateLocked = financialLocked || !!editing?.fromDrawer;
+
+  const resetForm = () => {
+    setEditing(null); setScope('daily'); setDate(today); setFormMonth(toMonthKey(new Date()));
+    setCategory(EXPENSE_CATEGORIES.daily[0]); setAmount(''); setNote(''); setFromDrawer(true);
+  };
+
+  const startEdit = (expense: Expense) => {
+    setEditing(expense); setScope(expense.scope); setDate(expense.scope === 'daily' ? expense.date : today);
+    setFormMonth(expense.date.slice(0, 7)); setCategory(expense.category); setAmount(String(expense.amount));
+    setNote(expense.note ?? ''); setFromDrawer(!!expense.fromDrawer); setNotice(null);
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   useEffect(() => {
     const load = () => setExpenses(getExpenses());
@@ -65,20 +82,26 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      addExpense({
+      const values = {
         scope,
         date: scope === 'daily' ? date : formMonth,
         category,
-        amount: Number(amount.replace(/\D/g, '')),
+        amount: Number(amount),
         note,
+      };
+      if (editing) {
+        if (!canManage) throw new Error('Hanya Supervisor / Owner yang dapat mengedit pengeluaran.');
+        updateExpense(editing.id, values, editing);
+      } else addExpense({
+        ...values,
         fromDrawer: canUseDrawer && fromDrawer,
         createdBy: activeCashier.name,
       });
-      setAmount('');
-      setNote('');
-      setNotice({ type: 'success', msg: 'Pengeluaran tersimpan.' });
-    } catch (err: any) {
-      setNotice({ type: 'error', msg: err?.message || 'Gagal menyimpan pengeluaran.' });
+      setMonth(values.date.slice(0, 7));
+      setNotice({ type: 'success', msg: editing ? 'Pengeluaran diperbarui. Perubahan akan ikut sinkronisasi.' : 'Pengeluaran tersimpan.' });
+      resetForm();
+    } catch (err: unknown) {
+      setNotice({ type: 'error', msg: err instanceof Error ? err.message : 'Gagal menyimpan pengeluaran.' });
     }
   };
 
@@ -128,9 +151,14 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
       <div className="flex items-center gap-2 shrink-0">
         <span className="font-black text-xs text-rose-700">-{formatIDR(e.amount)}</span>
         {canManage && (
+          <button type="button" onClick={() => startEdit(e)} className="p-1 text-stone-400 hover:text-[#3E2723]" aria-label={`Edit pengeluaran ${e.category}`} title="Edit pengeluaran"><Pencil className="w-3.5 h-3.5" /></button>
+        )}
+        {canManage && (
           <button
+            disabled={!!e.purchaseLineId}
             onClick={() => handleDelete(e)}
-            className="p-1 text-stone-400 hover:text-rose-700"
+            className="p-1 text-stone-400 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-30"
+            title={e.purchaseLineId ? 'Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.' : 'Hapus pengeluaran'}
             aria-label="Hapus pengeluaran"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -178,17 +206,22 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Form */}
         <form
+          ref={formRef}
           onSubmit={handleSubmit}
           className="lg:col-span-5 bg-white border border-[#D7CCC8] p-3.5 rounded-lg shadow-sm space-y-3 h-fit"
         >
           <h3 className="font-extrabold text-xs text-[#3E2723] uppercase tracking-wider flex items-center gap-2 border-b border-[#EFEBE9] pb-2">
-            <Plus className="w-4 h-4" />
-            <span>Tambah Pengeluaran</span>
+            {editing ? <Pencil className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            <span>{editing ? 'Edit Pengeluaran' : 'Tambah Pengeluaran'}</span>
           </h3>
+
+          {editing && <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">{financialLocked
+            ? editing.purchaseLineId ? 'Terkait pembelian dan stok. Hanya kategori dan catatan yang dapat diperbaiki.' : 'Shift asal sudah ditutup atau tidak aktif di perangkat ini. Hanya kategori dan catatan yang dapat diperbaiki.'
+            : editing.fromDrawer ? 'Koreksi nominal akan memperbarui pengeluaran laci pada shift aktif. Tanggal dan sumber dana tetap mengikuti catatan asal.' : 'Perbaiki isian lalu simpan perubahan. Sumber dana dan pencatat tetap dipertahankan.'}</p>}
 
           <div className="grid grid-cols-2 gap-2">
             {(['daily', 'monthly'] as ExpenseScope[]).map((s) => {
-              const disabled = s === 'monthly' && !canManage;
+              const disabled = dateLocked || (s === 'monthly' && !canManage);
               return (
                 <button
                   key={s}
@@ -214,14 +247,15 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
                 {scope === 'daily' ? 'Tanggal' : 'Bulan'}
               </label>
               {scope === 'daily' ? (
-                <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} className={inputCls} required />
+                <input type="date" disabled={dateLocked} value={date} max={today} onChange={(e) => setDate(e.target.value)} className={inputCls} required />
               ) : (
-                <input type="month" value={formMonth} onChange={(e) => setFormMonth(e.target.value)} className={inputCls} required />
+                <input type="month" disabled={dateLocked} value={formMonth} onChange={(e) => setFormMonth(e.target.value)} className={inputCls} required />
               )}
             </div>
             <div>
               <label className="text-xs font-bold text-[#3E2723] block mb-1">Kategori</label>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
+                {!EXPENSE_CATEGORIES[scope].includes(category) && <option value={category}>{category}</option>}
                 {EXPENSE_CATEGORIES[scope].map((c) => (
                   <option key={c} value={c}>
                     {c}
@@ -231,7 +265,7 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
             </div>
           </div>
 
-          <div>
+          <fieldset disabled={financialLocked}>
             <label className="text-xs font-bold text-[#3E2723] block mb-1">Nominal</label>
             <RupiahInput
               value={Number(amount) || 0}
@@ -239,7 +273,7 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
               className={`${inputCls.replace('px-3', 'pr-3')} font-bold`}
               required
             />
-          </div>
+          </fieldset>
 
           <div>
             <label className="text-xs font-bold text-[#3E2723] block mb-1">Catatan (opsional)</label>
@@ -247,6 +281,7 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder={scope === 'daily' ? 'mis. es batu 2 balok' : 'mis. gaji 2 karyawan'}
+              maxLength={500}
               className={inputCls}
             />
           </div>
@@ -255,8 +290,8 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
             <label className={`flex items-start gap-2 text-xs ${canUseDrawer ? '' : 'opacity-50'}`}>
               <input
                 type="checkbox"
-                checked={canUseDrawer && fromDrawer}
-                disabled={!canUseDrawer}
+                checked={editing ? fromDrawer : canUseDrawer && fromDrawer}
+                disabled={!!editing || !canUseDrawer}
                 onChange={(e) => setFromDrawer(e.target.checked)}
                 className="mt-0.5"
               />
@@ -275,8 +310,9 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
             type="submit"
             className="w-full py-2.5 bg-[#3E2723] hover:bg-[#5D4037] text-white font-bold rounded text-xs uppercase shadow"
           >
-            Simpan Pengeluaran
+            {editing ? 'Simpan Perubahan' : 'Simpan Pengeluaran'}
           </button>
+          {editing && <button type="button" onClick={resetForm} className="w-full rounded border border-[#D7CCC8] py-2 text-xs font-bold text-[#5D4037]">Batal Edit</button>}
         </form>
 
         {/* Daftar */}

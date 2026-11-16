@@ -21,6 +21,7 @@ import {
   saveTransaction,
   startNewShift,
   addExpense,
+  updateExpense,
   deleteExpense,
   getExpenses,
   performCloudSync,
@@ -288,6 +289,57 @@ describe('laporan', () => {
 });
 
 describe('pengeluaran', () => {
+  it('koreksi nominal hanya mengubah selisih laci, menjaga ID dan pencatat, serta bisa dicoba ulang tanpa menggandakan', () => {
+    startNewShift('c-1', 100000);
+    const original = addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Gas', amount: 15000, fromDrawer: true, createdBy: 'Budi' });
+    const edited = updateExpense(original.id, { ...original, amount: 20000, note: 'Koreksi nota' }, original);
+    expect(getExpenses()).toHaveLength(1);
+    expect(edited).toMatchObject({ id: original.id, createdBy: 'Budi', createdAt: original.createdAt, shiftId: original.shiftId, isSynced: false });
+    expect(getActiveShift()?.expensesCash).toBe(20000);
+    expect(getExpectedDrawerCash(getActiveShift()!)).toBe(80000);
+    updateExpense(edited.id, { ...edited, amount: 20000 }, edited);
+    expect(getActiveShift()?.expensesCash).toBe(20000);
+    expect(() => updateExpense(original.id, { ...original, amount: 30000 }, original)).toThrow(/berubah/);
+  });
+
+  it('shift tertutup dan pengeluaran pembelian hanya menerima koreksi kategori/catatan tanpa mengubah histori stok atau kas', () => {
+    startNewShift('c-1', 100000);
+    const original = addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Gas', amount: 15000, fromDrawer: true, createdBy: 'Budi' });
+    closeCurrentShift(85000);
+    const before = getShiftHistory();
+    expect(() => updateExpense(original.id, { ...original, amount: 20000 }, original)).toThrow(/Shift asal/);
+    updateExpense(original.id, { ...original, note: 'Perbaikan catatan' }, original);
+    expect(getShiftHistory()).toEqual(before);
+    applyPulledData({ expenses: [{ ...original, id: 'purchase', fromDrawer: false, purchaseLineId: 'line', amount: 15000.25 }] });
+    const purchase = getExpenses().find(e => e.id === 'purchase')!;
+    expect(() => updateExpense(purchase.id, { ...purchase, amount: 20000 }, purchase)).toThrow(/pembelian/);
+    expect(updateExpense(purchase.id, { ...purchase, category: 'Bahan Baku' }, purchase).amount).toBe(15000.25);
+  });
+
+  it('koreksi periode pengeluaran biasa tetap mempertahankan snapshot pertama dan menolak tanggal/nominal tidak valid', () => {
+    const original = addExpense({ scope: 'daily', date: '2026-11-12', category: 'Transport', amount: 10000, createdBy: 'Budi' });
+    const edited = updateExpense(original.id, { ...original, scope: 'monthly', date: '2026-11', amount: 25000 }, original);
+    expect(edited.editBase?.amount).toBe(10000);
+    const second = updateExpense(edited.id, { ...edited, note: 'Koreksi lagi' }, edited);
+    expect(second.editBase).toEqual(edited.editBase);
+    for (const amount of [0, -1, NaN, Infinity, 1e10, 1.234]) expect(() => updateExpense(second.id, { ...second, amount }, second)).toThrow(/Nominal/);
+    expect(() => updateExpense(second.id, { ...second, scope: 'daily', date: '2026-02-30' }, second)).toThrow(/Tanggal/);
+  });
+
+  it('penghapusan dari admin menyesuaikan laci aktif sekali saja, dan tidak menghapus catatan pembelian lewat kasir', () => {
+    startNewShift('c-1', 100000);
+    const original = addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Gas', amount: 15000, fromDrawer: true, createdBy: 'Budi' });
+    applyPulledData({ deletedExpenseIds: [original.id] });
+    expect(getExpenses()).toHaveLength(0);
+    expect(getActiveShift()?.expensesCash).toBe(0);
+    expect(getExpectedDrawerCash(getActiveShift()!)).toBe(100000);
+    applyPulledData({ deletedExpenseIds: [original.id] });
+    expect(getActiveShift()?.expensesCash).toBe(0);
+    applyPulledData({ expenses: [{ ...original, id: 'purchase-protected', fromDrawer: false, purchaseLineId: 'line' }] });
+    expect(deleteExpense('purchase-protected').ok).toBe(false);
+    expect(getExpenses()).toHaveLength(1);
+  });
+
   it('pengeluaran dari laci mengurangi kas seharusnya di shift, dan dikembalikan saat dihapus', () => {
     startNewShift('c-1', 100000);
     saveTransaction(makeTx('tunai'));
@@ -402,6 +454,27 @@ describe('rekap bulanan', () => {
 });
 
 describe('sync pengeluaran', () => {
+  it('penghapusan yang diberitahukan server saat push menghapus salinan lama walau perangkat belum pernah pull', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiKey: 'token', syncApiUrl: 'https://example.test/sync' });
+    const original = addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Transport', amount: 15000, createdBy: 'Budi' });
+    stubServer(() => ({ deletedExpenseIds: [original.id] }));
+    expect((await performCloudSync()).success).toBe(true);
+    expect(getExpenses()).toHaveLength(0);
+  });
+  it('konflik koreksi memuat data terbaru, memperbaiki saldo laci, dan tidak menimpa admin atau membuat sync macet', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiKey: 'token', syncApiUrl: 'https://example.test/sync' });
+    startNewShift('c-1', 100000);
+    const original = addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Gas', amount: 15000, fromDrawer: true, createdBy: 'Budi' });
+    updateExpense(original.id, { ...original, amount: 20000 }, original);
+    vi.stubGlobal('fetch', async () => ({ ok: false, status: 409, text: async () => JSON.stringify({ expenseConflicts: [{ ...original, amount: 18000, note: 'Nilai server', serverVersion: 'new' }] }) }));
+    const result = await performCloudSync();
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/Data terbaru sudah dimuat/);
+    expect(getExpenses()[0]).toMatchObject({ amount: 18000, note: 'Nilai server', isSynced: true });
+    expect(getActiveShift()?.expensesCash).toBe(18000);
+    expect(getExpenses()[0].editBase).toBeUndefined();
+  });
+
   it('mengirim pengeluaran baru & ID yang dihapus, lalu menandainya terkirim', async () => {
     saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
     const bodies: any[] = [];
