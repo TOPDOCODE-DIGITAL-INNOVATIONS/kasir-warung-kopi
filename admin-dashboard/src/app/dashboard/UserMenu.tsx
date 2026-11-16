@@ -36,7 +36,7 @@ export default function UserMenu({ name, email }: { name: string; email: string 
       className={`${avatar} h-9 w-9 cursor-pointer list-none text-xs transition-shadow hover:ring-2 hover:ring-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden`}>
       {initials}
     </summary>
-    <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+    <div className="absolute right-0 top-[calc(100%+8px)] z-50 max-h-[calc(100dvh-5rem)] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-y-contain rounded-xl border border-gray-200 bg-white shadow-lg">
       <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
         <span aria-hidden="true" className={`${avatar} h-10 w-10 text-sm`}>{initials}</span>
         <div className="min-w-0">
