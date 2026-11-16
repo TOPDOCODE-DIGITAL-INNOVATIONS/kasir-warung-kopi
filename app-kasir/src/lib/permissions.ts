@@ -4,6 +4,7 @@ export type Permission =
   | 'pos' // transaksi kasir
   | 'history' // lihat riwayat & lunasi bon
   | 'cancelTransaction' // batalkan nota
+  | 'editTransaction' // koreksi transaksi yang salah catat
   | 'menu' // kelola katalog menu & stok
   | 'reports' // lihat laporan
   | 'expenses' // catat pengeluaran harian
@@ -14,8 +15,8 @@ export type Permission =
 
 const ROLE_PERMISSIONS: Record<CashierRole, Permission[]> = {
   Kasir: ['pos', 'history', 'expenses'],
-  Supervisor: ['pos', 'history', 'expenses', 'manageExpenses', 'cancelTransaction', 'menu', 'reports'],
-  Owner: ['pos', 'history', 'expenses', 'manageExpenses', 'cancelTransaction', 'menu', 'reports', 'cashiers', 'settings', 'dataAdmin'],
+  Supervisor: ['pos', 'history', 'expenses', 'manageExpenses', 'cancelTransaction', 'editTransaction', 'menu', 'reports'],
+  Owner: ['pos', 'history', 'expenses', 'manageExpenses', 'cancelTransaction', 'editTransaction', 'menu', 'reports', 'cashiers', 'settings', 'dataAdmin'],
 };
 
 export function can(role: CashierRole | undefined, permission: Permission): boolean {

@@ -28,14 +28,14 @@ export default function DashboardShell({ businesses, businessId, name, email, ch
     return () => desktop.removeEventListener('change', closeOnDesktop)
   }, [])
 
-  return <div className="flex h-dvh w-full overflow-hidden bg-gray-50">
-    <aside aria-label="Sidebar" className="hidden h-full w-64 shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-linear-to-b from-white to-[#f8f9ff] md:flex">
+  return <div className="flex h-dvh w-full overflow-hidden bg-gray-50 print:block print:h-auto print:overflow-visible">
+    <aside aria-label="Sidebar" className="print:hidden hidden h-full w-64 shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-linear-to-b from-white to-[#f8f9ff] md:flex">
       <Brand />
       <Nav />
     </aside>
 
     <dialog ref={drawer} aria-label="Menu navigasi" onClick={event => { if (event.target === event.currentTarget) drawer.current?.close() }}
-      className="m-0 h-dvh max-h-none w-64 max-w-[calc(100vw-2rem)] border-0 border-r border-gray-200 bg-white p-0 text-gray-900 shadow-xl backdrop:bg-black/40 md:hidden">
+      className="m-0 h-dvh max-h-none w-64 max-w-[calc(100vw-2rem)] border-0 border-r border-gray-200 bg-white p-0 text-gray-900 shadow-xl backdrop:bg-black/40 md:hidden print:hidden">
       <div className="flex h-full flex-col bg-linear-to-b from-white to-[#f8f9ff]">
         <Brand />
         <div className="flex justify-end px-3 pt-3">
@@ -48,8 +48,8 @@ export default function DashboardShell({ businesses, businessId, name, email, ch
       </div>
     </dialog>
 
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="relative z-20 flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 md:px-8">
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden print:block print:overflow-visible">
+      <header className="print:hidden relative z-20 flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 md:px-8">
         <button type="button" aria-label="Buka navigasi" aria-haspopup="dialog" onClick={() => drawer.current?.showModal()}
           className="shrink-0 rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 md:hidden">
           <Menu aria-hidden="true" className="h-5 w-5" />

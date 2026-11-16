@@ -12,6 +12,7 @@ import {
   Check,
   AlertCircle,
 } from 'lucide-react';
+import { RupiahInput } from '../RupiahInput';
 import { PaymentType, StoreSettings, Transaction } from '../../types';
 import { formatIDR, generateReceiptId } from '../../lib/storage';
 
@@ -46,7 +47,6 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   // Tunai (Cash) State
   const [cashReceived, setCashReceived] = useState<number>(grandTotal);
-  const [customCashInput, setCustomCashInput] = useState<string>(grandTotal.toString());
 
   // Bank Transfer / E-Wallet / Hutang State
   const [selectedBank, setSelectedBank] = useState<string>(
@@ -78,15 +78,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     200000,
   ].filter((val, idx, self) => val >= grandTotal && self.indexOf(val) === idx);
 
-  const handleCashInputChange = (val: string) => {
-    setCustomCashInput(val);
-    const num = parseFloat(val) || 0;
-    setCashReceived(num);
-  };
 
   const handleSelectPresetCash = (amount: number) => {
     setCashReceived(amount);
-    setCustomCashInput(amount.toString());
   };
 
   const handleCopyText = (text: string, index: number) => {
@@ -295,17 +289,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   <label className="text-xs font-bold text-[#3E2723] block mb-1">
                     Nominal Uang Diterima
                   </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-2.5 font-bold text-[#3E2723] text-sm">
-                      Rp
-                    </span>
-                    <input
-                      type="number"
-                      value={customCashInput}
-                      onChange={(e) => handleCashInputChange(e.target.value)}
-                      className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pl-9 pr-3 py-2 text-base font-extrabold focus:outline-none focus:border-[#3E2723]"
-                    />
-                  </div>
+                  <RupiahInput
+                    value={cashReceived}
+                    onChange={setCashReceived}
+                    className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pr-3 py-2 text-base font-extrabold focus:outline-none focus:border-[#3E2723]"
+                  />
                 </div>
 
                 {/* Quick Suggestion Chips */}
@@ -381,16 +369,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                           {formatIDR(v)}
                         </button>
                       ))}
-                      <div className="relative flex-1 min-w-[7rem]">
-                        <span className="absolute left-2 top-1.5 text-[11px] font-bold text-amber-900">Rp</span>
-                        <input
-                          type="number"
-                          min={0}
+                      <div className="flex-1 min-w-[7rem]">
+                        <RupiahInput
                           max={changeDue}
                           placeholder="Lainnya"
-                          value={overpayInput || ''}
-                          onChange={(e) => setOverpayInput(Math.max(0, parseFloat(e.target.value) || 0))}
-                          className="w-full bg-white border border-amber-300 rounded pl-7 pr-2 py-1 text-xs font-bold focus:outline-none focus:border-amber-700"
+                          value={overpayInput}
+                          onChange={setOverpayInput}
+                          prefixClassName="text-amber-900"
+                          className="w-full bg-white border border-amber-300 rounded pr-2 py-1 text-xs font-bold focus:outline-none focus:border-amber-700"
                         />
                       </div>
                     </div>

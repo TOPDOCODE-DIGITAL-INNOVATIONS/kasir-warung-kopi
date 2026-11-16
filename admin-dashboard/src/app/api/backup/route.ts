@@ -84,7 +84,7 @@ async function* datasetRows(dataset: BackupDataset, context: ExportContext): Asy
         }
         if (filters.start || filters.end) query = query.or(`and(${monthly.join(',')}),and(${daily.join(',')})`)
       } else if (dataset !== 'products') {
-        const column = { transactions: 'created_at', shifts: 'start_time', book_period_rules: 'effective_from', deleted_records: 'deleted_at' }[dataset]
+        const column = { transactions: 'created_at', shifts: 'start_time', book_period_rules: 'effective_from', deleted_records: 'deleted_at', purchases: 'purchased_at', purchase_lines: 'created_at', stock_adjustments: 'created_at', stock_adjustment_lines: 'created_at' }[dataset]
         if (filters.start) query = query.gte(column, dataset === 'book_period_rules' ? filters.start : backupDayBoundary(filters.start))
         if (filters.end) {
           query = dataset === 'book_period_rules'

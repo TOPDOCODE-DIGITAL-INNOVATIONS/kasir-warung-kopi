@@ -1,6 +1,6 @@
 # Pengelolaan Produk & Stok di admin
 
-Implementasi 11 November 2026. Tidak menambah atau mengedit migration; memakai tabel inventory yang sudah tersedia.
+Dokumen implementasi awal 11 November 2026. **Alur terbaru sejak 12 November dijelaskan pada [Pengeluaran admin dan stok opname](admin-stock-counts.md)**: pembelian melalui Pengeluaran, opname massal, penyesuaian atomik, dan riwayat terpisah. Bagian di bawah merupakan catatan implementasi sebelumnya, termasuk mekanisme penyelesaian pembelian lama yang masih dipertahankan. Pernyataan tanpa migration, pembelian pertama, tombol Tambah Stok, dan operasi multi-request di bawah tidak berlaku untuk alur baru.
 
 ## Alur pengguna
 

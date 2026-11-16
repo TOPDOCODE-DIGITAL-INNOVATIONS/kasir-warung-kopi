@@ -5,12 +5,12 @@ import { revalidatePath } from 'next/cache'
 import { unstable_rethrow } from 'next/navigation'
 import { createClient } from '@/utils/supabase/server'
 import { getBusinessContext, requireBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
-import { addStock, amount, decimal, events, isRow, metadata, multiply, number, productForPos, scaled, summarizeSales, uuid, withEvent, type Row } from './domain'
+import { amount, events, isRow, metadata, number, productForPos, summarizeSales, uuid, withEvent, type Row } from './domain'
 import type { ActionResult, HistoryData, ProductPageData, StockEvent } from './types'
 
 type DB = Awaited<ReturnType<typeof createClient>>
 const PAGE = 500
-const productColumns = 'id,inventory_id,owner_id,business_id,name,sku,description,category_id,base_unit_id,can_buy,can_sell,price,cost_price,stock,min_stock,is_available,is_active,updated_at,pending:raw->_inventory->pending'
+const productColumns = 'id,inventory_id,owner_id,business_id,name,sku,description,category_id,base_unit_id,can_buy,can_sell,price,cost_price,stock,min_stock,is_available,is_active,updated_at,stock_updated_at,pending:raw->_inventory->pending'
 
 async function rows(query: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<Row[]> {
   const result: Row[] = []
@@ -82,13 +82,14 @@ export async function getProductsPage(requestedBusinessId: string | null): Promi
   const result: ProductPageData = { businesses: branches, units: units.map(u => ({ id: String(u.id), code: String(u.code), name: String(u.name) })), products: [], suppliers: [], itemUnits: [], invalidBusiness: !!businessId && !branches.some(b => b.id === businessId) }
   if (!branches.length || result.invalidBusiness) return result
   const branchIds = businessId ? [businessId] : branches.map(b => b.id)
-  const [products, transactions, purchaseLines, suppliers, itemUnits, recipes] = await Promise.all([
+  const [products, transactions, purchaseLines, suppliers, itemUnits, recipes, nominalExpenses] = await Promise.all([
     rows((a, z) => db.from('products').select(productColumns).eq('owner_id', owner).eq('is_active', true).in('business_id', branchIds).order('business_id').order('id').range(a, z)),
     rows((a, z) => db.from('transactions').select('business_id,id,items').eq('status', 'completed').in('business_id', branchIds).order('business_id').order('id').range(a, z)),
     rows((a, z) => db.from('purchase_lines').select('id,product_id,quantity_base,line_total,purchases!inner(status)').eq('owner_id', owner).eq('purchases.status', 'posted').in('business_id', branchIds).order('id').range(a, z)),
     rows((a, z) => db.from('suppliers').select('id,name').eq('owner_id', owner).eq('is_active', true).order('id').range(a, z)),
     rows((a, z) => db.from('item_units').select('id,product_id,label,factor_to_base,products!inner(business_id)').eq('owner_id', owner).eq('is_active', true).in('products.business_id', branchIds).order('id').range(a, z)),
     rows((a, z) => db.from('recipes').select('id,product_id').eq('owner_id', owner).eq('status', 'active').in('business_id', branchIds).order('id').range(a, z)),
+    rows((a, z) => db.from('expenses').select('id,product_id,amount').in('business_id', branchIds).not('product_id', 'is', null).is('purchase_line_id', null).order('business_id').order('id').range(a, z)),
   ])
   const sold = summarizeSales(transactions)
   const bought = new Map<string, { quantity: number; amount: number }>()
@@ -96,6 +97,7 @@ export async function getProductsPage(requestedBusinessId: string | null): Promi
     const key = String(row.product_id), value = bought.get(key) ?? { quantity: 0, amount: 0 }
     value.quantity += number(row.quantity_base); value.amount += number(row.line_total); bought.set(key, value)
   }
+  for (const row of nominalExpenses) { const key = String(row.product_id), value = bought.get(key) ?? { quantity: 0, amount: 0 }; value.amount += number(row.amount); bought.set(key, value) }
   const activeRecipes = new Set(recipes.map(r => String(r.product_id)))
   result.products = products.map(p => {
     const sales = sold.get(`${p.business_id}:${p.id}`), purchase = bought.get(String(p.inventory_id))
@@ -104,7 +106,7 @@ export async function getProductsPage(requestedBusinessId: string | null): Promi
       name: String(p.name), sku: String(p.sku ?? ''), description: String(p.description ?? ''), categoryId: String(p.category_id ?? ''),
       baseUnitId: String(p.base_unit_id), unitCode: result.units.find(u => u.id === p.base_unit_id)?.code ?? 'pcs',
       canBuy: p.can_buy === true, canSell: p.can_sell === true, price: number(p.price), cost: p.cost_price === null ? null : number(p.cost_price),
-      stock: number(p.stock), minStock: number(p.min_stock), available: p.is_available === true, version: String(p.updated_at),
+      stock: number(p.stock), minStock: number(p.min_stock), available: p.is_available === true, version: String(p.updated_at), stockUpdatedAt: typeof p.stock_updated_at === 'string' ? p.stock_updated_at : null,
       soldQuantity: sales?.quantity ?? 0, soldAmount: sales?.amount ?? 0, boughtQuantity: purchase?.quantity ?? 0, boughtAmount: purchase?.amount ?? 0,
       hasRecipe: activeRecipes.has(String(p.inventory_id)), pendingOperation: typeof p.pending === 'string' ? p.pending : null,
     }
@@ -143,16 +145,6 @@ async function saved(db: DB, owner: string, id: string, message: string): Promis
   return { success: true, refresh: true, message: synced ? `${message} Diterapkan di kasir setelah sinkronisasi.` : `${message} Konfigurasi kasir belum diperbarui; hubungkan kasir atau kirim ulang melalui Riwayat.` }
 }
 
-async function ensureBaseUnit(db: DB, owner: string, p: Row): Promise<string> {
-  const { data: unit, error } = await db.from('units').select('id,code').eq('id', p.base_unit_id).single()
-  if (error || !unit) throw new Error('Satuan dasar tidak ditemukan.')
-  const { error: insertError } = await db.from('item_units').upsert({ owner_id: owner, product_id: p.inventory_id, unit_id: unit.id, label: unit.code, factor_to_base: 1 }, { onConflict: 'product_id,label', ignoreDuplicates: true })
-  if (insertError) throw new Error('Gagal menyiapkan satuan produk. Silakan coba kembali.')
-  const { data, error: readError } = await db.from('item_units').select('id').eq('product_id', p.inventory_id).eq('owner_id', owner).eq('label', unit.code).single()
-  if (readError || !data) throw new Error('Gagal membaca satuan produk.')
-  return data.id as string
-}
-
 /** Durable operation journal in raw: a retry completes posting, never adds stock twice. */
 async function finishPurchase(db: DB, owner: string, id: string, operation: string): Promise<ActionResult> {
   let p = await product(db, owner, id)
@@ -181,74 +173,6 @@ async function finishPurchase(db: DB, owner: string, id: string, operation: stri
   return { success: false, refresh: true, message: 'Pembelian sudah tercatat. Catatan penyelesaian belum tersimpan; selesaikan kembali melalui Riwayat.' }
 }
 
-type StockInput = { operation: string; quantity: string; kind: 'purchase' | 'adjustment'; reason: string; itemUnit: string; unitPrice: string; supplier: string; updateCost: boolean }
-function stockInput(form: FormData): StockInput {
-  const operation = text(form, 'operation_id', 40)
-  if (!uuid(operation)) throw new Error('Identitas perubahan tidak valid. Tutup dan buka ulang dialog.')
-  const kind = text(form, 'stock_kind')
-  if (kind !== 'purchase' && kind !== 'adjustment') throw new Error('Pilih sumber penambahan stok.')
-  const reason = text(form, 'reason')
-  if (!reason) throw new Error('Alasan atau keterangan wajib diisi.')
-  return { operation, quantity: amount(form.get('quantity'), 'Jumlah', true), kind, reason,
-    itemUnit: text(form, 'item_unit_id', 40), unitPrice: kind === 'purchase' ? amount(form.get('unit_price'), 'Harga beli') : '0',
-    supplier: text(form, 'supplier_id', 40), updateCost: checked(form, 'update_cost') }
-}
-async function receive(db: DB, owner: string, p: Row, input: StockInput, version?: string): Promise<ActionResult> {
-  const fingerprint = createHash('sha256').update(JSON.stringify(input)).digest('hex')
-  const existing = events(p.raw).find(e => e.id === input.operation)
-  if (existing) {
-    if (existing.fingerprint !== fingerprint) throw new Error('Permintaan ini sudah dipakai dengan data berbeda. Buka ulang dialog.')
-    return existing.kind === 'purchase' ? finishPurchase(db, owner, String(p.inventory_id), input.operation) : saved(db, owner, String(p.inventory_id), 'Penyesuaian sudah tersimpan; stok tidak ditambahkan ulang.')
-  }
-  noPending(p, input.operation)
-  if (!p.is_active) throw new Error('Produk sudah dihapus dari daftar aktif.')
-  if (version && p.updated_at !== version) throw new Error('Produk sudah berubah. Muat ulang sebelum menambah stok.')
-  if (input.kind === 'purchase' && !p.can_buy) throw new Error('Aktifkan Bisa Dibeli sebelum mencatat pembelian.')
-  let quantity = input.quantity, factor = '1', unitId = input.itemUnit
-  if (input.kind === 'purchase') {
-    if (!unitId) unitId = await ensureBaseUnit(db, owner, p)
-    const { data: unit, error } = await db.from('item_units').select('id,factor_to_base').eq('id', unitId).eq('product_id', p.inventory_id).eq('owner_id', owner).eq('is_active', true).maybeSingle()
-    if (error || !unit) throw new Error('Satuan pembelian tidak sesuai produk.')
-    factor = String(unit.factor_to_base); quantity = amount(multiply(input.quantity, factor), 'Jumlah dalam satuan dasar', true)
-    if (input.supplier) {
-      if (!uuid(input.supplier)) throw new Error('Supplier tidak valid.')
-      const { data } = await db.from('suppliers').select('id').eq('id', input.supplier).eq('owner_id', owner).eq('is_active', true).maybeSingle()
-      if (!data) throw new Error('Supplier tidak ditemukan atau tidak dapat diakses.')
-    }
-    const total = scaled(multiply(input.quantity, input.unitPrice))
-    if (total > scaled('999999999999')) throw new Error('Nilai pembelian terlalu besar.')
-    const notes = JSON.stringify({ source: 'product_stock', productId: p.inventory_id, fingerprint, reason: input.reason })
-    const { data: previous, error: lookupError } = await db.from('purchases').select('id,status,notes').eq('id', input.operation).eq('owner_id', owner).maybeSingle()
-    if (lookupError) throw new Error('Gagal memeriksa pembelian sebelumnya.')
-    if (previous && (previous.status !== 'draft' || previous.notes !== notes)) throw new Error('Nomor operasi pembelian sudah dipakai. Buka ulang dialog.')
-    if (!previous) {
-      const { error } = await db.from('purchases').insert({ id: input.operation, owner_id: owner, business_id: p.business_id, supplier_id: input.supplier || null, document_number: `PUR-${input.operation}`, notes })
-      if (error) throw new Error('Dokumen pembelian belum berhasil dibuat. Silakan coba kembali.')
-    }
-    const { error: lineError } = await db.from('purchase_lines').upsert({ id: input.operation, owner_id: owner, business_id: p.business_id, purchase_id: input.operation,
-      product_id: p.inventory_id, item_unit_id: unitId, quantity: input.quantity, unit_price: input.unitPrice, notes: input.reason }, { onConflict: 'id' })
-    if (lineError) throw new Error('Rincian pembelian belum berhasil disimpan. Silakan coba kembali.')
-  }
-  const after = addStock(number(p.stock), quantity)
-  const event: StockEvent = { id: input.operation, kind: input.kind, at: new Date().toISOString(), quantity: number(quantity), before: number(p.stock), after,
-    reason: input.reason, status: input.kind === 'purchase' ? 'pending' : 'complete', fingerprint, ...(input.kind === 'purchase' ? { purchaseId: input.operation } : {}) }
-  const values: Row = { stock: after, raw: withEvent(p.raw, event, input.kind === 'purchase') }
-  if (input.kind === 'purchase' && input.updateCost) values.cost_price = decimal((scaled(input.unitPrice) * BigInt(1_000_000) + scaled(factor) / BigInt(2)) / scaled(factor))
-  try { await update(db, owner, p, values) }
-  catch (error) {
-    // A lost HTTP response can hide a committed update. Check the durable event
-    // before cleaning up a draft, so a retry never loses its purchase document.
-    let latest: Row | null = null
-    try { latest = await product(db, owner, String(p.inventory_id)) } catch { /* Leave draft intact while outcome is unknown. */ }
-    if (latest && events(latest.raw).some(e => e.id === input.operation)) {
-      return input.kind === 'purchase' ? finishPurchase(db, owner, String(p.inventory_id), input.operation) : saved(db, owner, String(p.inventory_id), 'Penyesuaian stok sudah tersimpan.')
-    }
-    if (latest && input.kind === 'purchase') await db.from('purchases').delete().eq('id', input.operation).eq('owner_id', owner).eq('status', 'draft')
-    throw error
-  }
-  return input.kind === 'purchase' ? finishPurchase(db, owner, String(p.inventory_id), input.operation) : saved(db, owner, String(p.inventory_id), 'Penyesuaian stok berhasil dicatat.')
-}
-
 export async function saveProduct(form: FormData): Promise<ActionResult> {
   let committed = false
   try {
@@ -260,15 +184,8 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
     const b = await branch(db, owner, businessId)
     const canBuy = checked(form, 'can_buy'), canSell = checked(form, 'can_sell')
     if (!canBuy && !canSell) throw new Error('Aktifkan minimal Bisa Dibeli atau Bisa Dijual.')
-    const track = checked(form, 'track_stock'), firstPurchase = !id && checked(form, 'initial_purchase')
-    if (firstPurchase && !canBuy) throw new Error('Pembelian pertama hanya untuk produk yang bisa dibeli.')
-    const initialInput = firstPurchase ? stockInput(form) : null
-    if (initialInput && scaled(multiply(initialInput.quantity, initialInput.unitPrice)) > scaled('999999999999')) throw new Error('Nilai pembelian pertama terlalu besar.')
-    if (initialInput?.supplier) {
-      if (!uuid(initialInput.supplier)) throw new Error('Supplier tidak valid.')
-      const { data } = await db.from('suppliers').select('id').eq('id', initialInput.supplier).eq('owner_id', owner).eq('is_active', true).maybeSingle()
-      if (!data) throw new Error('Supplier tidak ditemukan atau tidak dapat diakses.')
-    }
+    const track = checked(form, 'track_stock')
+    if (checked(form, 'initial_purchase')) throw new Error('Catat pembelian melalui menu Pengeluaran.')
     const price = amount(form.get('price') || '0', 'Harga jual'), costText = text(form, 'cost_price', 40)
     const cost = costText ? amount(costText, 'Modal acuan') : null
     const categoryId = text(form, 'category_id', 100)
@@ -284,7 +201,7 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
       noPending(p)
       if (events(p.raw).some(e => e.id === operation)) return saved(db, owner, id, 'Perubahan sudah tersimpan.')
       requireVersion(p, form)
-      const stock = track ? (number(p.stock) === -1 ? number(amount(form.get('initial_quantity') || '0', 'Stok awal')) : number(p.stock)) : -1
+      const stock = track ? (number(p.stock) === -1 ? 0 : number(p.stock)) : -1
       const event: StockEvent = { id: operation, kind: stock !== number(p.stock) ? 'tracking' : 'edit', at: new Date().toISOString(), quantity: 0,
         before: number(p.stock), after: stock, reason: stock !== number(p.stock) ? 'Pengaturan pencatatan stok' : 'Perubahan data produk', status: 'complete' }
       const raw = { ...(isRow(p.raw) ? p.raw : {}), name, description: fields.description, categoryId: categoryId || 'uncategorized' }
@@ -294,9 +211,9 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
       if (!uuid(baseUnit)) throw new Error('Pilih satuan dasar.')
       const { data: u } = await db.from('units').select('id').eq('id', baseUnit).maybeSingle()
       if (!u) throw new Error('Satuan dasar tidak ditemukan.')
-      const quantity = track && !firstPurchase ? amount(form.get('initial_quantity') || '0', 'Stok awal') : '0'
+      const quantity = track ? amount(form.get('initial_quantity') || '0', 'Stok awal') : '0'
       const stock = track ? number(quantity) : -1
-      const signature = createHash('sha256').update(JSON.stringify({ businessId, fields, baseUnit, track, firstPurchase, quantity })).digest('hex')
+      const signature = createHash('sha256').update(JSON.stringify({ businessId, fields, baseUnit, track, quantity })).digest('hex')
       const { data: existing, error } = await db.from('products').select('*').eq('inventory_id', operation).eq('owner_id', owner).eq('business_id', businessId).maybeSingle()
       if (error) throw new Error('Gagal memeriksa produk baru.')
       if (existing) {
@@ -304,32 +221,32 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
         p = existing as Row
       } else {
         const event: StockEvent = { id: operation, kind: 'initial', at: new Date().toISOString(), quantity: number(quantity), before: 0, after: stock, reason: text(form, 'reason') || 'Stok awal produk baru', status: 'complete' }
-        const raw = { _inventory: { version: 1, creationSignature: signature, events: firstPurchase ? [] : [event] } }
+        const raw = { _inventory: { version: 1, creationSignature: signature, events: [event] } }
         const { data, error: insertError } = await db.from('products').insert({ ...fields, inventory_id: operation, business_id: businessId, owner_id: owner,
-          id: `p-admin-${operation}`, base_unit_id: baseUnit, stock: firstPurchase && track ? 0 : stock, stock_mode: track ? 'self' : 'none', pos_managed: canSell, raw }).select('*').single()
+          id: `p-admin-${operation}`, base_unit_id: baseUnit, stock, stock_mode: track ? 'self' : 'none', pos_managed: canSell, raw }).select('*').single()
         if (insertError?.code === '23505') throw new Error('SKU tersebut sudah dipakai di cabang ini.')
         if (insertError || !data) throw new Error('Produk baru belum berhasil disimpan.')
         p = data as Row
       }
       committed = true
-      if (firstPurchase) {
-        const input = initialInput!
-        input.kind = 'purchase'
-        input.itemUnit = await ensureBaseUnit(db, owner, p)
-        return await receive(db, owner, p, input)
-      }
     }
     committed = true
     return await saved(db, owner, String(p.inventory_id), id ? 'Produk berhasil diperbarui.' : 'Produk baru berhasil ditambahkan.')
   } catch (error) { if (committed) invalidate(); return fail(error, committed) }
 }
 
-export async function addProductStock(form: FormData): Promise<ActionResult> {
+export async function recordStockCount(form: FormData): Promise<ActionResult> {
   try {
-    const { db, owner } = await session()
-    const p = await product(db, owner, text(form, 'inventory_id', 40))
-    return await receive(db, owner, p, stockInput(form), text(form, 'version', 100))
-  } catch (error) { return fail(error, true) }
+    const businessId = text(form, 'business_id', 40)
+    const { supabase } = await requireBusinessContext(businessId)
+    const operation = text(form, 'operation_id', 40)
+    if (!uuid(operation)) throw new Error('Identitas operasi tidak valid. Buka ulang dialog.')
+    const lines = JSON.parse(String(form.get('lines') ?? '[]'))
+    const { error } = await supabase.rpc('admin_record_stock', { p_business: businessId, p_operation: operation, p_lines: lines, p_note: text(form, 'note') })
+    if (error) throw new Error(error.message)
+    invalidate()
+    return { success: true, message: 'Perubahan stok berhasil disimpan.' }
+  } catch (error) { return fail(error) }
 }
 export async function completeProductPurchase(form: FormData): Promise<ActionResult> {
   try {
@@ -358,11 +275,23 @@ export async function syncProductToPos(form: FormData): Promise<ActionResult> {
 }
 export async function getProductHistory(id: string): Promise<HistoryData> {
   const { db, owner } = await session(), p = await product(db, owner, id)
-  const { data, error } = await db.from('purchase_lines').select('id,quantity_base,line_total,purchases!inner(id,purchased_at,document_number,supplier_name,status)')
-    .eq('product_id', id).eq('owner_id', owner).order('created_at', { ascending: false }).limit(50)
-  if (error) throw new Error('Gagal memuat riwayat pembelian.')
-  return { events: events(p.raw).slice(-50).reverse(), purchases: (data as unknown as Row[]).flatMap(row => {
-    const h = row.purchases
-    return isRow(h) ? [{ id: String(h.id), date: String(h.purchased_at), number: String(h.document_number), supplier: String(h.supplier_name || 'Tanpa supplier'), quantity: number(row.quantity_base), amount: number(row.line_total), status: String(h.status) }] : []
-  }) }
+  const [purchases, adjustments] = await Promise.all([
+    db.from('purchase_lines').select('id,quantity_base,line_total,purchases!inner(id,purchased_at,document_number,supplier_name,status)')
+      .eq('product_id', id).eq('owner_id', owner).order('created_at', { ascending: false }).limit(50),
+    db.from('stock_adjustment_lines').select('id,mode,before_stock,after_stock,delta,reason,stock_adjustments!inner(created_at,created_by_name)')
+      .eq('product_id', id).eq('owner_id', owner).eq('business_id', p.business_id)
+      .order('created_at', { ascending: false }).order('id').limit(100),
+  ])
+  if (purchases.error || adjustments.error) throw new Error('Gagal memuat riwayat produk.')
+  return {
+    events: events(p.raw).slice(-50).reverse(),
+    purchases: (purchases.data as unknown as Row[]).flatMap(row => {
+      const h = row.purchases
+      return isRow(h) ? [{ id: String(h.id), date: String(h.purchased_at), number: String(h.document_number), supplier: String(h.supplier_name || 'Tanpa supplier'), quantity: number(row.quantity_base), amount: number(row.line_total), status: String(h.status) }] : []
+    }),
+    adjustments: (adjustments.data as unknown as Row[]).flatMap(row => {
+      const h = row.stock_adjustments
+      return isRow(h) ? [{ id: String(row.id), mode: String(row.mode), before: number(row.before_stock), after: number(row.after_stock), delta: number(row.delta), reason: String(row.reason), date: String(h.created_at), by: String(h.created_by_name) }] : []
+    }).sort((a,b) => b.date.localeCompare(a.date)),
+  }
 }

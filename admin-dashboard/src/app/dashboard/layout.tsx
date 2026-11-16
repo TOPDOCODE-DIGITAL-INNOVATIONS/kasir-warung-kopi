@@ -11,7 +11,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <DashboardShell businesses={businesses} businessId={businessId} name={name} email={user.email ?? ''}>
-      <main key={businessId ?? 'no-business'} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-8">{children}</main>
+      <main key={businessId ?? 'no-business'} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-8 print:overflow-visible print:p-0">{children}</main>
     </DashboardShell>
   )
 }

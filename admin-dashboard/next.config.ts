@@ -1,24 +1,19 @@
 import type { NextConfig } from 'next'
-import fs from 'node:fs'
+import fs from 'fs'
 import path from 'path'
-import { parseEnv } from 'node:util'
+import { parseEnv } from 'util'
 
-// Next sudah memuat env admin-dashboard dan menyimpan hasilnya di cache @next/env.
-// Baca env root langsung agar konfigurasi terpusat tetap dimuat. Nilai dari
-// environment deployment atau env admin-dashboard tetap mendapat prioritas.
+// Muat file .env terpusat dari root repo (kasir-warung-kopi/.env).
+// Catatan: loadEnvConfig() dari @next/env tidak bisa dipakai di sini karena Next sudah
+// memanggilnya untuk folder admin-dashboard dan hasilnya di-cache, sehingga panggilan
+// kedua untuk folder root diabaikan. Nilai yang sudah ada (mis. dari Vercel) tidak ditimpa.
 const rootDir = path.resolve(__dirname, '..')
-const mode = process.env.NODE_ENV ?? 'development'
-const envFiles = [
-  `.env.${mode}.local`,
-  ...(mode === 'test' ? [] : ['.env.local']),
-  `.env.${mode}`,
-  '.env',
-]
-for (const file of envFiles) {
-  const fullPath = path.join(rootDir, file)
-  if (!fs.existsSync(fullPath)) continue
-  for (const [key, value] of Object.entries(parseEnv(fs.readFileSync(fullPath, 'utf8')))) {
-    if (process.env[key] === undefined) process.env[key] = value
+const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development'
+for (const file of [`.env.${mode}.local`, '.env.local', `.env.${mode}`, '.env']) {
+  const full = path.join(rootDir, file)
+  if (!fs.existsSync(full)) continue
+  for (const [key, value] of Object.entries(parseEnv(fs.readFileSync(full, 'utf8')))) {
+    if (process.env[key] === undefined || process.env[key] === '') process.env[key] = value
   }
 }
 

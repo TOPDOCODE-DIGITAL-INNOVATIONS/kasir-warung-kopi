@@ -44,6 +44,8 @@ export default function App() {
   const [activeShift, setActiveShiftState] = useState<Shift | null>(() => getActiveShift());
   const [storeSettings, setStoreSettingsState] = useState<StoreSettings>(() => getStoreSettings());
   const [cart, setCart] = useState<CartItem[]>([]);
+  /** Draf yang sedang dibuka di keranjang; disimpan di sini agar tidak hilang saat pindah tab */
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [isCashierModalOpen, setIsCashierModalOpen] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
@@ -142,6 +144,8 @@ export default function App() {
             storeSettings={storeSettings}
             cart={cart}
             setCart={setCart}
+            activeDraftId={activeDraftId}
+            setActiveDraftId={setActiveDraftId}
           />
         )}
 

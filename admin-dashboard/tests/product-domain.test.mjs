@@ -24,6 +24,22 @@ test('invalid amounts are rejected before a stock operation is written', () => {
 test('an unlimited product stays unlimited when receiving stock', () => {
   assert.equal(d.addStock(-1, '50'), -1)
 })
+
+test('stock counts set the physical balance, while usage, damage and additions apply exact deltas', () => {
+  assert.equal(d.stockChange(15, 'count', '4'), 4)
+  assert.equal(d.stockChange(4, 'count', '0'), 0)
+  assert.equal(d.stockChange(0.3, 'usage', '0.1'), 0.2)
+  assert.equal(d.stockChange(4, 'damage', '1'), 3)
+  assert.equal(d.stockChange(0.1, 'addition', '0.2'), 0.3)
+})
+
+test('stock changes reject missing counts, negative balances and untracked items', () => {
+  assert.throws(() => d.stockChange(4, 'count', ''))
+  assert.throws(() => d.stockChange(4, 'damage', '5'))
+  assert.throws(() => d.stockChange(-1, 'count', '5'))
+  assert.throws(() => d.stockChange(4, 'addition', '0'))
+  assert.throws(() => d.stockChange(4, 'unknown', '1'))
+})
 test('journal finalization is idempotent and preserves existing product options', () => {
   const event = { id: 'one', kind: 'purchase', status: 'pending', before: 0, after: 2, quantity: 2 }
   const raw = d.withEvent({ options: [{ name: 'Ice' }] }, event, true)

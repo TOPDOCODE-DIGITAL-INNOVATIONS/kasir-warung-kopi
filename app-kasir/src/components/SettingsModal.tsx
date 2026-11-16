@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Settings, Store, QrCode, Building2, Save, Check, Database, RefreshCw, Printer, Wifi } from 'lucide-react';
 import { StoreSettings } from '../types';
-import { getStoreSettings, saveStoreSettings, performCloudSync, getSyncUrl } from '../lib/storage';
+import { getStoreSettings, saveStoreSettings, performCloudSync, getSyncUrl, POS_UPDATE_EVENT } from '../lib/storage';
 import {
   PRINTER_METHOD_LABELS,
   PrinterMethod,
@@ -23,16 +23,58 @@ interface SettingsModalProps {
   onSettingsUpdated: (settings: StoreSettings) => void;
 }
 
+/** Field yang nilainya berbeda antara `a` dan `b` (nilai diambil dari `a`). */
+function changedFields(a: StoreSettings, b: StoreSettings): Partial<StoreSettings> {
+  const out: Record<string, unknown> = {};
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.forEach((k) => {
+    const av = (a as any)[k];
+    if (JSON.stringify(av) !== JSON.stringify((b as any)[k])) out[k] = av;
+  });
+  return out as Partial<StoreSettings>;
+}
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated }) => {
-  const [settings, setSettings] = useState<StoreSettings>(getStoreSettings());
+  const [settings, setSettings] = useState<StoreSettings>(() => getStoreSettings());
+  // Nilai tersimpan saat form terakhir dimuat. Yang dikirim saat simpan hanya field yang benar-benar
+  // diubah di form, agar data yang masuk dari sync (perangkat lain) tidak tertimpa nilai lama di form.
+  const baseRef = useRef<StoreSettings>(settings);
+  const formRef = useRef<StoreSettings>(settings);
+  formRef.current = settings;
   const [isSaved, setIsSaved] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatusMsg, setSyncStatusMsg] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
+  // Muat ulang data terbaru (hasil sync, status sync terakhir) tanpa membuang isian yang belum disimpan.
+  useEffect(() => {
+    const onUpdate = () => {
+      const latest = getStoreSettings();
+      const edits = changedFields(formRef.current, baseRef.current);
+      baseRef.current = latest;
+      const next = { ...latest, ...edits };
+      formRef.current = next;
+      setSettings(next);
+    };
+    window.addEventListener(POS_UPDATE_EVENT, onUpdate);
+    return () => window.removeEventListener(POS_UPDATE_EVENT, onUpdate);
+  }, []);
+
+  const saveForm = (form: StoreSettings = formRef.current): StoreSettings => {
+    const next = { ...getStoreSettings(), ...changedFields(form, baseRef.current) };
+    baseRef.current = next;
+    formRef.current = next;
+    saveStoreSettings(next);
+    const saved = getStoreSettings();
+    baseRef.current = saved;
+    formRef.current = saved;
+    setSettings(saved);
+    onSettingsUpdated(saved);
+    return saved;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    saveStoreSettings(settings);
-    onSettingsUpdated(settings);
+    saveForm();
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2500);
   };
@@ -46,8 +88,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
     setIsConnecting(true);
     try {
       const msg = await connectPrinter(settings);
-      saveStoreSettings(settings); // simpan metode yang dipilih
-      onSettingsUpdated(settings);
+      saveForm(); // simpan metode yang dipilih
       setPrintMsg({ type: 'success', msg });
     } catch (err: any) {
       if (err?.name !== 'NotFoundError') {
@@ -74,7 +115,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
   const handleTestSync = async () => {
     setIsSyncing(true);
     setSyncStatusMsg(null);
-    saveStoreSettings(settings); // save latest configuration first
+    saveForm(); // simpan isian terbaru (mis. token) dulu
     const res = await performCloudSync();
     setIsSyncing(false);
     if (res.success) {

@@ -10,6 +10,7 @@ import {
   Coffee,
   Package,
 } from 'lucide-react';
+import { RupiahInput } from './RupiahInput';
 import { Category, Product, ProductOption } from '../types';
 import {
   getProducts,
@@ -353,22 +354,20 @@ export const MenuManagement: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-bold text-[#3E2723] block mb-1">Harga Jual (Rp)</label>
-                  <input
-                    type="number"
+                  <RupiahInput
                     required
-                    value={formData.price}
-                    onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
-                    className="w-full bg-white border border-[#D7CCC8] text-[#3E2723] font-black rounded px-3 py-2 text-xs focus:outline-none focus:border-[#3E2723]"
+                    value={Number(formData.price) || 0}
+                    onChange={(v) => setFormData({ ...formData, price: v })}
+                    className="w-full bg-white border border-[#D7CCC8] text-[#3E2723] font-black rounded pr-3 py-2 text-xs focus:outline-none focus:border-[#3E2723]"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#3E2723] block mb-1">Harga Modal / HPP (Rp)</label>
-                  <input
-                    type="number"
-                    value={formData.costPrice}
-                    onChange={(e) => setFormData({ ...formData, costPrice: Number(e.target.value) })}
-                    className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-2 text-xs focus:outline-none focus:border-[#3E2723]"
+                  <RupiahInput
+                    value={Number(formData.costPrice) || 0}
+                    onChange={(v) => setFormData({ ...formData, costPrice: v })}
+                    className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded pr-3 py-2 text-xs focus:outline-none focus:border-[#3E2723]"
                   />
                 </div>
               </div>
