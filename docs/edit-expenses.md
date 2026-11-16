@@ -17,6 +17,17 @@ Pengeluaran terkait pembelian/stok tidak dapat dihapus dari admin maupun kasir m
 
 API juga memeriksa penanda penghapusan ketika menerima kiriman pengeluaran. Salinan lama tidak dibuat ulang; ID yang telah dihapus dikembalikan ke kasir agar salinan lokal ikut dihapus meskipun perangkat belum pernah melakukan pull.
 
+## Ekspor tabel PDF
+
+Tombol **Ekspor PDF** tersedia di admin dan kasir. Pada dialog cetak browser, pilih **Simpan sebagai PDF**. Dokumen khusus laporan dicetak dalam A4 landscape; sidebar dan tombol aplikasi tidak ikut dicetak.
+
+- Admin memakai cabang aktif, periode, dan kategori yang dipilih, dengan data dari query halaman yang sudah dipaginasi. Ekspor dinonaktifkan jika pemuatan data gagal.
+- Kasir mengekspor pengeluaran harian dan bulanan pada bulan yang sedang ditampilkan, dari data lokal yang tersedia. Sinkronkan terlebih dahulu untuk memperoleh data perangkat lain.
+- Urutan tanggal paling awal; biaya bulanan diurutkan pada tanggal 1 bulan tersebut. Jika tanggal sama, gunakan waktu pembuatan dan ID.
+- Kolom **Pembelian** berisi catatan yang sudah dirapikan spasinya di awal/akhir; jika kosong, gunakan nama kategori. Kategori tetap menjadi kolom tersendiri.
+- Tanggal, jenis, produk/jumlah/satuan, supplier, nominal, sumber dana, pencatat/waktu, ID, kelompok input, dan shift turut dicantumkan bila tersedia, beserta cabang, periode, dan total.
+- Modul laporan dipakai bersama melalui `shared/expense-report.ts`; tidak ada dependency, migration, atau query per baris tambahan. Data pengguna di-escape sebelum dimasukkan ke dokumen cetak.
+
 ## Akses dan sinkronisasi
 
 RLS owner pada tabel `expenses` hanya mengizinkan baca. Server action membaca dengan sesi owner, memverifikasi kepemilikan cabang kembali, kemudian menggunakan client server dengan token cabang untuk update yang dibatasi ID, cabang, dan versi `synced_at`. Token tidak dikirim ke komponen client. Kebijakan database yang sudah ada tetap digunakan.

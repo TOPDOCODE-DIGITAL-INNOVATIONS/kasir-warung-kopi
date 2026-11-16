@@ -199,6 +199,22 @@ test('linked purchases cannot be deleted by admin or POS; a concurrent change ca
   assert.equal(fixture.tables.deleted_records.length, 0)
 })
 
+test('expense PDF receives the active branch, period/category filters and over 1000 rows without a separate export query', async () => {
+  const fixture = database()
+  for (let i = 0; i < 1001; i++) fixture.tables.expenses.push({ ...expense(), id: `EXPORT_${i}`, category: 'Gas', businesses: { name: 'Cabang A' }, quantity: 2, unit_label: 'pcs', product_name: 'Gas', supplier_name: 'Supplier' })
+  fixture.tables.expenses.push({ ...expense(), id: 'OTHER_CATEGORY', category: 'Transport' }, { ...expense(), business_id: 'b', id: 'OTHER_BRANCH', category: 'Gas' }, { ...expense(), id: 'OTHER_MONTH', date: '2026-10-31', category: 'Gas' })
+  const page = await request(fixture)('app/dashboard/expenses/page.tsx').default({ searchParams: Promise.resolve({ p: '2026-11-01_2026-11-30', cat: 'Gas' }) })
+  const exportButton = child(page, 'ExpenseExport')
+  assert.equal(exportButton.props.unavailable, false)
+  assert.equal(exportButton.props.report.branchName, 'Cabang A')
+  assert.equal(exportButton.props.report.category, 'Gas')
+  assert.equal(exportButton.props.report.rows.length, 1001)
+  assert.equal(exportButton.props.report.rows[0].unitLabel, 'pcs')
+  assert.equal(exportButton.props.report.rows[0].supplierName, 'Supplier')
+  assert.ok(exportButton.props.report.rows.every(e => e.id.startsWith('EXPORT_')))
+  assert.equal(fixture.queries.filter(q => q.table === 'expenses' && q.op === 'select').length, 2, 'Only the two paginated page queries are needed')
+})
+
 test('merged sync accepts config, drafts and edit history while preserving inventory data', async () => {
   const fixture = database(), load = request(fixture)
   const response = await load('app/api/sync/route.ts').POST(post({ config, configEditedAt: new Date().toISOString(), transactions: [{ id: 'tx-a', grandTotal: 23000, editHistory: [{ reason: 'Correction' }] }], drafts: [{ id: 'draft-a', items: [], updatedAt: new Date().toISOString() }] }))

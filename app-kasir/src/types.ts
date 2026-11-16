@@ -178,6 +178,10 @@ export interface Expense {
   editBase?: Pick<Expense, 'scope' | 'date' | 'category' | 'amount' | 'note'>;
   purchaseLineId?: string;
   productName?: string;
+  quantity?: number;
+  unitLabel?: string;
+  supplierName?: string;
+  entryGroupId?: string;
 }
 
 export interface StoreSettings {

@@ -578,6 +578,10 @@ function rowToExpense(r: Row): Row {
     serverVersion: r.synced_at,
     purchaseLineId: r.purchase_line_id,
     productName: r.product_name,
+    quantity: r.quantity == null ? undefined : num(r.quantity),
+    unitLabel: r.unit_label,
+    supplierName: r.supplier_name,
+    entryGroupId: r.entry_group_id,
   })
 }
 

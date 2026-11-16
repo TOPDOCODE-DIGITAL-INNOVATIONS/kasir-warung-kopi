@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Wallet, Plus, Pencil, Trash2, CalendarDays, CalendarRange } from 'lucide-react';
+import { Wallet, Plus, Pencil, Trash2, CalendarDays, CalendarRange, FileDown } from 'lucide-react';
+import { printExpenseReport } from '../../../shared/expense-report';
 import { RupiahInput } from './RupiahInput';
 import { Cashier, Expense, ExpenseScope, Shift } from '../types';
 import {
@@ -9,6 +10,7 @@ import {
   EXPENSE_CATEGORIES,
   formatIDR,
   getExpenses,
+  getStoreSettings,
   POS_UPDATE_EVENT,
 } from '../lib/storage';
 import { toLocalDateKey, toMonthKey } from '../lib/reports';
@@ -39,6 +41,7 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [month, setMonth] = useState<string>(toMonthKey(new Date()));
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   // Form
   const [scope, setScope] = useState<ExpenseScope>('daily');
@@ -133,6 +136,15 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
   const todayTotal = expenses
     .filter((e) => e.scope === 'daily' && e.date === today)
     .reduce((a, e) => a + e.amount, 0);
+
+  const exportPdf = async () => {
+    setExporting(true);
+    try {
+      await printExpenseReport({ branchName: getStoreSettings().storeName, period: formatMonthLabel(month),
+        rows: [...monthly, ...dailyGroups.flatMap(([, rows]) => rows)] });
+    } catch { setNotice({ type: 'error', msg: 'Pratinjau PDF belum berhasil dibuka. Silakan coba kembali.' }); }
+    finally { setExporting(false); }
+  };
 
   const ExpenseRow: React.FC<{ e: Expense }> = ({ e }) => (
     <div className="flex items-start justify-between gap-3 py-2">
@@ -328,9 +340,13 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
                 className="bg-white border border-[#D7CCC8] rounded px-2 py-1 text-xs"
               />
             </div>
-            <div className="text-xs text-stone-600">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600">
+              <button type="button" disabled={exporting || dailyGroups.length + monthly.length === 0} onClick={exportPdf} title="Ekspor sesuai bulan dipilih. Pada dialog cetak, pilih Simpan sebagai PDF."
+                className="inline-flex items-center gap-1.5 rounded border border-[#D7CCC8] bg-white px-2.5 py-1.5 text-xs font-bold text-[#5D4037] hover:bg-[#FAF8F6] disabled:opacity-40"><FileDown className="h-3.5 w-3.5" />{exporting ? 'Menyiapkan...' : 'Ekspor PDF'}</button>
+              <span>
               Total {formatMonthLabel(month)}:{' '}
               <strong className="text-rose-700">{formatIDR(dailyTotal + monthlyTotal)}</strong>
+              </span>
             </div>
           </div>
 

@@ -7,6 +7,7 @@ import { resolvePeriod, fetchAll } from '@/lib/report-period'
 import PeriodSelect from '../PeriodSelect'
 import ExpenseEntry from './ExpenseEntry'
 import ExpenseActions from './ExpenseActions'
+import ExpenseExport from './ExpenseExport'
 
 type Exp = {
   id: string
@@ -25,6 +26,7 @@ type Exp = {
   supplier_name: string | null
   synced_at: string
   purchase_line_id: string | null
+  shift_id: string | null
   businesses: { name: string } | null
 }
 
@@ -47,11 +49,12 @@ export default async function ExpensesPage({
   const res = await fetchAll<Exp>((from, to) => {
     let q = supabase
       .from('expenses')
-      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, synced_at, purchase_line_id, businesses(name)')
+      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, synced_at, purchase_line_id, shift_id, businesses(name)')
       .gte('date', start.slice(0, 7))
       .lte('date', end)
       .order('date', { ascending: false })
       .order('created_at', { ascending: false })
+      .order('id')
       .range(from, to)
     q = q.eq('business_id', scopedBusinessId)
     return q
@@ -108,6 +111,10 @@ export default async function ExpensesPage({
         </div>
         <div className="flex flex-wrap gap-2">
           <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} />
+          <ExpenseExport unavailable={!!res.error || !businessId} report={{ branchName: businesses[0]?.name ?? '', period: formatRange(start, end), category: cat,
+            rows: shown.map(e => ({ id: e.id, scope: e.scope, date: e.date, category: e.category, note: e.note, amount: e.amount,
+              fromDrawer: e.from_drawer, createdBy: e.created_by, createdAt: e.created_at, productName: e.product_name, quantity: e.quantity,
+              unitLabel: e.unit_label, supplierName: e.supplier_name, entryGroupId: e.entry_group_id, shiftId: e.shift_id })) }} />
           <PeriodSelect options={options} value={`${start}_${end}`} />
         </div>
       </div>
