@@ -201,9 +201,10 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
       noPending(p)
       if (events(p.raw).some(e => e.id === operation)) return saved(db, owner, id, 'Perubahan sudah tersimpan.')
       requireVersion(p, form)
-      const stock = track ? (number(p.stock) === -1 ? 0 : number(p.stock)) : -1
-      const event: StockEvent = { id: operation, kind: stock !== number(p.stock) ? 'tracking' : 'edit', at: new Date().toISOString(), quantity: 0,
-        before: number(p.stock), after: stock, reason: stock !== number(p.stock) ? 'Pengaturan pencatatan stok' : 'Perubahan data produk', status: 'complete' }
+      const initQty = track && number(p.stock) === -1 ? number(amount(form.get('initial_quantity') || '0', 'Stok awal')) : 0
+      const stock = track ? (number(p.stock) === -1 ? initQty : number(p.stock)) : -1
+      const event: StockEvent = { id: operation, kind: stock !== number(p.stock) ? 'tracking' : 'edit', at: new Date().toISOString(), quantity: initQty,
+        before: number(p.stock), after: stock, reason: stock !== number(p.stock) ? (text(form, 'reason') || 'Pengaturan pencatatan stok') : 'Perubahan data produk', status: 'complete' }
       const raw = { ...(isRow(p.raw) ? p.raw : {}), name, description: fields.description, categoryId: categoryId || 'uncategorized' }
       p = await update(db, owner, p, { ...fields, stock, stock_mode: stock === -1 ? 'none' : 'self', pos_managed: canSell, raw: withEvent(raw, event) })
     } else {

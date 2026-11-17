@@ -91,11 +91,11 @@ function ProductForm({ data, selectedBranch, product, onClose, onSaved, onRefres
         <Field label="Deskripsi (opsional)" htmlFor="product-description"><textarea id="product-description" name="description" defaultValue={product?.description} rows={2} maxLength={1000} className={input} /></Field>
         <Check name="is_available" label="Produk tersedia" value={available} onChange={setAvailable} />
         <section className="space-y-4 rounded-lg border border-gray-200 p-4" aria-label="Pengaturan stok">
-          <Check name="track_stock" label="Catat jumlah stok" value={track} onChange={setTrack} help="Aktifkan untuk mencatat saldo stok dan melakukan opname." />
-          {!track && <p className="text-xs text-gray-500">Stok tidak dilacak. Pembelian tetap bisa dicatat melalui Pengeluaran.</p>}
-          {!product && track && <Field label={`Stok awal (${unitCode})`} htmlFor="product-initial"><input id="product-initial" name="initial_quantity" type="number" min="0" max="999999999" step="0.000001" defaultValue="0" className={input} required /></Field>}
-          {product && track && <p className="text-sm text-gray-500">Stok tercatat: {product.stock < 0 ? 'akan dimulai dari 0' : `${quantity(product.stock)} ${unitCode}`}. Gunakan Kelola Stok untuk mengubah saldo.</p>}
-          {!product && track && <Field label="Alasan stok awal" htmlFor="product-reason"><input id="product-reason" name="reason" required maxLength={500} defaultValue="Saldo awal produk" className={input} /></Field>}
+          <Check name="track_stock" label="Catat jumlah stok (matikan untuk Unlimited / -1)" value={track} onChange={setTrack} help="Aktifkan untuk mencatat saldo stok dan melakukan opname. Matikan centang ini jika stok tidak terbatas (-1)." />
+          {!track && <p className="text-xs text-gray-500">Stok tidak dilacak (-1 / Unlimited). Pembelian tetap bisa dicatat melalui Pengeluaran.</p>}
+          {(!product || product.stock < 0) && track && <Field label={`Stok awal (${unitCode})`} htmlFor="product-initial"><input id="product-initial" name="initial_quantity" type="number" min="0" max="999999999" step="0.000001" defaultValue="0" className={input} required /></Field>}
+          {product && product.stock >= 0 && track && <p className="text-sm text-gray-500">Stok tercatat: {`${quantity(product.stock)} ${unitCode}`}. Gunakan Kelola Stok untuk mengubah saldo, atau matikan centang di atas untuk mengubah menjadi Unlimited (-1).</p>}
+          {(!product || product.stock < 0) && track && <Field label="Alasan stok awal" htmlFor="product-reason"><input id="product-reason" name="reason" required maxLength={500} defaultValue="Saldo awal produk" className={input} /></Field>}
         </section>
       </fieldset>
       <Feedback error={error} /><Footer pending={pending} onClose={onClose} label={product ? 'Simpan Perubahan' : 'Tambah Produk'} />

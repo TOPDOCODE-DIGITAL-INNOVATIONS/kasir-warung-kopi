@@ -47,7 +47,7 @@ export const CashierSwitchModal: React.FC<CashierSwitchModalProps> = ({
   );
 
   // New Shift state
-  const [startingCash, setStartingCash] = useState<number>(100000);
+  const [startingCash, setStartingCash] = useState<number>();
 
   const [shiftError, setShiftError] = useState<string>('');
 
@@ -90,6 +90,10 @@ export const CashierSwitchModal: React.FC<CashierSwitchModalProps> = ({
     if (!checkSelectedPin()) return;
     if (!Number.isFinite(startingCash) || startingCash < 0) {
       setShiftError('Modal awal tidak valid.');
+      return;
+    }
+    if (startingCash === 0) {
+      setShiftError('Modal awal tidak boleh Rp. 0');
       return;
     }
     try {

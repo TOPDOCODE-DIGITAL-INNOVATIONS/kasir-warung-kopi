@@ -7,9 +7,9 @@ export const INITIAL_CATEGORIES: Category[] = [
   { id: 'milky', name: 'Milky', iconName: 'CupSoda' },
   { id: 'refreshment', name: 'Refreshment', iconName: 'CupSoda' },
   { id: 'makanan', name: 'Menu Makanan', iconName: 'Utensils' },
-  { id: 'dessert', name: 'Burger & Dessert', iconName: 'Cookie' },
+  { id: 'dessert', name: 'Burger & Dessert', iconName: 'Utensils' },
 ];
-
+  
 const hotIceOptions = [
   {
     name: 'Suhu',
