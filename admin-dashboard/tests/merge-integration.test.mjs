@@ -17,7 +17,7 @@ function database({ missingHistory = false } = {}) {
       { business_id: 'a', id: 'archived', is_active: false, can_sell: true },
       { business_id: 'a', id: 'ingredient', is_active: true, can_sell: false },
     ],
-    transactions: [], expenses: [], shifts: [], draft_orders: [], manual_summaries: [], book_period_rules: [], deleted_records: [],
+    transactions: [], expenses: [], shifts: [], draft_orders: [], manual_summaries: [], book_period_rules: [], deleted_records: [], units: [], suppliers: [], purchases: [], purchase_lines: [], stock_adjustment_lines: [],
   }
   const queries = []
   const db = {
@@ -25,7 +25,7 @@ function database({ missingHistory = false } = {}) {
       const log = { table, filters: [], op: 'select', values: [] }; queries.push(log)
       let limit = Infinity, offset = 0
       const q = {
-        select() { return this }, order() { return this }, abortSignal() { return this },
+        select(columns) { log.columns = columns; return this }, order() { return this }, abortSignal() { return this },
         eq(k, v) { log.filters.push([k, v, 'eq']); return this },
         is(k, v) { return this.eq(k, v) },
         in(k, v) { log.filters.push([k, v, 'in']); return this },
@@ -35,9 +35,11 @@ function database({ missingHistory = false } = {}) {
         or(value) { log.or = value; return this },
         limit(n) { limit = n; return this }, range(a, z) { offset = a; limit = z-a+1; return this },
         update(values) { log.op = 'update'; log.values = [values]; return this },
+        insert(values) { log.op = 'insert'; log.values = Array.isArray(values) ? values : [values]; return this },
         upsert(values) { log.op = 'upsert'; log.values = Array.isArray(values) ? values : [values]; return this },
         delete() { log.op = 'delete'; return this },
         maybeSingle: async () => ({ data: execute()[0] ?? null, error: null }),
+        single: async () => ({ data: execute()[0] ?? null, error: null }),
         then(resolve) {
           if (missingHistory && table === 'transactions' && log.op === 'upsert' && log.values.some(row => row.edit_history)) {
             return Promise.resolve({ data: null, error: { code: 'PGRST204', message: "Could not find the 'edit_history' column of 'transactions' in the schema cache" } }).then(resolve)
@@ -46,7 +48,15 @@ function database({ missingHistory = false } = {}) {
         },
       }
       function execute() {
-        const matching = row => log.filters.every(([key, v, op]) => op === 'eq' ? row[key] === v : op === 'in' ? v.includes(row[key]) : op === 'gte' ? row[key] >= v : op === 'lte' ? row[key] <= v : row[key] < v)
+        if (log.op === 'insert') {
+          const created = log.values.map(row => table === 'products' ? { is_active: true, updated_at: '2026-11-17T00:00:00Z', ...row } : { ...row })
+          tables[table].push(...created)
+          return created
+        }
+        const matching = row => log.filters.every(([key, v, op]) => {
+          const value = key.split('.').reduce((part, key) => part?.[key], row)
+          return op === 'eq' ? value === v : op === 'in' ? v.includes(value) : op === 'gte' ? value >= v : op === 'lte' ? value <= v : value < v
+        })
         const matched = tables[table].filter(matching)
         if (log.op === 'update') matched.forEach(row => Object.assign(row, log.values[0]))
         if (log.op === 'delete') tables[table] = tables[table].filter(row => !matching(row))
@@ -76,7 +86,7 @@ function request(fixture, businessId = 'a') {
     const target = { exports: {} }; modules.set(file, target)
     const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } }).outputText
     const getContext = async () => ({ supabase: fixture.db, businessId, businesses: fixture.tables.businesses, user: { id: 'owner' } })
-    vm.runInNewContext(code, { module: target, exports: target.exports, FormData, Request, Response, Headers, URL, URLSearchParams, console: { error() {}, warn() {} }, require: name => {
+    vm.runInNewContext(code, { module: target, exports: target.exports, Error, FormData, Request, Response, Headers, URL, URLSearchParams, console: { error() {}, warn() {} }, require: name => {
       if (name === '@/lib/business-context') return { getBusinessContext: getContext, requireBusinessContext: async expected => { if (!businessId || (expected !== undefined && expected !== businessId)) throw new Error('Cabang aktif sudah berubah.'); return getContext() }, EMPTY_BUSINESS_ID: '00000000-0000-0000-0000-000000000000' }
       if (name === 'next/cache') return { revalidatePath() {} }
       if (name === 'next/navigation') return { unstable_rethrow() {} }
@@ -355,5 +365,168 @@ test('invalid initial stock and stale product versions never write stock or hist
     assert.equal((await f.actions.saveProduct(f.form(overrides))).success, false)
     assert.equal(JSON.stringify(f.tables.products), original)
     assert.ok(f.queries.every(query => query.op !== 'update'))
+  }
+})
+
+function initialPurchaseFixture({ tracked = true, both = false } = {}) {
+  const f = database()
+  const business = 'eb200000-0000-0000-0000-000000000001', unit = '00000000-0000-0000-0000-000000000001'
+  const operation = 'eb400000-0000-0000-0000-000000000001'
+  f.tables.businesses = [{ ...f.tables.businesses[0], id: business, pos_config: structuredClone(config) }]
+  f.tables.products = []
+  f.tables.units = [{ id: unit }]
+  let failBefore = false, loseResponse = false
+  const originalRpc = f.db.rpc
+  f.db.rpc = async (name, args) => {
+    if (name !== 'admin_record_expenses') return originalRpc(name, args)
+    f.queries.push({ table: 'rpc:admin_record_expenses', args: JSON.parse(JSON.stringify(args)) })
+    if (failBefore) { failBefore = false; return { error: { message: 'Temporary failure' } } }
+    const payload = JSON.parse(JSON.stringify({ date: args.p_date, scope: args.p_scope, supplier: args.p_supplier, lines: args.p_lines }))
+    const previous = f.tables.expenses.find(e => e.entry_group_id === args.p_operation)
+    if (previous) {
+      assert.deepEqual(payload, previous.entry_request, 'retries must send the original committed expense request')
+      return { data: { replayed: true }, error: null }
+    }
+    const line = args.p_lines[0], p = f.tables.products.find(p => p.inventory_id === line.product_id)
+    assert.equal(line.version, p.updated_at)
+    if (p.stock >= 0) p.stock += Number(line.quantity)
+    p.updated_at = '2026-11-17T01:00:00Z'
+    f.tables.expenses.push({ id: line.id, business_id: business, entry_group_id: args.p_operation, entry_position: 0, entry_request: payload, amount: line.amount })
+    f.tables.purchases.push({ id: args.p_operation, status: 'posted' })
+    f.tables.purchase_lines.push({ id: line.id, product_id: p.inventory_id, quantity: line.quantity })
+    if (loseResponse) { loseResponse = false; throw new Error('Response lost after commit') }
+    return { data: { replayed: false }, error: null }
+  }
+  const load = request(f, business), actions = load('app/dashboard/products/actions.ts')
+  const form = (overrides = {}) => {
+    const data = new FormData()
+    for (const [key, value] of Object.entries({ inventory_id: '', business_id: business, base_unit_id: unit, operation_id: operation,
+      name: 'Milk', can_buy: 'on', ...(both ? { can_sell: 'on' } : {}), ...(tracked ? { track_stock: 'on' } : {}),
+      price: both ? '15000' : '0', initial_quantity: '0', initial_purchase: 'on', purchase_date: '2026-11-17', purchase_quantity: '3', purchase_total: '25000', ...overrides })) data.set(key, value)
+    return data
+  }
+  return { ...f, actions, load, form, operation, failNextRpc: () => { failBefore = true }, loseNextResponse: () => { loseResponse = true } }
+}
+
+test('new buy/sell product records first purchase once, with distinct sale price and derived buy cost', async () => {
+  const f = initialPurchaseFixture({ both: true })
+  const result = await f.actions.saveProduct(f.form())
+  assert.equal(result.success, true, result.message)
+  const p = f.tables.products[0]
+  assert.equal(p.price, '15000.000000')
+  assert.equal(p.cost_price, '8333.333333')
+  assert.equal(p.stock, 3)
+  assert.equal(p.raw._inventory.initialPurchase.status, 'complete')
+  assert.equal(f.tables.expenses.length, 1)
+  assert.equal(f.tables.expenses[0].amount, '25000.000000')
+  assert.equal(f.tables.purchases.length, 1)
+  assert.equal((await f.actions.saveProduct(f.form())).success, true)
+  assert.equal(f.tables.products.length, 1)
+  assert.equal(f.tables.expenses.length, 1)
+  assert.equal(f.tables.products[0].stock, 3)
+  assert.equal((await f.actions.saveProduct(f.form({ purchase_total: '30000' }))).success, false)
+})
+
+test('first purchase can be omitted entirely; untracked purchases retain Unlimited balance', async () => {
+  const planned = initialPurchaseFixture()
+  const data = planned.form(); data.delete('initial_purchase'); data.delete('purchase_quantity'); data.delete('purchase_total')
+  assert.equal((await planned.actions.saveProduct(data)).success, true)
+  assert.equal(planned.tables.products[0].cost_price, null)
+  assert.equal(planned.tables.expenses.length, 0)
+  const untracked = initialPurchaseFixture({ tracked: false })
+  assert.equal((await untracked.actions.saveProduct(untracked.form())).success, true)
+  assert.equal(untracked.tables.products[0].stock, -1)
+  assert.equal(untracked.tables.purchase_lines.length, 1)
+})
+
+test('first purchase rejects invalid dates, incomplete/negative amounts, foreign supplier, and double initial stock before creating anything', async () => {
+  for (const overrides of [{ purchase_date: '2026-02-30' }, { purchase_quantity: '' }, { purchase_quantity: '-1' }, { purchase_total: '0' }, { purchase_total: '1.001' },
+    { purchase_supplier: 'eb900000-0000-0000-0000-000000000001' }, { initial_quantity: '3' }]) {
+    const f = initialPurchaseFixture()
+    assert.equal((await f.actions.saveProduct(f.form(overrides))).success, false)
+    assert.equal(f.tables.products.length, 0)
+    assert.equal(f.tables.expenses.length, 0)
+  }
+})
+
+test('first purchase recovers from failure before RPC and lost response after commit, without duplicate stock or expense', async () => {
+  for (const failure of ['failNextRpc', 'loseNextResponse']) {
+    const f = initialPurchaseFixture()
+    f[failure]()
+    const result = await f.actions.saveProduct(f.form())
+    assert.equal(result.success, false)
+    assert.equal(f.tables.products.length, 1)
+    assert.equal(f.tables.products[0].raw._inventory.initialPurchase.status, 'pending')
+    const recovery = new FormData()
+    recovery.set('inventory_id', f.operation); recovery.set('operation_id', f.operation)
+    const complete = await f.actions.completeProductPurchase(recovery)
+    assert.equal(complete.success, true, complete.message)
+    assert.equal(f.tables.products[0].stock, 3)
+    assert.equal(f.tables.expenses.length, 1)
+    assert.equal(f.tables.purchase_lines.length, 1)
+    assert.equal(f.tables.products[0].raw._inventory.initialPurchase.status, 'complete')
+  }
+})
+
+function historyFixture() {
+  const f = database(), id = 'fa100000-0000-4000-8000-000000000001'
+  f.tables.products = [{ inventory_id: id, owner_id: 'owner', business_id: 'a', raw: { _inventory: { events: [
+    { id: 'inside', kind: 'edit', at: '2026-11-16T17:00:00Z' },
+    { id: 'outside', kind: 'edit', at: '2026-11-16T16:59:59Z' },
+    { id: 'next-day', kind: 'edit', at: '2026-11-17T17:00:00Z' },
+  ] } } }]
+  const line = { owner_id: 'owner', business_id: 'a', product_id: id, quantity_base: 2000, line_total: 18000,
+    purchases: { purchased_at: '2026-11-17T00:00:00+07:00', status: 'posted', document_number: 'PO-1', supplier_id: 's', supplier_name: 'Historical supplier', suppliers: { name: 'Renamed supplier', address: 'Supplier location' } } }
+  f.tables.purchase_lines = [{ ...line, id: 'line-1' }]
+  const actions = request(f)('app/dashboard/products/actions.ts')
+  return { ...f, id, line, actions, range: { start: '2026-11-17', end: '2026-11-17' } }
+}
+
+test('purchase history includes nominal-only expenses once, joined address and snapshot supplier; derives price from base quantity', async () => {
+  const f = historyFixture()
+  f.tables.expenses = [
+    { id: 'linked', business_id: 'a', product_id: f.id, amount: 18000, purchase_line_id: 'line-1' },
+    { id: 'nominal', business_id: 'a', product_id: f.id, amount: 22000, date: '2026-11-17', scope: 'daily', purchase_line_id: null, supplier_id: null },
+  ]
+  const data = await f.actions.getProductHistory(f.id, { ...f.range, tab: 'purchases' })
+  assert.equal(data.error, undefined)
+  assert.equal(data.purchases.length, 2)
+  assert.equal(data.purchases.reduce((s,p) => s+p.amount, 0), 40000)
+  assert.equal(data.purchases[0].unitPrice, 9)
+  assert.equal(data.purchases[0].supplier, 'Historical supplier')
+  assert.equal(data.purchases[0].address, 'Supplier location')
+  assert.equal(data.purchases[1].supplier, 'Tanpa supplier')
+  assert.equal(data.purchases[1].unitPrice, null)
+  assert.deepEqual(f.queries.map(q => q.table), ['products', 'purchase_lines', 'expenses'])
+  assert.match(f.queries.find(q => q.table === 'expenses').or, /scope.eq.daily/)
+})
+
+test('history fetches only the requested tab and enforces owner, active branch, server date validation and WIB event bounds', async () => {
+  for (const tab of ['events', 'adjustments']) {
+    const f = historyFixture(), data = await f.actions.getProductHistory(f.id, { ...f.range, tab })
+    assert.equal(data.error, undefined)
+    assert.deepEqual(f.queries.map(q => q.table), tab === 'events' ? ['products'] : ['products', 'stock_adjustment_lines'])
+    if (tab === 'events') assert.equal(data.events.map(e => e.id).join(), 'inside')
+  }
+  for (const foreign of [{ owner_id: 'another-owner' }, { business_id: 'b' }]) {
+    const f = historyFixture(); Object.assign(f.tables.products[0], foreign)
+    const data = await f.actions.getProductHistory(f.id, { ...f.range, tab: 'purchases' })
+    assert.match(data.error, /tidak dapat diakses/)
+    assert.equal(f.queries.length, 1)
+  }
+  const f = historyFixture()
+  const invalid = await f.actions.getProductHistory(f.id, { start: '2026-01-01', end: '2026-11-17', tab: 'purchases' })
+  assert.match(invalid.error, /maksimal 3 bulan/)
+  assert.equal(f.queries.length, 0)
+})
+
+test('history paginates past 500 rows, accepts 1000 and refuses truncated supplier rankings beyond that cap', async () => {
+  for (const size of [501, 1000, 1001]) {
+    const f = historyFixture()
+    f.tables.purchase_lines = Array.from({ length: size }, (_, i) => ({ ...f.line, id: `line-${i}` }))
+    const result = await f.actions.getProductHistory(f.id, { ...f.range, tab: 'purchases' })
+    if (size > 1000) { assert.match(result.error, /Persempit rentang/); assert.equal(result.purchases.length, 0) }
+    else { assert.equal(result.error, undefined); assert.equal(result.purchases.length, size) }
+    assert.ok(f.queries.length <= 5, 'query count is bounded by pages, not rows/suppliers')
   }
 })

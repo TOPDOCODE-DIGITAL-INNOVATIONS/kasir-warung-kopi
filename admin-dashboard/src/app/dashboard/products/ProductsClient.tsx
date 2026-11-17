@@ -1,39 +1,26 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { usePendingRefresh } from '@/hooks/usePendingRefresh'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import DataPanel from '@/components/DataPanel'
-import { ClipboardList, MoreHorizontal, Plus, X } from 'lucide-react'
-import { formatDateTime, rupiah } from '@/lib/format'
-import { completeProductPurchase, deleteProduct, getProductHistory, saveProduct, syncProductToPos } from './actions'
-import type { ActionResult, HistoryData, ProductPageData, ProductRow } from './types'
+import { ClipboardList, MoreHorizontal, Plus } from 'lucide-react'
+import { dayKey, formatDateTime, rupiah } from '@/lib/format'
+import { deleteProduct, saveProduct } from './actions'
+import type { ProductPageData, ProductRow } from './types'
 import MoneyInput from './MoneyInput'
 import StockCountModal from './StockCountModal'
 import ProductImageInput from './ProductImageInput'
+import Modal from './ProductDialog'
+import HistoryModal from './ProductHistoryModal'
 
 const input = 'w-full border border-gray-300 rounded-lg bg-white p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500'
 const secondary = 'px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50'
 const primary = 'px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50'
 const unitLabel = (code: string) => code === 'l' ? 'L' : code
 const quantity = (n: number) => n.toLocaleString('id-ID', { maximumFractionDigits: 6 })
-const kinds = { purchase: 'Pembelian', adjustment: 'Penyesuaian', initial: 'Stok awal', tracking: 'Pengaturan stok', edit: 'Edit produk', archive: 'Hapus produk' }
 type ModalState = { kind: 'create' | 'count' } | { kind: 'edit' | 'stock' | 'delete' | 'history'; product: ProductRow }
 
-function Modal({ title, description, pending, onClose, children, wide = false }: {
-  title: string; description: string; pending: boolean; onClose: () => void; children: ReactNode; wide?: boolean
-}) {
-  const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => { const d = ref.current; d?.showModal(); return () => d?.close() }, [])
-  return <dialog ref={ref} aria-labelledby="product-dialog-title" aria-describedby="product-dialog-description"
-    onCancel={e => { e.preventDefault(); if (!pending) onClose() }}
-    className={`m-auto w-[calc(100%_-_2rem)] ${wide ? 'max-w-2xl' : 'max-w-lg'} max-h-[90vh] overflow-y-auto rounded-xl border border-gray-100 bg-white p-0 text-gray-900 shadow-xl backdrop:bg-black/40`}>
-    <div className="flex items-start justify-between gap-4 border-b border-gray-100 p-5">
-      <div><h2 id="product-dialog-title" className="text-lg font-semibold">{title}</h2><p id="product-dialog-description" className="mt-1 text-sm text-gray-500">{description}</p></div>
-      <button type="button" aria-label="Tutup dialog" disabled={pending} onClick={onClose} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 disabled:opacity-50"><X className="h-5 w-5" /></button>
-    </div>{children}
-  </dialog>
-}
 function Field({ label, htmlFor, children, help }: { label: string; htmlFor: string; children: ReactNode; help?: string }) {
   return <div><label htmlFor={htmlFor} className="mb-2 block text-sm font-medium text-gray-700">{label}</label>{children}{help && <p className="mt-1.5 text-xs text-gray-500">{help}</p>}</div>
 }
@@ -62,6 +49,11 @@ function ProductForm({ data, selectedBranch, product, onClose, onSaved, onRefres
   const [pending, setPending] = useState(false), [error, setError] = useState('')
   const [photo, setPhoto] = useState<File | null>(null), [removePhoto, setRemovePhoto] = useState(false)
   const [processingPhoto, setProcessingPhoto] = useState(false)
+  const [firstPurchase, setFirstPurchase] = useState(false)
+  const [purchaseQuantity, setPurchaseQuantity] = useState(''), [purchaseTotal, setPurchaseTotal] = useState('')
+  const [salePrice, setSalePrice] = useState(String(product?.price ?? 0)), [costValue, setCostValue] = useState(product?.cost == null ? '' : String(product.cost))
+  const [category, setCategory] = useState(product?.categoryId ?? '')
+  const hasFirstPurchase = !product && buy && firstPurchase
   const uploaded = useRef<{ file: File; url: string } | null>(null)
   const branch = data.businesses.find(b => b.id === business), unitCode = unitLabel(data.units.find(u => u.id === unit)?.code ?? '')
   async function submit(form: FormData) {
@@ -97,30 +89,51 @@ function ProductForm({ data, selectedBranch, product, onClose, onSaved, onRefres
           <Field label="Cabang" htmlFor="product-branch"><select id="product-branch" name={product ? undefined : 'business_id'} disabled={!!product} value={business} onChange={e => setBusiness(e.target.value)} className={input} required>{data.businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
           <Field label="Nama produk" htmlFor="product-name"><input id="product-name" name="name" defaultValue={product?.name} required maxLength={150} className={input} autoFocus /></Field>
           <Field label="SKU (opsional)" htmlFor="product-sku"><input id="product-sku" name="sku" defaultValue={product?.sku} maxLength={100} className={input} /></Field>
-          <Field label="Satuan dasar" htmlFor="product-unit" help={product ? 'Satuan dasar tetap agar histori tidak berubah.' : 'Harga dan modal acuan berlaku per satuan ini.'}><select id="product-unit" name="base_unit_id" disabled={!!product} value={unit} onChange={e => setUnit(e.target.value)} required className={input}>{data.units.map(u => <option key={u.id} value={u.id}>{unitLabel(u.code)} — {u.name}</option>)}</select></Field>
+          <Field label="Satuan dasar" htmlFor="product-unit" help={product ? 'Satuan dasar tetap agar histori tidak berubah.' : 'Jumlah pembelian dan saldo stok menggunakan satuan ini.'}><select id="product-unit" name="base_unit_id" disabled={!!product} value={unit} onChange={e => setUnit(e.target.value)} required className={input}>{data.units.map(u => <option key={u.id} value={u.id}>{unitLabel(u.code)} — {u.name}</option>)}</select></Field>
         </div>
         <div className="grid gap-4 rounded-lg border border-gray-200 bg-gray-50 p-4 sm:grid-cols-2">
-          <Check name="can_buy" label="Bisa dibeli" help="Bahan atau barang dari supplier." value={buy} onChange={setBuy} />
-          <Check name="can_sell" label="Bisa dijual" help="Ditampilkan sebagai menu kasir setelah sinkronisasi." value={sell} onChange={setSell} />
+          <Check name="can_buy" label="Dibeli" help="Bahan atau barang dari supplier." value={buy} onChange={setBuy} />
+          <Check name="can_sell" label="Dijual" help="Ditampilkan sebagai menu kasir setelah sinkronisasi." value={sell} onChange={setSell} />
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Harga jual (Rp)" htmlFor="product-price"><MoneyInput id="product-price" name="price" defaultValue={product?.price ?? 0} required={sell} className={input} /></Field>
-          <Field label="Modal acuan per satuan (Rp)" htmlFor="product-cost" help="Opsional. Modal manual, belum merupakan HPP aktual otomatis."><MoneyInput id="product-cost" name="cost_price" defaultValue={product?.cost} className={input} placeholder="Belum diketahui" /></Field>
-          <Field label="Kategori kasir (opsional)" htmlFor="product-category"><select key={business} id="product-category" name="category_id" defaultValue={product?.categoryId ?? ''} className={input}><option value="">Tanpa kategori</option>{branch?.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
-          <Field label="Stok minimum" htmlFor="product-min"><input id="product-min" name="min_stock" type="number" min="0" max="999999999" step="0.000001" defaultValue={product?.minStock ?? 0} className={input} /></Field>
-        </div>
+        {!buy && !sell && <p className="text-sm text-amber-700">Pilih minimal Dibeli atau Dijual.</p>}
+        {sell ? <section className="space-y-4 rounded-lg border border-gray-200 p-4" aria-labelledby="sale-settings-title">
+          <div><h3 id="sale-settings-title" className="text-sm font-semibold text-gray-900">Penjualan</h3><p className="mt-1 text-xs text-gray-500">Atur harga yang dibayar pelanggan dan tampilan produk di kasir.</p></div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label={`Harga jual per ${unitCode} (Rp)`} htmlFor="product-price"><MoneyInput id="product-price" name="price" defaultValue={salePrice === '' ? null : Number(salePrice)} onValueChange={setSalePrice} required className={input} /></Field>
+            <Field label="Kategori kasir (opsional)" htmlFor="product-category"><select key={business} id="product-category" name="category_id" value={category} onChange={e => setCategory(e.target.value)} className={input}><option value="">Tanpa kategori</option>{branch?.categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+            {!buy && <Field label={`Modal / HPP acuan per ${unitCode} (Rp)`} htmlFor="product-cost" help="Opsional. Estimasi biaya bahan atau produksi; pengisian ini tidak mencatat pengeluaran."><MoneyInput id="product-cost" name="cost_price" defaultValue={costValue === '' ? null : Number(costValue)} onValueChange={setCostValue} className={input} placeholder="Belum diketahui" /></Field>}
+          </div>
+        </section> : <><input type="hidden" name="price" value={salePrice} /><input type="hidden" name="category_id" value={category} /></>}
+        {buy && <section className="space-y-4 rounded-lg border border-gray-200 p-4" aria-labelledby="purchase-settings-title">
+          <div><h3 id="purchase-settings-title" className="text-sm font-semibold text-gray-900">Pembelian</h3><p className="mt-1 text-xs text-gray-500">{product ? 'Pembelian berikutnya dicatat melalui menu Pengeluaran.' : 'Pembelian pertama opsional. Produk tetap dapat disimpan jika barang belum dibeli.'}</p></div>
+          {product ? <Field label={`Harga beli acuan per ${unitCode} (Rp)`} htmlFor="product-cost" help="Opsional. Mengubah acuan ini tidak menambah stok atau mencatat pembelian baru."><MoneyInput id="product-cost" name="cost_price" defaultValue={costValue === '' ? null : Number(costValue)} onValueChange={setCostValue} className={input} placeholder="Belum diketahui" /></Field>
+            : <Check name="initial_purchase" label="Catat pembelian pertama" help="Mencatat jumlah barang, dokumen pembelian, dan pengeluaran sekaligus." value={firstPurchase} onChange={setFirstPurchase} />}
+          {hasFirstPurchase && <div className="space-y-4 border-t border-gray-100 pt-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Tanggal pembelian" htmlFor="product-purchase-date"><input id="product-purchase-date" name="purchase_date" type="date" defaultValue={dayKey(new Date())} required className={input} /></Field>
+              <Field label="Supplier (opsional)" htmlFor="product-purchase-supplier"><select id="product-purchase-supplier" name="purchase_supplier" defaultValue="" className={input}><option value="">Tanpa supplier</option>{data.suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
+              <Field label={`Jumlah dibeli (${unitCode})`} htmlFor="product-purchase-quantity" help="Gunakan jumlah dalam satuan dasar yang dipilih di atas."><input id="product-purchase-quantity" name="purchase_quantity" type="number" min="0.000001" max="999999999" step="0.000001" value={purchaseQuantity} onChange={e => setPurchaseQuantity(e.target.value)} required className={input} /></Field>
+              <Field label="Total pembelian (Rp)" htmlFor="product-purchase-total" help="Nominal untuk seluruh jumlah barang, bukan harga per satuan."><MoneyInput id="product-purchase-total" name="purchase_total" defaultValue={purchaseTotal === '' ? null : Number(purchaseTotal)} onValueChange={setPurchaseTotal} required className={input} placeholder="Total yang dibayar" /></Field>
+            </div>
+            <Field label="Catatan pembelian (opsional)" htmlFor="product-purchase-note"><input id="product-purchase-note" name="purchase_note" maxLength={500} placeholder="Pembelian pertama" className={input} /></Field>
+            {Number(purchaseQuantity) > 0 && Number(purchaseTotal) > 0 && <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-600">Harga beli acuan: <strong>{rupiah(Number(purchaseTotal) / Number(purchaseQuantity))} / {unitCode}</strong>. Acuan ini disimpan dari pembelian pertama.</p>}
+            <p className="text-xs text-gray-500">Pengeluaran dicatat di luar laci kasir. {track ? 'Jumlah pembelian menambah stok tercatat satu kali.' : 'Jumlah pembelian masuk riwayat; saldo stok tetap Unlimited karena pelacakan belum aktif.'}</p>
+          </div>}
+        </section>}
+        {buy && !product && <input type="hidden" name="cost_price" value="" />}
         <Field label="Deskripsi (opsional)" htmlFor="product-description"><textarea id="product-description" name="description" defaultValue={product?.description} rows={2} maxLength={1000} className={input} /></Field>
         <ProductImageInput initialUrl={product?.imageUrl ?? null} file={photo} removed={removePhoto} onProcessingChange={setProcessingPhoto} onChange={(file, removed) => { setPhoto(file); setRemovePhoto(removed); uploaded.current = null }} />
         <Check name="is_available" label="Produk tersedia" value={available} onChange={setAvailable} />
         <section className="space-y-4 rounded-lg border border-gray-200 p-4" aria-label="Pengaturan stok">
           <Check name="track_stock" label="Catat jumlah stok (matikan untuk Unlimited / -1)" value={track} onChange={setTrack} help="Aktifkan untuk mencatat saldo stok dan melakukan opname. Matikan centang ini jika stok tidak terbatas (-1)." />
           {!track && <p className="text-xs text-gray-500">Stok tidak dilacak (-1 / Unlimited). Pembelian tetap bisa dicatat melalui Pengeluaran.</p>}
-          {(!product || product.stock < 0) && track && <Field label={`Stok awal (${unitCode})`} htmlFor="product-initial"><input id="product-initial" name="initial_quantity" type="number" min="0" max="999999999" step="0.000001" defaultValue="0" className={input} required /></Field>}
+          {hasFirstPurchase && track ? <><input type="hidden" name="initial_quantity" value="0" /><p className="text-sm text-gray-500">Stok awal mengikuti jumlah pembelian pertama; tidak perlu diisi kembali.</p></> : (!product || product.stock < 0) && track && <Field label={`Stok awal (${unitCode})`} htmlFor="product-initial"><input id="product-initial" name="initial_quantity" type="number" min="0" max="999999999" step="0.000001" defaultValue="0" className={input} required /></Field>}
           {product && product.stock >= 0 && track && <p className="text-sm text-gray-500">Stok tercatat: {`${quantity(product.stock)} ${unitCode}`}. Gunakan Kelola Stok untuk mengubah saldo, atau matikan centang di atas untuk mengubah menjadi Unlimited (-1).</p>}
-          {(!product || product.stock < 0) && track && <Field label="Alasan stok awal" htmlFor="product-reason"><input id="product-reason" name="reason" required maxLength={500} defaultValue="Saldo awal produk" className={input} /></Field>}
+          {!hasFirstPurchase && (!product || product.stock < 0) && track && <Field label="Alasan stok awal" htmlFor="product-reason"><input id="product-reason" name="reason" required maxLength={500} defaultValue="Saldo awal produk" className={input} /></Field>}
+          <Field label="Stok minimum" htmlFor="product-min"><input id="product-min" name="min_stock" type="number" min="0" max="999999999" step="0.000001" defaultValue={product?.minStock ?? 0} className={input} /></Field>
         </section>
       </fieldset>
-      <Feedback error={error} /><Footer pending={pending} disabled={processingPhoto} onClose={onClose} label={processingPhoto ? 'Memproses Foto...' : product ? 'Simpan Perubahan' : 'Tambah Produk'} />
+      <Feedback error={error} /><Footer pending={pending} disabled={processingPhoto} onClose={onClose} label={processingPhoto ? 'Memproses Foto...' : product ? 'Simpan Perubahan' : hasFirstPurchase ? 'Tambah Produk & Pembelian' : 'Tambah Produk'} />
     </form>
   </Modal>
 }
@@ -137,45 +150,6 @@ function DeleteModal({ product, onClose, onSaved }: { product: ProductRow; onClo
       <p className="text-sm text-gray-600">Produk akan dihapus dari daftar aktif dan menu kasir setelah sinkronisasi. Riwayat penjualan, pembelian, stok, dan resep tetap disimpan.</p>
       <Feedback error={error} /><div className="flex justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending} onClick={onClose} className={secondary}>Batal</button><button type="submit" disabled={pending} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menghapus...' : 'Hapus Produk'}</button></div>
     </form>
-  </Modal>
-}
-
-function HistoryModal({ product, onClose, onRefresh }: { product: ProductRow; onClose: () => void; onRefresh: () => void }) {
-  const [data, setData] = useState<HistoryData | null>(null), [error, setError] = useState(''), [message, setMessage] = useState(''), [pending, setPending] = useState(false)
-  const [operationKey, setOperationKey] = useState<string | null>(null)
-  useEffect(() => { let active = true; getProductHistory(product.inventoryId).then(v => { if (active) setData(v) }).catch(() => { if (active) setError('Riwayat belum berhasil dimuat.') }); return () => { active = false } }, [product.inventoryId])
-  async function run(action: (form: FormData) => Promise<ActionResult>, operation?: string) {
-    setPending(true); setOperationKey(operation ?? 'sync'); setError(''); setMessage('')
-    const form = new FormData(); form.set('inventory_id', product.inventoryId); if (operation) form.set('operation_id', operation)
-    try { const r = await action(form); if (r.success) setMessage(r.message); else setError(r.message); onRefresh(); setData(await getProductHistory(product.inventoryId)) }
-    catch { setError('Perubahan belum berhasil diproses. Silakan coba kembali.') }
-    finally { setPending(false); setOperationKey(null) }
-  }
-  return <Modal title="Riwayat Produk" description={`${product.name} · ${product.businessName}`} wide pending={pending} onClose={onClose}>
-    <div className="space-y-5 p-5">
-      <div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-lg bg-blue-50 p-3"><p className="text-gray-500">Penjualan selesai</p><p className="mt-1 font-semibold">{quantity(product.soldQuantity)} {unitLabel(product.unitCode)}</p><p>{rupiah(product.soldAmount)}</p></div><div className="rounded-lg bg-green-50 p-3"><p className="text-gray-500">Pembelian tercatat</p><p className="mt-1 font-semibold">{quantity(product.boughtQuantity)} {unitLabel(product.unitCode)}</p><p>{rupiah(product.boughtAmount)}</p></div></div>
-      <Feedback error={error} />{message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</p>}
-      <DataPanel loading={(!data && !error) || pending} label="Memuat riwayat produk..." className="min-h-32">
-      {data && <>
-        <section><h3 className="mb-3 text-sm font-semibold">Opname & Penyesuaian Stok</h3>
-          {!data.adjustments.length ? <p className="text-sm text-gray-500">Belum ada opname atau penyesuaian stok.</p> : <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">{data.adjustments.map(item => <li key={item.id} className="space-y-1 p-3 text-sm">
-            <div className="flex flex-wrap justify-between gap-2"><span className="font-medium">{{ count: 'Stok opname', usage: 'Pemakaian', damage: 'Rusak / terbuang', addition: 'Penambahan lainnya' }[item.mode] ?? item.mode}</span><span className="text-xs text-gray-500">{formatDateTime(item.date)}</span></div>
-            <p>{quantity(item.before)} → {quantity(item.after)} {unitLabel(product.unitCode)} · selisih {item.delta > 0 ? '+' : ''}{quantity(item.delta)}</p><p className="text-gray-500">{item.reason} · {item.by}</p>
-          </li>)}</ul>}
-        </section>
-        <section><h3 className="mb-3 text-sm font-semibold">Aktivitas stok & produk</h3>
-          {!data.events.length ? <p className="text-sm text-gray-500">Belum ada penyesuaian yang dicatat dari admin.</p> : <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">{data.events.map(e => <li key={e.id} className="space-y-1 p-3 text-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{kinds[e.kind] ?? 'Aktivitas produk'}{e.quantity > 0 ? ` · +${quantity(e.quantity)} ${unitLabel(product.unitCode)}` : ''}</span><time className="text-xs text-gray-500">{formatDateTime(e.at)}</time></div>
-            <p className="text-gray-600">{e.reason}</p><p className="text-xs text-gray-500">Stok: {e.before === -1 ? '∞' : quantity(e.before)} → {e.after === -1 ? '∞' : quantity(e.after)}</p>
-            {e.status === 'pending' && <button type="button" disabled={pending} onClick={() => run(completeProductPurchase, e.id)} className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50">{operationKey === e.id && <LoadingSpinner className="mr-2" />}Selesaikan Pembelian</button>}
-          </li>)}</ul>}
-        </section>
-        <section><h3 className="mb-3 text-sm font-semibold">Dokumen pembelian</h3>{!data.purchases.length ? <p className="text-sm text-gray-500">Belum ada pembelian produk ini.</p> : <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">{data.purchases.map(p => <li key={p.id} className="flex flex-wrap items-start justify-between gap-2 p-3 text-sm"><div><p className="font-medium">{p.supplier}</p><p className="text-xs text-gray-500">{formatDateTime(p.date)} · {p.status === 'posted' ? 'Tercatat' : p.status === 'draft' ? 'Draft' : 'Dibatalkan'}</p></div><div className="text-right"><p>{quantity(p.quantity)} {unitLabel(product.unitCode)}</p><p className="font-medium">{rupiah(p.amount)}</p></div></li>)}</ul>}</section>
-        <p className="text-xs text-gray-500">Menampilkan hingga 50 aktivitas terakhir dan 50 rincian pembelian. Penjualan adalah nilai item sebelum diskon nota/pajak, termasuk bon; pembelian hanya menghitung dokumen tercatat.</p>
-      </>}
-      </DataPanel>
-      <div className="flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending || !data} onClick={() => run(syncProductToPos)} className={secondary}>{operationKey === 'sync' && <LoadingSpinner className="mr-2" />}Kirim Ulang ke Kasir</button><button type="button" disabled={pending} onClick={onClose} className={primary}>Tutup</button></div>
-    </div>
   </Modal>
 }
 
