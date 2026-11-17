@@ -29,6 +29,7 @@ function database({ missingHistory = false } = {}) {
         eq(k, v) { log.filters.push([k, v, 'eq']); return this },
         is(k, v) { return this.eq(k, v) },
         in(k, v) { log.filters.push([k, v, 'in']); return this },
+        ilike(k, v) { log.filters.push([k, v, 'ilike']); return this },
         gte(k, v) { log.filters.push([k, v, 'gte']); return this },
         lt(k, v) { log.filters.push([k, v, 'lt']); return this },
         lte(k, v) { log.filters.push([k, v, 'lte']); return this },
@@ -55,6 +56,7 @@ function database({ missingHistory = false } = {}) {
         }
         const matching = row => log.filters.every(([key, v, op]) => {
           const value = key.split('.').reduce((part, key) => part?.[key], row)
+          if (op === 'ilike') return String(value ?? '').toLocaleLowerCase().includes(v.slice(1, -1).replace(/\\([\\%_])/g, '$1').toLocaleLowerCase())
           return op === 'eq' ? value === v : op === 'in' ? v.includes(value) : op === 'gte' ? value >= v : op === 'lte' ? value <= v : value < v
         })
         const matched = tables[table].filter(matching)
@@ -529,4 +531,53 @@ test('history paginates past 500 rows, accepts 1000 and refuses truncated suppli
     else { assert.equal(result.error, undefined); assert.equal(result.purchases.length, size) }
     assert.ok(f.queries.length <= 5, 'query count is bounded by pages, not rows/suppliers')
   }
+})
+
+test('expense product search is bounded, owner/branch scoped and buy-only; units are fetched once for returned products', async () => {
+  const f = database()
+  const product = { owner_id: 'owner', business_id: 'a', name: 'Susu', stock: 12, updated_at: '2026-11-17T01:00:00Z', is_active: true, can_buy: true, base_unit: { code: 'ml' } }
+  f.tables.products = [
+    { ...product, inventory_id: 'foreign-owner', owner_id: 'someone-else' },
+    { ...product, inventory_id: 'foreign-branch', business_id: 'b' },
+    { ...product, inventory_id: 'inactive', is_active: false },
+    { ...product, inventory_id: 'sell-only', can_buy: false },
+    ...Array.from({ length: 25 }, (_, i) => ({ ...product, inventory_id: `p-${i}`, name: `Susu ${i}` })),
+  ]
+  f.tables.item_units = [{ id: 'carton', product_id: 'p-0', owner_id: 'owner', is_active: true, label: 'Karton', factor_to_base: 12000 }, { id: 'inactive-unit', product_id: 'p-0', owner_id: 'owner', is_active: false }, { id: 'not-in-results', product_id: 'p-24', owner_id: 'owner', is_active: true }]
+  const actions = request(f)('app/dashboard/expenses/actions.ts')
+  const result = await actions.searchExpenseProducts('a', 'sUSu')
+  assert.equal(result.error, undefined)
+  assert.equal(result.products.length, 20)
+  assert.equal(result.hasMore, true)
+  assert.equal(result.products[0].version, product.updated_at)
+  assert.equal(result.products[0].stock, 12)
+  assert.equal(result.products[0].unitCode, 'ml')
+  assert.equal(result.products[0].units.length, 1)
+  assert.equal(result.products[0].units[0].factor, 12000)
+  assert.deepEqual(f.queries.map(q => q.table), ['products', 'item_units'])
+  const batch = f.queries[1].filters.find(([key, , op]) => key === 'product_id' && op === 'in')[1]
+  assert.equal(batch.length, 20)
+  const invalid = await actions.searchExpenseProducts('b', 'Susu')
+  assert.match(invalid.error, /Cabang aktif/)
+  assert.equal(f.queries.length, 2)
+})
+
+test('expense search escapes literal wildcard characters, handles empty results and does not preload the product catalog', async () => {
+  const f = database()
+  f.tables.products = [{ inventory_id: 'p', owner_id: 'owner', business_id: 'a', name: 'Bahan 100%_khusus', stock: -1, is_active: true, can_buy: true, updated_at: 'version' }]
+  f.tables.item_units = []
+  const actions = request(f)('app/dashboard/expenses/actions.ts')
+  const found = await actions.searchExpenseProducts('a', '100%_')
+  assert.equal(found.products.length, 1)
+  assert.equal(f.queries[0].filters.find(([, , op]) => op === 'ilike')[1], '%100\\%\\_%')
+  f.queries.length = 0
+  const none = await actions.searchExpenseProducts('a', 'unknown')
+  assert.equal(none.products.length, 0)
+  assert.equal(none.hasMore, false)
+  assert.equal(f.queries.length, 1)
+  f.queries.length = 0
+  await actions.getExpenseOptions('a')
+  assert.deepEqual(f.queries.map(q => q.table), ['suppliers'])
+  const invalid = await actions.searchExpenseProducts('a', 'x'.repeat(201))
+  assert.match(invalid.error, /200 karakter/)
 })

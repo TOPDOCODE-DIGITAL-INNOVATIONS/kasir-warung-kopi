@@ -8,12 +8,13 @@ import AdminModal from '@/components/AdminModal'
 import { dayKey, rupiah } from '@/lib/format'
 import MoneyInput from '../products/MoneyInput'
 import { getExpenseOptions, saveExpenseBatch } from './actions'
-import type { ExpenseOptions } from './types'
+import type { ExpenseOptions, ExpenseProduct } from './types'
+import ExpenseProductSearch from './ExpenseProductSearch'
 
 const input = 'w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
 const primary = 'rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50'
-type Line = { id: string; product: string; quantity: string; unit: string; category: string; note: string }
-const line = (): Line => ({ id: crypto.randomUUID(), product: '', quantity: '', unit: '', category: 'Lain-lain', note: '' })
+type Line = { id: string; product: ExpenseProduct | null; quantity: string; unit: string; category: string; note: string }
+const line = (): Line => ({ id: crypto.randomUUID(), product: null, quantity: '', unit: '', category: 'Lain-lain', note: '' })
 
 function ExpenseModal({ businessId, onClose, onSaved }: { businessId: string; onClose: () => void; onSaved: (message: string) => void }) {
   const [operation] = useState(() => crypto.randomUUID())
@@ -32,8 +33,8 @@ function ExpenseModal({ businessId, onClose, onSaved }: { businessId: string; on
     if (!options) return
     setPending(true); setError('')
     form.set('operation_id', operation); form.set('business_id', businessId); form.set('scope', scope); form.set('date', date)
-    form.set('lines', JSON.stringify(rows.map(row => ({ id: row.id, product_id: row.product || null,
-      version: options.products.find(p => p.id === row.product)?.version ?? null, quantity: row.quantity || null,
+    form.set('lines', JSON.stringify(rows.map(row => ({ id: row.id, product_id: row.product?.id ?? null,
+      version: row.product?.version ?? null, quantity: row.quantity || null,
       item_unit_id: row.quantity ? row.unit || null : null, amount: String(form.get(`amount-${row.id}`) ?? ''), category: row.category, note: row.note,
     }))))
     try { const result = await saveExpenseBatch(form); if (result.success) onSaved(result.message); else setError(result.message) }
@@ -50,15 +51,17 @@ function ExpenseModal({ businessId, onClose, onSaved }: { businessId: string; on
         </div>
         {!options && !error && <div className="py-3 text-sm text-gray-500"><LoadingSpinner label="Memuat pilihan produk..." showLabel /></div>}
         <div className="space-y-3">{rows.map((row, index) => {
-          const product = options?.products.find(p => p.id === row.product), tracked = !!product && product.stock >= 0
-          const units = options?.units.filter(unit => unit.productId === row.product) ?? []
+          const product = row.product, tracked = !!product && product.stock >= 0
+          const units = product?.units ?? []
           return <section key={row.id} className="space-y-3 rounded-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">Item {index + 1}</h3><button type="button" aria-label={`Hapus item ${index + 1}`} disabled={rows.length === 1} onClick={() => setRows(current => current.filter(item => item.id !== row.id))} className="rounded-lg p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-30"><Trash2 className="h-4 w-4" /></button></div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <label className="space-y-2 text-sm text-gray-700"><span>Produk / Lain-lain</span><select value={row.product} onChange={event => {
-                const p = options?.products.find(product => product.id === event.target.value)
-                change(row.id, { product: event.target.value, quantity: '', unit: '', category: p ? 'Pembelian Barang' : 'Lain-lain' })
-              }} className={input}><option value="">Lain-lain</option>{options?.products.map(p => <option key={p.id} value={p.id} disabled={rows.some(other => other.id !== row.id && other.product === p.id)}>{p.name}</option>)}</select></label>
+              <ExpenseProductSearch businessId={businessId} value={product} disabled={pending || !options}
+                excludedIds={rows.flatMap(other => other.id !== row.id && other.product ? [other.product.id] : [])}
+                onSelect={selected => {
+                  if (selected?.id === row.product?.id) change(row.id, { product: selected })
+                  else change(row.id, { product: selected, quantity: '', unit: '', category: selected ? 'Pembelian Barang' : 'Lain-lain' })
+                }} />
               <label className="space-y-2 text-sm text-gray-700"><span>Kategori</span><input required maxLength={100} value={row.category} onChange={event => change(row.id, { category: event.target.value })} className={input} /></label>
               <div className="space-y-2"><label htmlFor={`expense-amount-${row.id}`} className="text-sm text-gray-700">Nominal total item</label><MoneyInput id={`expense-amount-${row.id}`} name={`amount-${row.id}`} required onValueChange={value => setAmounts(previous => ({ ...previous, [row.id]: value }))} className={input} /></div>
               {product && <>
