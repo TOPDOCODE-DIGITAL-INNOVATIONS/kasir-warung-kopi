@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePendingRefresh } from '@/hooks/usePendingRefresh'
+import LoadingSpinner from '@/components/LoadingSpinner'
 import { Plus, Trash2 } from 'lucide-react'
 import AdminModal from '@/components/AdminModal'
 import { dayKey, rupiah } from '@/lib/format'
@@ -47,7 +48,7 @@ function ExpenseModal({ businessId, onClose, onSaved }: { businessId: string; on
           <label className="space-y-2 text-sm text-gray-700"><span>{scope === 'monthly' ? 'Bulan' : 'Tanggal'}</span><input type={scope === 'monthly' ? 'month' : 'date'} required value={date} onChange={event => setDate(event.target.value)} className={input} /></label>
           <label className="space-y-2 text-sm text-gray-700"><span>Supplier (opsional)</span><select name="supplier_id" value={supplier} onChange={event => setSupplier(event.target.value)} className={input}><option value="">Tanpa supplier</option>{options?.suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></label>
         </div>
-        {!options && !error && <p className="text-sm text-gray-500">Memuat pilihan produk...</p>}
+        {!options && !error && <div className="py-3 text-sm text-gray-500"><LoadingSpinner label="Memuat pilihan produk..." showLabel /></div>}
         <div className="space-y-3">{rows.map((row, index) => {
           const product = options?.products.find(p => p.id === row.product), tracked = !!product && product.stock >= 0
           const units = options?.units.filter(unit => unit.productId === row.product) ?? []
@@ -73,16 +74,16 @@ function ExpenseModal({ businessId, onClose, onSaved }: { businessId: string; on
         <p className="text-xs text-gray-500">Pengeluaran admin dicatat di luar laci shift kasir.</p>
       </fieldset>
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4"><p className="text-sm text-gray-700">Total: <strong>{rupiah(total)}</strong></p><div className="flex gap-3"><button type="button" disabled={pending} onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">Batal</button><button type="submit" disabled={pending || !options} className={primary}>{pending ? 'Menyimpan...' : 'Simpan Pengeluaran'}</button></div></div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4"><p className="text-sm text-gray-700">Total: <strong>{rupiah(total)}</strong></p><div className="flex gap-3"><button type="button" disabled={pending} onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">Batal</button><button type="submit" disabled={pending || !options} className={primary}>{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : 'Simpan Pengeluaran'}</button></div></div>
     </form>
   </AdminModal>
 }
 
 export default function ExpenseEntry({ businessId }: { businessId: string | null }) {
-  const router = useRouter(), [open, setOpen] = useState(false), [message, setMessage] = useState('')
+  const { refreshing, refresh } = usePendingRefresh(), [open, setOpen] = useState(false), [message, setMessage] = useState('')
   return <>
-    <button type="button" disabled={!businessId} onClick={() => { setMessage(''); setOpen(true) }} className={`${primary} inline-flex items-center gap-2`}><Plus className="h-4 w-4" />Tambah Pengeluaran</button>
+    <button type="button" disabled={!businessId || refreshing} onClick={() => { setMessage(''); setOpen(true) }} className={`${primary} inline-flex items-center gap-2`}><Plus className="h-4 w-4" />Tambah Pengeluaran</button>
     {message && <p role="status" className="text-sm text-green-700">{message}</p>}
-    {open && businessId && <ExpenseModal businessId={businessId} onClose={() => setOpen(false)} onSaved={text => { setOpen(false); setMessage(text); router.refresh() }} />}
+    {open && businessId && <ExpenseModal businessId={businessId} onClose={() => setOpen(false)} onSaved={text => { setOpen(false); setMessage(text); refresh() }} />}
   </>
 }

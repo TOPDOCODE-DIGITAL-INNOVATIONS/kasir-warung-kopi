@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
+import Link from '@/components/LoadingLink'
+import FilterForm, { FilterSubmit } from '@/components/FilterForm'
 import { maxOverviewEnd, overviewRangeError, type OverviewRange } from './overview-domain'
 
 const input = 'w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500'
@@ -15,7 +16,7 @@ export default function OverviewFilters({ businesses, businessId, range, notice 
     <section aria-labelledby="overview-filter-title" className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
       <h2 id="overview-filter-title" className="text-sm font-semibold text-gray-900">Filter</h2>
       <p className="mt-1 text-sm text-gray-500">Default 7 hari terakhir. Pilih rentang maksimal 3 bulan. Cabang di sini terpisah dari cabang aktif di header.</p>
-      <form method="get" action="/dashboard" onSubmit={event => {
+      <FilterForm action="/dashboard" onSubmit={event => {
         const message = overviewRangeError(start, end)
         setError(message)
         if (message) event.preventDefault()
@@ -33,10 +34,10 @@ export default function OverviewFilters({ businesses, businessId, range, notice 
           <input name="to" type="date" required min={start} max={maxOverviewEnd(start) || undefined} value={end} onChange={event => { setEnd(event.target.value); setError(null) }} className={input} />
         </label>
         <div className="flex items-center gap-2">
-          <button type="submit" className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">Terapkan</button>
+          <FilterSubmit className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">Terapkan</FilterSubmit>
           <Link href="/dashboard" className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50">Reset</Link>
         </div>
-      </form>
+      </FilterForm>
       {(error || notice) && <p role="alert" className="mt-3 text-sm text-amber-700">{error || notice}</p>}
     </section>
   )

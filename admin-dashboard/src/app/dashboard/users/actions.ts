@@ -1,9 +1,10 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createClient } from '@/utils/supabase/server'
 import { getBusinessContext } from '@/lib/business-context'
-import { AVATAR_COLORS, CASHIER_ROLES, avatarColor, type CashierRow, type UserActionResult } from './types'
+import { AVATAR_COLORS, CASHIER_ROLES, avatarColor, type CashierConfiguration, type CashierRow, type UserActionResult } from './types'
 
 type Row = Record<string, unknown>
 type Supabase = Awaited<ReturnType<typeof createClient>>
@@ -15,7 +16,7 @@ async function readBusinesses(supabase: Supabase, ownerId: string, includeCashie
   let after: string | undefined
   while (true) {
     let query = supabase.from('businesses')
-      .select(includeCashiers ? 'id,name,pos_config_updated_at,cashiers:pos_config->cashiers' : 'id,name')
+      .select(includeCashiers ? 'id,name,pos_config_updated_at,config:pos_config' : 'id,name')
       .eq('owner_id', ownerId).order('id').limit(500)
     if (businessId) query = query.eq('id', businessId)
     if (after) query = query.gt('id', after)
@@ -36,7 +37,8 @@ export async function getCashierUsers(requestedBusinessId: string | null) {
   const configRows = businessId ? await readBusinesses(supabase, user.id, true, businessId) : []
   const businesses = ownedBusinesses.filter(b => b.id === businessId)
   const users: CashierRow[] = configRows.flatMap((business) => {
-    const cashiers = Array.isArray(business.cashiers) ? business.cashiers : []
+    const config = isRow(business.config) ? business.config : null
+    const cashiers = Array.isArray(config?.cashiers) ? config.cashiers : []
     return cashiers.filter((cashier): cashier is Row => isRow(cashier) && typeof cashier.id === 'string' && typeof cashier.name === 'string')
       .map((cashier) => ({
         id: String(cashier.id), name: String(cashier.name), role: typeof cashier.role === 'string' ? cashier.role : '-',
@@ -45,7 +47,68 @@ export async function getCashierUsers(requestedBusinessId: string | null) {
       }))
   })
   users.sort((a, b) => a.businessName.localeCompare(b.businessName, 'id') || a.name.localeCompare(b.name, 'id'))
-  return { businesses, users, invalidBusiness: !!businessId && !businesses.some((business) => business.id === businessId) }
+  const selected = configRows[0]
+  const configuration: CashierConfiguration | null = selected ? {
+    businessId: String(selected.id), businessName: String(selected.name),
+    configVersion: typeof selected.pos_config_updated_at === 'string' ? selected.pos_config_updated_at : null,
+    ready: validConfig(selected.config),
+  } : null
+  return { businesses, users, configuration, invalidBusiness: !!businessId && !businesses.some((business) => business.id === businessId) }
+}
+
+function validConfig(config: unknown): config is Row & { cashiers: Row[] } {
+  return isRow(config) && Array.isArray(config.products) && Array.isArray(config.categories)
+    && isRow(config.settings) && Array.isArray(config.cashiers)
+    && config.cashiers.every((cashier): cashier is Row => isRow(cashier) && typeof cashier.id === 'string')
+}
+
+export async function addCashier(formData: FormData): Promise<UserActionResult> {
+  const fail = (message: string): UserActionResult => ({ success: false, message })
+  const businessId = String(formData.get('business_id') ?? '')
+  const name = String(formData.get('name') ?? '').trim()
+  const role = String(formData.get('role') ?? '')
+  const color = String(formData.get('avatar_color') ?? '')
+  const pin = String(formData.get('pin') ?? '')
+  const confirmation = String(formData.get('pin_confirmation') ?? '')
+  if (!isUuid(businessId) || !formData.has('config_version')) return fail('Data cabang tidak valid. Muat ulang halaman.')
+  if (!name || name.length > 100) return fail('Nama wajib diisi, maksimal 100 karakter.')
+  if (!CASHIER_ROLES.some((allowed) => allowed === role)) return fail('Role tidak valid.')
+  if (!AVATAR_COLORS.some((allowed) => allowed.value === color)) return fail('Pilih warna avatar yang tersedia.')
+  if (!/^\d{4,6}$/.test(pin)) return fail('PIN wajib 4–6 digit angka.')
+  if (pin !== confirmation) return fail('Konfirmasi PIN tidak sama.')
+
+  const { supabase, user, businessId: activeBusinessId } = await getBusinessContext()
+  if (businessId !== activeBusinessId) return fail('Cabang aktif sudah berubah. Muat ulang halaman sebelum mencoba lagi.')
+  const { data: business, error } = await supabase.from('businesses')
+    .select('id,pos_config,pos_config_updated_at').eq('id', businessId).eq('owner_id', user.id).maybeSingle()
+  if (error) return fail('Gagal memeriksa data cabang. Silakan coba kembali.')
+  if (!business) return fail('Cabang tidak ditemukan atau tidak dapat diakses.')
+  const version = business.pos_config_updated_at as string | null
+  if (String(formData.get('config_version')) !== (version ?? '')) {
+    return fail('Data cabang sudah berubah. Tutup dialog dan muat ulang halaman sebelum mencoba lagi.')
+  }
+  // Never initialize a partial config and overwrite the POS menu/settings.
+  if (!validConfig(business.pos_config)) return fail('Sinkronkan aplikasi kasir terlebih dahulu agar konfigurasi cabang tersedia.')
+  const config = business.pos_config
+  if (!config.cashiers.some((cashier) => cashier.role === 'Owner') && role !== 'Owner') {
+    return fail('Profil pertama pada cabang harus memiliki role Owner.')
+  }
+  // Same salt:PIN SHA-256 representation as app-kasir/security.ts; no plaintext PIN.
+  const pinSalt = randomBytes(8).toString('hex')
+  const cashier = {
+    id: `c-${randomUUID()}`, name, role, avatarColor: color, isActive: false,
+    pinSalt, pinHash: createHash('sha256').update(`${pinSalt}:${pin}`).digest('hex'),
+  }
+  const updatedAt = new Date(Math.max(Date.now(), version ? new Date(version).getTime() + 1 : 0)).toISOString()
+  let update = supabase.from('businesses').update({
+    pos_config: { ...config, cashiers: [...config.cashiers, cashier] }, pos_config_updated_at: updatedAt,
+  }).eq('id', businessId).eq('owner_id', user.id)
+  update = version ? update.eq('pos_config_updated_at', version) : update.is('pos_config_updated_at', null)
+  const { data: changed, error: updateError } = await update.select('id')
+  if (updateError) return fail('User belum berhasil ditambahkan. Silakan coba kembali.')
+  if (!changed?.length) return fail('Data cabang sudah berubah. Muat ulang halaman sebelum mencoba lagi.')
+  revalidatePath('/dashboard/users')
+  return { success: true, message: 'User berhasil ditambahkan. Profil dan PIN diterapkan setelah perangkat kasir melakukan sinkronisasi.' }
 }
 
 async function changeCashier(formData: FormData, remove: boolean): Promise<UserActionResult> {

@@ -29,7 +29,7 @@ export default async function UsersPage() {
               <p className="text-gray-500">Belum ada cabang usaha. Buat cabang dan sinkronkan aplikasi kasir untuk menampilkan user.</p>
               <Link href="/dashboard/businesses" className="inline-block text-sm font-semibold text-blue-600 hover:underline">Buka Cabang &amp; Token</Link>
             </div>
-          ) : <UsersClient key={businessId ?? 'all'} users={data?.users ?? []} />}
+          ) : <UsersClient key={businessId ?? 'all'} users={data?.users ?? []} configuration={data?.configuration ?? null} />}
     </div>
   )
 }

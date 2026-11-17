@@ -1,7 +1,7 @@
 -- Products are branch-scoped already. Keep one row for identity and settings.
 begin;
-lock table public.products, public.branch_product, public.recipes,
-  public.recipe_lines, public.purchase_lines in share row exclusive mode;
+lock table public.businesses, public.products, public.branch_product, public.recipes,
+  public.recipe_lines, public.purchase_lines in access exclusive mode;
 
 -- Do not silently lose cross-branch associations or conflicting values.
 do $$ begin

@@ -11,7 +11,7 @@ const sourceRoot = path.resolve(import.meta.dirname, '../src')
 
 function database({ missingHistory = false } = {}) {
   const tables = {
-    businesses: [{ id: 'a', name: 'Cabang A', sync_token: 'test-token', pos_config: null, pos_config_updated_at: null }, { id: 'b', name: 'Cabang B' }],
+    businesses: [{ id: 'a', name: 'Cabang A', owner_id: 'owner', sync_token: 'test-token', pos_config: null, pos_config_updated_at: null }, { id: 'b', name: 'Cabang B', owner_id: 'owner' }],
     products: [
       { business_id: 'a', id: 'live', name: 'Nama admin', price: 23000, cost_price: 10000, stock: 10, is_active: true, can_sell: true, pos_sync_enabled: false, pos_managed: true, raw: { _inventory: { events: [{ id: 'stock-event' }] } } },
       { business_id: 'a', id: 'archived', is_active: false, can_sell: true },
@@ -35,7 +35,7 @@ function database({ missingHistory = false } = {}) {
         or(value) { log.or = value; return this },
         limit(n) { limit = n; return this }, range(a, z) { offset = a; limit = z-a+1; return this },
         update(values) { log.op = 'update'; log.values = [values]; return this },
-        upsert(values) { log.op = 'upsert'; log.values = values; return this },
+        upsert(values) { log.op = 'upsert'; log.values = Array.isArray(values) ? values : [values]; return this },
         delete() { log.op = 'delete'; return this },
         maybeSingle: async () => ({ data: execute()[0] ?? null, error: null }),
         then(resolve) {
@@ -76,15 +76,17 @@ function request(fixture, businessId = 'a') {
     const target = { exports: {} }; modules.set(file, target)
     const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } }).outputText
     const getContext = async () => ({ supabase: fixture.db, businessId, businesses: fixture.tables.businesses, user: { id: 'owner' } })
-    vm.runInNewContext(code, { module: target, exports: target.exports, Request, Response, Headers, URL, URLSearchParams, console: { error() {}, warn() {} }, require: name => {
-      if (name === '@/lib/business-context') return { getBusinessContext: getContext, EMPTY_BUSINESS_ID: '00000000-0000-0000-0000-000000000000' }
+    vm.runInNewContext(code, { module: target, exports: target.exports, FormData, Request, Response, Headers, URL, URLSearchParams, console: { error() {}, warn() {} }, require: name => {
+      if (name === '@/lib/business-context') return { getBusinessContext: getContext, requireBusinessContext: async expected => { if (!businessId || expected !== businessId) throw new Error('Cabang aktif sudah berubah.'); return getContext() }, EMPTY_BUSINESS_ID: '00000000-0000-0000-0000-000000000000' }
+      if (name === 'next/cache') return { revalidatePath() {} }
+      if (name === 'next/navigation') return { unstable_rethrow() {} }
       if (name === '@/utils/supabase/admin') return { createAdminClient: () => fixture.db }
       if (name === '@/utils/supabase/server') return { createClient: async () => fixture.db }
       if (name === 'next/link') return { __esModule: true, default: 'a' }
       if (name.startsWith('@/') || name.startsWith('.')) {
         const base = name.startsWith('@/') ? path.join(sourceRoot, name.slice(2)) : path.resolve(path.dirname(file), name)
         const dependency = ['.ts', '.tsx'].map(ext => base + ext).find(fs.existsSync)
-        if (/^['"]use client['"]/.test(fs.readFileSync(dependency, 'utf8'))) return { __esModule: true, default: path.basename(dependency, '.tsx') }
+        if (/^['"]use client['"]/.test(fs.readFileSync(dependency, 'utf8'))) return { __esModule: true, default: path.basename(dependency, '.tsx'), FilterSubmit: 'FilterSubmit' }
         return load(dependency)
       }
       return require(name)
@@ -103,6 +105,115 @@ function child(tree, type) {
 }
 const config = { products: [{ id: 'live', name: 'Nama lama', price: 1, stock: 999 }, { id: 'archived' }, { id: 'ingredient' }], categories: [], cashiers: [{ id: 'cashier', name: 'Owner' }], settings: { storeName: 'Test' } }
 const post = body => new Request('http://local.test/api/sync', { method: 'POST', headers: { 'x-api-key': 'test-token', 'content-type': 'application/json' }, body: JSON.stringify(body) })
+
+const expense = () => ({ business_id: 'a', id: 'expense-a', scope: 'daily', date: '2026-11-12', category: 'Transport', amount: 10000, note: '', from_drawer: false, synced_at: '2026-11-12T00:00:00.000Z' })
+function expenseForm(row, overrides = {}) {
+  const form = new FormData()
+  for (const [key, value] of Object.entries({ ...row, business_id: 'a', version: row.synced_at, ...overrides })) form.set(key, String(value ?? ''))
+  return form
+}
+
+test('admin expense correction updates one owned record, keeps creator/links, and rejects stale or foreign forms', async () => {
+  const fixture = database(), original = { ...expense(), created_by: 'Kasir', created_at: '2026-11-10T00:00:00Z' }
+  fixture.tables.expenses.push(original)
+  const action = request(fixture)('app/dashboard/expenses/actions.ts').updateExpense
+  const result = await action(expenseForm(original, { amount: 25000, note: 'Koreksi' }))
+  assert.equal(result.success, true, result.message)
+  assert.equal(fixture.tables.expenses.length, 1)
+  assert.equal(original.amount, 25000)
+  assert.equal(original.created_by, 'Kasir')
+  assert.equal((await action(expenseForm(expense(), { amount: 30000 }))).success, false)
+  assert.equal((await action(expenseForm(original, { business_id: 'b' }))).success, false)
+  const write = fixture.queries.find(q => q.table === 'expenses' && q.op === 'update')
+  assert.ok(write.filters.some(([k,v]) => k === 'business_id' && v === 'a'))
+  assert.ok(write.filters.some(([k,v]) => k === 'synced_at' && v === expense().synced_at))
+})
+
+test('linked purchases and drawer entries keep financial fields; invalid dates, empty categories and amounts are refused', async () => {
+  for (const lock of [{ purchase_line_id: 'purchase-line' }, { from_drawer: true }]) {
+    const fixture = database(), row = { ...expense(), ...lock }; fixture.tables.expenses.push(row)
+    const action = request(fixture)('app/dashboard/expenses/actions.ts').updateExpense
+    assert.equal((await action(expenseForm(row, { amount: 20000 }))).success, false)
+    assert.equal((await action(expenseForm(row, { note: 'Catatan diperbaiki' }))).success, true)
+    assert.equal(row.amount, 10000)
+  }
+  for (const invalid of [{ amount: -1 }, { amount: 'NaN' }, { amount: '1.234' }, { category: ' ' }, { scope: 'yearly' }, { date: '2026-02-30' }]) {
+    const fixture = database(), row = expense(); fixture.tables.expenses.push(row)
+    assert.equal((await request(fixture)('app/dashboard/expenses/actions.ts').updateExpense(expenseForm(row, invalid))).success, false)
+    assert.ok(!fixture.queries.some(q => q.op === 'update'))
+  }
+})
+
+test('expense sync accepts explicit corrections and retries, preserves purchase metadata, and rejects stale edits', async () => {
+  const fixture = database(), row = { ...expense(), product_name: 'Transport', product_id: 'product-a' }; fixture.tables.expenses.push(row)
+  const base = { scope: row.scope, date: row.date, category: row.category, amount: row.amount, note: row.note }
+  const payload = { ...base, id: row.id, amount: 20000, editBase: base, createdBy: 'Changed actor' }
+  const sync = request(fixture)('app/api/sync/route.ts').POST
+  assert.equal((await sync(post({ expenses: [payload] }))).status, 200)
+  assert.equal(row.amount, 20000)
+  assert.equal(row.product_id, 'product-a')
+  assert.equal((await sync(post({ expenses: [payload] }))).status, 200)
+  assert.equal((await sync(post({ expenses: [{ ...base, id: row.id }] }))).status, 200)
+  assert.equal(row.amount, 20000, 'Old POS retransmission cannot undo a correction')
+  const conflict = await sync(post({ expenses: [{ ...payload, amount: 30000 }] }))
+  assert.equal(conflict.status, 409)
+  assert.equal((await conflict.json()).expenseConflicts[0].amount, 20000)
+  assert.equal(row.amount, 20000)
+})
+
+test('admin expense deletion records a branch-scoped tombstone, is repeatable and prevents stale POS resurrection', async () => {
+  const fixture = database(), row = expense(); fixture.tables.expenses.push(row)
+  const action = request(fixture)('app/dashboard/expenses/actions.ts').deleteExpense
+  assert.equal((await action(expenseForm(row, { business_id: 'b' }))).success, false)
+  assert.equal((await action(expenseForm(row, { version: 'old' }))).success, false)
+  assert.equal(fixture.tables.expenses.length, 1)
+  const result = await action(expenseForm(row))
+  assert.equal(result.success, true, result.message)
+  assert.equal(fixture.tables.expenses.length, 0)
+  assert.equal(fixture.tables.deleted_records.length, 1)
+  assert.equal(fixture.tables.deleted_records[0].business_id, 'a')
+  assert.equal(fixture.tables.deleted_records[0].kind, 'expense')
+  assert.equal((await action(expenseForm(row))).success, true)
+  const response = await request(fixture)('app/api/sync/route.ts').POST(post({ expenses: [{ ...row, editBase: row, amount: 99999 }] }))
+  assert.equal(response.status, 200)
+  assert.deepEqual((await response.json()).data.deletedExpenseIds, [row.id])
+  assert.equal(fixture.tables.expenses.length, 0)
+})
+
+test('linked purchases cannot be deleted by admin or POS; a concurrent change cancels deletion and removes its marker', async () => {
+  const fixture = database(), row = { ...expense(), purchase_line_id: 'purchase-line' }; fixture.tables.expenses.push(row)
+  assert.equal((await request(fixture)('app/dashboard/expenses/actions.ts').deleteExpense(expenseForm(row))).success, false)
+  assert.equal((await request(fixture)('app/api/sync/route.ts').POST(post({ deletedExpenseIds: [row.id] }))).status, 400)
+  assert.equal(fixture.tables.expenses.length, 1)
+  assert.equal(fixture.tables.deleted_records.length, 0)
+  delete row.purchase_line_id
+  const from = fixture.db.from.bind(fixture.db)
+  fixture.db.from = table => {
+    const q = from(table), originalDelete = q.delete, originalThen = q.then; let deleting = false
+    q.delete = function () { deleting = true; return originalDelete.call(this) }
+    q.then = function (resolve) { if (table === 'expenses' && deleting) row.synced_at = '2026-11-16T00:00:00Z'; return originalThen.call(this, resolve) }
+    return q
+  }
+  assert.equal((await request(fixture)('app/dashboard/expenses/actions.ts').deleteExpense(expenseForm(row))).success, false)
+  assert.equal(fixture.tables.expenses.length, 1)
+  assert.equal(fixture.tables.deleted_records.length, 0)
+})
+
+test('expense PDF receives the active branch, period/category filters and over 1000 rows without a separate export query', async () => {
+  const fixture = database()
+  for (let i = 0; i < 1001; i++) fixture.tables.expenses.push({ ...expense(), id: `EXPORT_${i}`, category: 'Gas', businesses: { name: 'Cabang A' }, quantity: 2, unit_label: 'pcs', product_name: 'Gas', supplier_name: 'Supplier' })
+  fixture.tables.expenses.push({ ...expense(), id: 'OTHER_CATEGORY', category: 'Transport' }, { ...expense(), business_id: 'b', id: 'OTHER_BRANCH', category: 'Gas' }, { ...expense(), id: 'OTHER_MONTH', date: '2026-10-31', category: 'Gas' })
+  const page = await request(fixture)('app/dashboard/expenses/page.tsx').default({ searchParams: Promise.resolve({ p: '2026-11-01_2026-11-30', cat: 'Gas' }) })
+  const exportButton = child(page, 'ExpenseExport')
+  assert.equal(exportButton.props.unavailable, false)
+  assert.equal(exportButton.props.report.branchName, 'Cabang A')
+  assert.equal(exportButton.props.report.category, 'Gas')
+  assert.equal(exportButton.props.report.rows.length, 1001)
+  assert.equal(exportButton.props.report.rows[0].unitLabel, 'pcs')
+  assert.equal(exportButton.props.report.rows[0].supplierName, 'Supplier')
+  assert.ok(exportButton.props.report.rows.every(e => e.id.startsWith('EXPORT_')))
+  assert.equal(fixture.queries.filter(q => q.table === 'expenses' && q.op === 'select').length, 2, 'Only the two paginated page queries are needed')
+})
 
 test('merged sync accepts config, drafts and edit history while preserving inventory data', async () => {
   const fixture = database(), load = request(fixture)

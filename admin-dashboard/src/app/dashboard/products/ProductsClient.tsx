@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePendingRefresh } from '@/hooks/usePendingRefresh'
+import LoadingSpinner from '@/components/LoadingSpinner'
+import DataPanel from '@/components/DataPanel'
 import { ClipboardList, MoreHorizontal, Plus, X } from 'lucide-react'
 import { formatDateTime, rupiah } from '@/lib/format'
 import { completeProductPurchase, deleteProduct, getProductHistory, saveProduct, syncProductToPos } from './actions'
@@ -42,7 +44,7 @@ function Feedback({ error }: { error: string }) {
   return error ? <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p> : null
 }
 function Footer({ pending, onClose, label = 'Simpan', disabled = false }: { pending: boolean; onClose: () => void; label?: string; disabled?: boolean }) {
-  return <div className="flex justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending || disabled} onClick={onClose} className={secondary}>Batal</button><button type="submit" disabled={pending || disabled} className={primary}>{pending ? 'Menyimpan...' : label}</button></div>
+  return <div className="flex justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending || disabled} onClick={onClose} className={secondary}>Batal</button><button type="submit" disabled={pending || disabled} className={primary}>{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : label}</button></div>
 }
 function Identity({ product }: { product: ProductRow }) {
   return <><input type="hidden" name="inventory_id" value={product.inventoryId} /><input type="hidden" name="version" value={product.version} /></>
@@ -133,26 +135,27 @@ function DeleteModal({ product, onClose, onSaved }: { product: ProductRow; onClo
   return <Modal title="Hapus Produk" description={`${product.name} · ${product.businessName}`} pending={pending} onClose={onClose}>
     <form action={submit} className="space-y-4 p-5"><Identity product={product} />
       <p className="text-sm text-gray-600">Produk akan dihapus dari daftar aktif dan menu kasir setelah sinkronisasi. Riwayat penjualan, pembelian, stok, dan resep tetap disimpan.</p>
-      <Feedback error={error} /><div className="flex justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending} onClick={onClose} className={secondary}>Batal</button><button type="submit" disabled={pending} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{pending ? 'Menghapus...' : 'Hapus Produk'}</button></div>
+      <Feedback error={error} /><div className="flex justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending} onClick={onClose} className={secondary}>Batal</button><button type="submit" disabled={pending} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menghapus...' : 'Hapus Produk'}</button></div>
     </form>
   </Modal>
 }
 
 function HistoryModal({ product, onClose, onRefresh }: { product: ProductRow; onClose: () => void; onRefresh: () => void }) {
   const [data, setData] = useState<HistoryData | null>(null), [error, setError] = useState(''), [message, setMessage] = useState(''), [pending, setPending] = useState(false)
+  const [operationKey, setOperationKey] = useState<string | null>(null)
   useEffect(() => { let active = true; getProductHistory(product.inventoryId).then(v => { if (active) setData(v) }).catch(() => { if (active) setError('Riwayat belum berhasil dimuat.') }); return () => { active = false } }, [product.inventoryId])
   async function run(action: (form: FormData) => Promise<ActionResult>, operation?: string) {
-    setPending(true); setError(''); setMessage('')
+    setPending(true); setOperationKey(operation ?? 'sync'); setError(''); setMessage('')
     const form = new FormData(); form.set('inventory_id', product.inventoryId); if (operation) form.set('operation_id', operation)
     try { const r = await action(form); if (r.success) setMessage(r.message); else setError(r.message); onRefresh(); setData(await getProductHistory(product.inventoryId)) }
     catch { setError('Perubahan belum berhasil diproses. Silakan coba kembali.') }
-    finally { setPending(false) }
+    finally { setPending(false); setOperationKey(null) }
   }
   return <Modal title="Riwayat Produk" description={`${product.name} · ${product.businessName}`} wide pending={pending} onClose={onClose}>
     <div className="space-y-5 p-5">
       <div className="grid grid-cols-2 gap-3 text-sm"><div className="rounded-lg bg-blue-50 p-3"><p className="text-gray-500">Penjualan selesai</p><p className="mt-1 font-semibold">{quantity(product.soldQuantity)} {unitLabel(product.unitCode)}</p><p>{rupiah(product.soldAmount)}</p></div><div className="rounded-lg bg-green-50 p-3"><p className="text-gray-500">Pembelian tercatat</p><p className="mt-1 font-semibold">{quantity(product.boughtQuantity)} {unitLabel(product.unitCode)}</p><p>{rupiah(product.boughtAmount)}</p></div></div>
       <Feedback error={error} />{message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</p>}
-      {!data && !error && <p className="text-sm text-gray-500">Memuat riwayat...</p>}
+      <DataPanel loading={(!data && !error) || pending} label="Memuat riwayat produk..." className="min-h-32">
       {data && <>
         <section><h3 className="mb-3 text-sm font-semibold">Opname & Penyesuaian Stok</h3>
           {!data.adjustments.length ? <p className="text-sm text-gray-500">Belum ada opname atau penyesuaian stok.</p> : <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">{data.adjustments.map(item => <li key={item.id} className="space-y-1 p-3 text-sm">
@@ -164,22 +167,22 @@ function HistoryModal({ product, onClose, onRefresh }: { product: ProductRow; on
           {!data.events.length ? <p className="text-sm text-gray-500">Belum ada penyesuaian yang dicatat dari admin.</p> : <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">{data.events.map(e => <li key={e.id} className="space-y-1 p-3 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{kinds[e.kind] ?? 'Aktivitas produk'}{e.quantity > 0 ? ` · +${quantity(e.quantity)} ${unitLabel(product.unitCode)}` : ''}</span><time className="text-xs text-gray-500">{formatDateTime(e.at)}</time></div>
             <p className="text-gray-600">{e.reason}</p><p className="text-xs text-gray-500">Stok: {e.before === -1 ? '∞' : quantity(e.before)} → {e.after === -1 ? '∞' : quantity(e.after)}</p>
-            {e.status === 'pending' && <button type="button" disabled={pending} onClick={() => run(completeProductPurchase, e.id)} className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50">Selesaikan Pembelian</button>}
+            {e.status === 'pending' && <button type="button" disabled={pending} onClick={() => run(completeProductPurchase, e.id)} className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50">{operationKey === e.id && <LoadingSpinner className="mr-2" />}Selesaikan Pembelian</button>}
           </li>)}</ul>}
         </section>
         <section><h3 className="mb-3 text-sm font-semibold">Dokumen pembelian</h3>{!data.purchases.length ? <p className="text-sm text-gray-500">Belum ada pembelian produk ini.</p> : <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">{data.purchases.map(p => <li key={p.id} className="flex flex-wrap items-start justify-between gap-2 p-3 text-sm"><div><p className="font-medium">{p.supplier}</p><p className="text-xs text-gray-500">{formatDateTime(p.date)} · {p.status === 'posted' ? 'Tercatat' : p.status === 'draft' ? 'Draft' : 'Dibatalkan'}</p></div><div className="text-right"><p>{quantity(p.quantity)} {unitLabel(product.unitCode)}</p><p className="font-medium">{rupiah(p.amount)}</p></div></li>)}</ul>}</section>
         <p className="text-xs text-gray-500">Menampilkan hingga 50 aktivitas terakhir dan 50 rincian pembelian. Penjualan adalah nilai item sebelum diskon nota/pajak, termasuk bon; pembelian hanya menghitung dokumen tercatat.</p>
       </>}
-      <div className="flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending} onClick={() => run(syncProductToPos)} className={secondary}>Kirim Ulang ke Kasir</button><button type="button" disabled={pending} onClick={onClose} className={primary}>Tutup</button></div>
+      </DataPanel>
+      <div className="flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4"><button type="button" disabled={pending || !data} onClick={() => run(syncProductToPos)} className={secondary}>{operationKey === 'sync' && <LoadingSpinner className="mr-2" />}Kirim Ulang ke Kasir</button><button type="button" disabled={pending} onClick={onClose} className={primary}>Tutup</button></div>
     </div>
   </Modal>
 }
 
 export default function ProductsClient({ data, businessId }: { data: ProductPageData; businessId: string | null }) {
-  const router = useRouter(), [tab, setTab] = useState<'all' | 'sell' | 'buy'>('all'), [search, setSearch] = useState('')
+  const { refreshing, refresh } = usePendingRefresh(), [tab, setTab] = useState<'all' | 'sell' | 'buy'>('all'), [search, setSearch] = useState('')
   const [modal, setModal] = useState<ModalState | null>(null), [message, setMessage] = useState('')
   const list = data.products.filter(p => (tab === 'all' || (tab === 'sell' ? p.canSell : p.canBuy)) && `${p.name} ${p.sku}`.toLocaleLowerCase('id').includes(search.toLocaleLowerCase('id')))
-  const refresh = () => router.refresh()
   const saved = (value: string) => { setModal(null); setMessage(value); refresh() }
   const open = (value: ModalState) => { setMessage(''); setModal(value) }
   return <div className="space-y-4">
@@ -189,8 +192,8 @@ export default function ProductsClient({ data, businessId }: { data: ProductPage
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="font-semibold text-gray-900">Daftar Produk <span className="ml-2 text-sm font-normal text-gray-500">{list.length} produk</span></h2><p className="mt-1 text-sm text-gray-500">Kelola barang jual, bahan beli, dan stok setiap cabang.</p></div><div className="flex shrink-0 flex-wrap gap-2"><button type="button" disabled={!businessId} onClick={() => open({ kind: 'count' })} className={`${secondary} inline-flex items-center gap-2`}><ClipboardList className="h-4 w-4" />Stok Opname</button><button type="button" onClick={() => open({ kind: 'create' })} className={`${primary} inline-flex items-center justify-center gap-2`}><Plus className="h-4 w-4" />Produk Baru</button></div></div>
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div role="tablist" aria-label="Jenis produk" className="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1">{([{ id: 'all', label: 'Semua Produk', count: data.products.length }, { id: 'sell', label: 'Produk Jual', count: data.products.filter(p => p.canSell).length }, { id: 'buy', label: 'Produk Beli', count: data.products.filter(p => p.canBuy).length }] as const).map(t => <button type="button" key={t.id} role="tab" aria-label={t.label} tabIndex={tab === t.id ? 0 : -1} onKeyDown={event => { const keys = ["all", "sell", "buy"] as const; const index = keys.indexOf(t.id); const next = event.key === "ArrowRight" ? keys[(index + 1) % 3] : event.key === "ArrowLeft" ? keys[(index + 2) % 3] : event.key === "Home" ? keys[0] : event.key === "End" ? keys[2] : null; if (next) { event.preventDefault(); setTab(next); document.getElementById(`product-tab-${next}`)?.focus() } }} id={`product-tab-${t.id}`} aria-controls="products-panel" aria-selected={tab === t.id} onClick={() => setTab(t.id)} className={`rounded-md px-3 py-2 text-sm font-medium ${tab === t.id ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>{t.label}<span className="ml-2 text-xs">{t.count}</span></button>)}</div><input type="search" value={search} onChange={e => setSearch(e.target.value)} aria-label="Cari nama atau SKU produk" placeholder="Cari nama / SKU..." className={`${input} sm:max-w-xs`} /></div>
       </div>
-      <div id="products-panel" role="tabpanel" aria-labelledby={`product-tab-${tab}`} className="overflow-x-auto">
-        <table className="w-full text-left text-sm text-gray-600"><thead className="bg-gray-50 text-xs uppercase text-gray-700"><tr>{['Produk', 'Jenis', 'Harga & Modal', 'Stok tercatat', 'Update stok', 'Penjualan', 'Pembelian', 'Aksi'].map(c => <th key={c} scope="col" className="whitespace-nowrap px-4 py-3 font-medium">{c}</th>)}</tr></thead><tbody className="divide-y divide-gray-100">
+      <DataPanel loading={refreshing} label="Memuat produk..."><div id="products-panel" role="tabpanel" aria-labelledby={`product-tab-${tab}`} className="overflow-x-auto">
+        <table aria-busy={refreshing} className="w-full text-left text-sm text-gray-600"><thead className="bg-gray-50 text-xs uppercase text-gray-700"><tr>{['Produk', 'Jenis', 'Harga & Modal', 'Stok tercatat', 'Update stok', 'Penjualan', 'Pembelian', 'Aksi'].map(c => <th key={c} scope="col" className="whitespace-nowrap px-4 py-3 font-medium">{c}</th>)}</tr></thead><tbody className="divide-y divide-gray-100">
           {!list.length ? <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-500">{search ? 'Tidak ada produk yang cocok dengan pencarian.' : 'Belum ada produk pada kategori ini.'}</td></tr> : list.map(p => <tr key={p.inventoryId} className="hover:bg-gray-50/50">
             <td className="min-w-44 px-4 py-3"><button type="button" onClick={() => open({ kind: 'history', product: p })} className="text-left font-medium text-gray-900 hover:text-blue-600">{p.name}</button><p className="mt-1 text-xs text-gray-500">{p.sku || p.categoryId || 'Tanpa kategori'} · {unitLabel(p.unitCode)}</p>{!p.available && <span className="text-xs text-gray-400">Tidak tersedia</span>}{p.hasRecipe && <span className="ml-2 text-xs text-purple-600">Ada resep</span>}{p.pendingOperation && <button type="button" onClick={() => open({ kind: 'history', product: p })} className="mt-1 block text-xs font-medium text-amber-700">Pembelian tertunda</button>}</td>
             <td className="whitespace-nowrap px-4 py-3">{p.businessName}</td>
@@ -203,7 +206,7 @@ export default function ProductsClient({ data, businessId }: { data: ProductPage
             <td className="px-4 py-3"><RowActions product={p} onSelect={kind => open({ kind, product: p })} /></td>
           </tr>)}
         </tbody></table>
-      </div>
+      </div></DataPanel>
       <p className="border-t border-gray-100 px-5 py-3 text-xs text-gray-500">Ringkasan seluruh riwayat. Penjualan menghitung transaksi selesai; pembelian menghitung dokumen tercatat. Resep tidak wajib.</p>
     </div>
     {modal?.kind === 'create' && <ProductForm data={data} selectedBranch={businessId} onClose={() => setModal(null)} onSaved={saved} onRefresh={refresh} />}

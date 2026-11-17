@@ -3,7 +3,74 @@
 import { revalidatePath } from 'next/cache'
 import { unstable_rethrow } from 'next/navigation'
 import { requireBusinessContext } from '@/lib/business-context'
+import { createAdminClient } from '@/utils/supabase/admin'
 import type { ExpenseOptions } from './types'
+import { financialChange, validateExpense } from './edit-domain'
+
+async function expenseWriter({ supabase, user, businessId }: Awaited<ReturnType<typeof requireBusinessContext>>) {
+  // Owner RLS is read-only. Use the existing branch-token policy only after
+  // verifying ownership with the authenticated session; never expose the token.
+  const { data: branch, error } = await supabase.from('businesses').select('sync_token')
+    .eq('id', businessId).eq('owner_id', user.id).maybeSingle()
+  if (error || !branch?.sync_token) throw new Error('Tidak dapat memverifikasi kepemilikan cabang.')
+  return createAdminClient(branch.sync_token)
+}
+
+export async function deleteExpense(form: FormData) {
+  try {
+    const business = String(form.get('business_id') ?? ''), id = String(form.get('id') ?? '')
+    const context = await requireBusinessContext(business)
+    if (!id || id.length > 200) throw new Error('Pengeluaran tidak valid.')
+    const { data: previous, error: readError } = await context.supabase.from('expenses')
+      .select('synced_at,purchase_line_id').eq('business_id', business).eq('id', id).maybeSingle()
+    if (readError) throw new Error('Pengeluaran belum dapat dimuat. Coba kembali.')
+    if (!previous) return { success: true, message: 'Pengeluaran sudah tidak ada di cabang aktif.' }
+    if (previous.purchase_line_id) throw new Error('Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.')
+    if (previous.synced_at !== String(form.get('version') ?? '')) throw new Error('Pengeluaran sudah berubah. Muat ulang halaman sebelum menghapus.')
+    const writer = await expenseWriter(context), deletedAt = new Date().toISOString()
+    // Record the deletion before removing the row, so a disconnected POS can
+    // learn about it. Revert only our marker if the versioned delete fails.
+    const { error: markerError } = await writer.from('deleted_records').upsert({ business_id: business, kind: 'expense', id, deleted_at: deletedAt }, { onConflict: 'business_id,kind,id' })
+    if (markerError) throw new Error('Penghapusan belum berhasil dicatat. Silakan coba kembali.')
+    const { data, error } = await writer.from('expenses').delete().eq('business_id', business).eq('id', id).eq('synced_at', previous.synced_at).select('id')
+    if (error || !data?.length) {
+      await writer.from('deleted_records').delete().eq('business_id', business).eq('kind', 'expense').eq('id', id).eq('deleted_at', deletedAt)
+      throw new Error('Pengeluaran belum terhapus atau sudah berubah. Muat ulang halaman dan coba kembali.')
+    }
+    for (const path of ['/dashboard/expenses', '/dashboard/recap', '/dashboard']) revalidatePath(path)
+    return { success: true, message: 'Pengeluaran berhasil dihapus.' }
+  } catch (error) {
+    unstable_rethrow(error)
+    return { success: false, message: error instanceof Error ? error.message : 'Pengeluaran belum berhasil dihapus.' }
+  }
+}
+
+export async function updateExpense(form: FormData) {
+  try {
+    const business = String(form.get('business_id') ?? ''), id = String(form.get('id') ?? '')
+    const context = await requireBusinessContext(business), { supabase } = context
+    if (!id || id.length > 200) throw new Error('Pengeluaran tidak valid.')
+    const fields = validateExpense(Object.fromEntries(['scope', 'date', 'category', 'amount', 'note'].map(key => [key, form.get(key)])))
+    const { data: previous, error: readError } = await supabase.from('expenses')
+      .select('scope,date,amount,synced_at,from_drawer,purchase_line_id').eq('business_id', business).eq('id', id).maybeSingle()
+    if (readError) throw new Error('Pengeluaran belum dapat dimuat. Coba kembali.')
+    if (!previous) throw new Error('Pengeluaran tidak ditemukan di cabang aktif.')
+    if (previous.synced_at !== String(form.get('version') ?? '')) throw new Error('Pengeluaran sudah berubah. Muat ulang halaman dan buka kembali form edit.')
+    if ((previous.purchase_line_id || previous.from_drawer) && financialChange(previous, fields)) throw new Error(previous.purchase_line_id
+      ? 'Pengeluaran terkait pembelian: hanya kategori dan catatan yang dapat diedit.'
+      : 'Koreksi nominal dari laci dilakukan di aplikasi kasir pada shift asal yang masih aktif.')
+    const writer = await expenseWriter(context)
+    const { data, error } = await writer.from('expenses').update({ ...fields, note: fields.note || null, synced_at: new Date().toISOString() })
+      .eq('business_id', business).eq('id', id).eq('synced_at', previous.synced_at).select('id')
+    if (error) throw new Error('Pengeluaran belum berhasil diperbarui.')
+    if (!data?.length) throw new Error('Pengeluaran sudah berubah. Muat ulang halaman dan coba kembali.')
+    for (const path of ['/dashboard/expenses', '/dashboard/recap', '/dashboard']) revalidatePath(path)
+    return { success: true, message: 'Pengeluaran berhasil diperbarui.' }
+  } catch (error) {
+    unstable_rethrow(error)
+    return { success: false, message: error instanceof Error ? error.message : 'Pengeluaran belum berhasil diperbarui.' }
+  }
+}
 
 export async function getExpenseOptions(expectedBusiness: string): Promise<ExpenseOptions> {
   const { supabase, businessId, user } = await requireBusinessContext(expectedBusiness)

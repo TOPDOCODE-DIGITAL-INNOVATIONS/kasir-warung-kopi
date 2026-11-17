@@ -1,6 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import LoadingSpinner from '@/components/LoadingSpinner'
+import DataPanel from '@/components/DataPanel'
+import { useDataLoading } from '@/components/DataLoadingContext'
+
+import { useState, useTransition } from 'react'
 import { CalendarClock, Trash2 } from 'lucide-react'
 import { bookPeriod, describeRule, formatRange, SINCE_BEGINNING, type BookRule } from '@/lib/book-period'
 import { saveBookRule, deleteBookRule } from './actions'
@@ -19,19 +23,20 @@ export default function BookRulesClient({
   today: string
 }) {
   const [openFor, setOpenFor] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, startTransition] = useTransition()
+  const routePending = useDataLoading()
+  const [operationKey, setOperationKey] = useState('save')
   const [error, setError] = useState<string | null>(null)
 
-  async function run(fn: () => Promise<void>) {
-    setLoading(true)
+  function run(fn: () => Promise<void>, key = 'save') {
+    setOperationKey(key)
     setError(null)
-    try {
-      await fn()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
+    return new Promise<void>(resolve => {
+      startTransition(async () => {
+        try { await fn() } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+        finally { resolve() }
+      })
+    })
   }
 
   return (
@@ -49,7 +54,7 @@ export default function BookRulesClient({
 
       {error && <p className="m-4 text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</p>}
 
-      <ul className="divide-y divide-gray-100">
+      <DataPanel loading={loading || routePending} label="Memuat aturan buku..."><ul className="divide-y divide-gray-100">
         {businesses.map((b) => {
           const own = rules
             .filter((r) => r.business_id === b.id)
@@ -112,7 +117,7 @@ export default function BookRulesClient({
                     disabled={loading}
                     className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
                   >
-                    {loading ? 'Menyimpan...' : 'Simpan Aturan'}
+                    {loading && operationKey === 'save' && <LoadingSpinner className="mr-2" />}{loading && operationKey === 'save' ? 'Menyimpan...' : 'Simpan Aturan'}
                   </button>
                 </form>
               )}
@@ -132,7 +137,7 @@ export default function BookRulesClient({
                           disabled={loading}
                           onClick={() => {
                             if (confirm('Hapus aturan ini? Rekap akan dihitung ulang dengan aturan yang tersisa.')) {
-                              run(() => deleteBookRule(r.id))
+                              run(() => deleteBookRule(r.id), r.id)
                             }
                           }}
                           className="p-1 rounded hover:bg-red-50 text-red-600"
@@ -147,7 +152,7 @@ export default function BookRulesClient({
             </li>
           )
         })}
-      </ul>
+      </ul></DataPanel>
     </div>
   )
 }

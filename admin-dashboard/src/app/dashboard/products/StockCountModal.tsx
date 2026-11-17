@@ -1,5 +1,8 @@
 'use client'
 
+import LoadingSpinner from '@/components/LoadingSpinner'
+import DataPanel from '@/components/DataPanel'
+
 import { useState } from 'react'
 import AdminModal from '@/components/AdminModal'
 import { recordStockCount } from './actions'
@@ -48,7 +51,7 @@ export default function StockCountModal({ products, businessId, onClose, onSaved
   }
   return <AdminModal title={single ? 'Kelola Stok' : 'Stok Opname'} description="Isi sisa fisik atau pilih jenis penyesuaian. Semua baris disimpan sekaligus." wide pending={pending} onClose={onClose}>
     <form onSubmit={submit} className="space-y-4 p-5">
-      <fieldset disabled={pending} className="space-y-4">
+      <DataPanel loading={pending} label="Menyimpan perubahan stok..."><fieldset disabled={pending} className="space-y-4">
         {!single && <input type="search" aria-label="Cari produk opname" placeholder="Cari nama / SKU..." value={search} onChange={event => setSearch(event.target.value)} className={input} />}
         <p className="text-xs text-gray-500">Isian kosong tidak mengubah stok. Isi 0 hanya jika barang sudah habis. {selected.length} produk terisi, termasuk yang tidak terlihat pada pencarian.</p>
         {!preview ? <div className="max-h-[45vh] overflow-auto rounded-lg border border-gray-200"><table className="w-full text-left text-sm">
@@ -65,11 +68,11 @@ export default function StockCountModal({ products, businessId, onClose, onSaved
           return <tr key={product.inventoryId} className="border-t border-gray-100"><td className="p-3">{product.name}</td><td className="p-3">{modes[row.mode as keyof typeof modes]}</td><td className="p-3">{qty(product.stock)}</td><td className="p-3 font-semibold">{qty(after)}</td><td className="p-3">{delta > 0 ? '+' : ''}{qty(delta)}</td></tr>
         })}</tbody></table></div>}
         <label className="block text-sm text-gray-700">Catatan umum (opsional)<textarea rows={2} value={note} maxLength={500} onChange={event => setNote(event.target.value)} className={`${input} mt-2`} /></label>
-      </fieldset>
+      </fieldset></DataPanel>
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
       <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
         <button type="button" disabled={pending} onClick={preview ? () => setPreview(false) : onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">{preview ? 'Kembali' : 'Batal'}</button>
-        <button type="submit" disabled={pending || !selected.length} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{pending ? 'Menyimpan...' : preview ? 'Simpan Perubahan' : 'Tinjau Perubahan'}</button>
+        <button type="submit" disabled={pending || !selected.length} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : preview ? 'Simpan Perubahan' : 'Tinjau Perubahan'}</button>
       </div>
     </form>
   </AdminModal>

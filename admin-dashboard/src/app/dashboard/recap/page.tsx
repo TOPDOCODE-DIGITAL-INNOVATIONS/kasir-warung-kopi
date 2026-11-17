@@ -1,3 +1,4 @@
+import DataPanel from '@/components/DataPanel'
 import Link from 'next/link'
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { rupiah, dayKey, PAYMENT_LABELS } from '@/lib/format'
@@ -177,7 +178,7 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         {/* Laporan laba rugi */}
-        <section className="lg:col-span-3 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+        <DataPanel className="lg:col-span-3 bg-white rounded-xl border border-gray-100 shadow-sm p-5">
           <h2 className="font-bold text-gray-900 mb-4">Laporan Laba Rugi</h2>
 
           <Group title="Pemasukan">
@@ -218,10 +219,10 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
               )}
             </ul>
           )}
-        </section>
+        </DataPanel>
 
         <div className="lg:col-span-2 space-y-4">
-          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <DataPanel className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
             <h2 className="font-bold text-gray-900 mb-3">Penjualan per Metode Bayar</h2>
             {payments.length === 0 ? (
               <p className="text-sm text-gray-400">Belum ada penjualan.</p>
@@ -232,9 +233,9 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
                 ))}
               </ul>
             )}
-          </section>
+          </DataPanel>
 
-          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <DataPanel className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
             <div className="flex justify-between items-center mb-3">
               <h2 className="font-bold text-gray-900">Pengeluaran per Kategori</h2>
               <Link href={withPeriod('/dashboard/expenses')} className="text-xs text-blue-600 hover:underline print:hidden">
@@ -250,12 +251,12 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
                 ))}
               </ul>
             )}
-          </section>
+          </DataPanel>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <section className="lg:col-span-3 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <DataPanel className="lg:col-span-3 bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <h2 className="font-bold text-gray-900 px-5 pt-5 pb-3">Rincian per Hari</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -314,9 +315,9 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
               </tfoot>
             </table>
           </div>
-        </section>
+        </DataPanel>
 
-        <section className="lg:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm p-5 self-start">
+        <DataPanel className="lg:col-span-2 bg-white rounded-xl border border-gray-100 shadow-sm p-5 self-start">
           <h2 className="font-bold text-gray-900 mb-3">Produk Terlaris</h2>
           {topProducts.length === 0 ? (
             <p className="text-sm text-gray-400">Belum ada data.</p>
@@ -336,7 +337,7 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
               ))}
             </ol>
           )}
-        </section>
+        </DataPanel>
       </div>
     </div>
   )
@@ -344,11 +345,11 @@ export default async function RecapPage({ searchParams }: { searchParams: Promis
 
 function Big({ label, value, hint, tone, highlight }: { label: string; value: string; hint: string; tone: string; highlight?: boolean }) {
   return (
-    <div className={'rounded-xl border shadow-sm p-5 ' + (highlight ? 'bg-white border-green-200 ring-1 ring-green-100' : 'bg-white border-gray-100')}>
+    <DataPanel compact className={'rounded-xl border shadow-sm p-5 ' + (highlight ? 'bg-white border-green-200 ring-1 ring-green-100' : 'bg-white border-gray-100')}>
       <p className="text-sm font-medium text-gray-500">{label}</p>
       <p className={`text-2xl font-bold mt-1 truncate ${tone}`}>{value}</p>
       <p className="text-xs text-gray-400 mt-1">{hint}</p>
-    </div>
+    </DataPanel>
   )
 }
 

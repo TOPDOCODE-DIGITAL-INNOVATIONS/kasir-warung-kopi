@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useId, useState, useTransition } from 'react'
+import { useId, useState } from 'react'
+import { useDataTransition } from '@/components/DataLoadingContext'
 import { Building2, ChevronsUpDown, Loader2 } from 'lucide-react'
 import { changeBusinessContext } from './context-actions'
 
@@ -9,7 +10,7 @@ export default function BusinessContextSelect({ businesses, businessId }: {
   businesses: { id: string; name: string }[]; businessId: string | null
 }) {
   const id = useId()
-  const [pending, startTransition] = useTransition()
+  const { pending, startTransition } = useDataTransition()
   const [error, setError] = useState('')
 
   function change(value: string) {

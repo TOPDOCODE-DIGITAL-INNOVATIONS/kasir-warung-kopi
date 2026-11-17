@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/utils/supabase/admin'
+import { financialChange, sameExpense, validateExpense } from '@/app/dashboard/expenses/edit-domain'
 
 // Sama dengan region database Supabase (Sydney); lihat src/app/layout.tsx.
 export const preferredRegion = 'syd1'
@@ -299,6 +300,7 @@ export async function POST(request: Request) {
 
   const transactions = list(body.transactions)
   const expenses = list(body.expenses)
+  const knownDeletedExpenses = new Set<string>()
   const legacyProducts = list(body.products)
   const shifts = list(body.shifts)
   if (body.shift && typeof body.shift === 'object' && typeof (body.shift as Row).id === 'string') {
@@ -362,7 +364,31 @@ export async function POST(request: Request) {
     }
 
     if (expenses.length) {
-      const rows = expenses.map((e) => ({
+      const incoming = new Map(expenses.map(e => [String(e.id), e]))
+      const existing = new Map<string, Row>()
+      for (let from = 0; from < expenses.length; from += 500) {
+        const ids = expenses.slice(from, from + 500).map(e => e.id)
+        const { data, error } = await supabase.from('expenses').select('*').eq('business_id', businessId).in('id', ids)
+        if (error) throw error
+        for (const row of data ?? []) existing.set(String(row.id), row)
+        const { data: tombstones, error: tombError } = await supabase.from('deleted_records').select('id')
+          .eq('business_id', businessId).eq('kind', 'expense').in('id', ids)
+        if (tombError) throw tombError
+        for (const row of tombstones ?? []) knownDeletedExpenses.add(String(row.id))
+      }
+      const conflicts: Row[] = []
+      for (const e of expenses) {
+        if (knownDeletedExpenses.has(String(e.id))) continue
+        const previous = existing.get(String(e.id))
+        if (!previous || !e.editBase || sameExpense(previous, e)) continue
+        const base = e.editBase as Row
+        if (!sameExpense(previous, base) || (e.serverVersion && e.serverVersion !== previous.synced_at)) conflicts.push(rowToExpense(previous))
+        if (previous.purchase_line_id && financialChange(previous, e)) return json({ success: false, error: 'Pengeluaran terkait pembelian: hanya kategori dan catatan yang dapat diedit.' }, 400)
+        if (previous.from_drawer && (previous.date !== e.date || previous.scope !== e.scope)) return json({ success: false, error: 'Tanggal dan jenis pengeluaran laci tetap mengikuti shift asal.' }, 400)
+        try { validateExpense(e) } catch (error) { return json({ success: false, error: error instanceof Error ? error.message : 'Isian pengeluaran tidak valid.' }, 400) }
+      }
+      if (conflicts.length) return json({ success: false, error: 'Pengeluaran telah berubah. Muat data terbaru sebelum mengedit ulang.', expenseConflicts: conflicts }, 409)
+      const rows = expenses.filter(e => !knownDeletedExpenses.has(String(e.id))).map((e) => ({
         business_id: businessId,
         id: e.id,
         scope: e.scope === 'monthly' ? 'monthly' : 'daily',
@@ -376,10 +402,32 @@ export async function POST(request: Request) {
         created_at: ts(e.createdAt),
         synced_at: now,
       }))
-      await upsertTolerant(supabase, 'expenses', rows)
+      const fresh = rows.filter(row => !existing.has(String(row.id)))
+      if (fresh.length) {
+        const { error } = await supabase.from('expenses').upsert(fresh, { onConflict: 'business_id,id', ignoreDuplicates: true })
+        if (error) throw error
+      }
+      for (const row of rows) {
+        const previous = existing.get(String(row.id)), source = incoming.get(String(row.id))!
+        // A retry or an older POS without an explicit edit must not undo an admin correction.
+        if (!previous || !source.editBase || sameExpense(previous, source)) continue
+        const fields = validateExpense(source)
+        const { data, error } = await supabase.from('expenses').update({ ...fields, note: fields.note || null, synced_at: now })
+          .eq('business_id', businessId).eq('id', row.id).eq('synced_at', previous.synced_at).select('id')
+        if (error) throw error
+        if (!data?.length) {
+          const { data: latest, error: readError } = await supabase.from('expenses').select('*').eq('business_id', businessId).eq('id', row.id).maybeSingle()
+          if (readError) throw readError
+          return json({ success: false, error: 'Pengeluaran berubah saat disimpan. Periksa data terbaru.', expenseConflicts: latest ? [rowToExpense(latest)] : [] }, 409)
+        }
+      }
     }
 
     if (deletedExpenseIds.length) {
+      const { data: linked, error: linkedError } = await supabase.from('expenses').select('id,purchase_line_id')
+        .eq('business_id', businessId).in('id', deletedExpenseIds)
+      if (linkedError) throw linkedError
+      if (linked?.some(e => e.purchase_line_id)) return json({ success: false, error: 'Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.' }, 400)
       const { error } = await supabase
         .from('expenses')
         .delete()
@@ -465,6 +513,7 @@ export async function POST(request: Request) {
       data: {
         transactions: transactions.length,
         expenses: expenses.length,
+        deletedExpenseIds: [...knownDeletedExpenses],
         deletedExpenses: deletedExpenseIds.length,
         shifts: shifts.length,
         draftsAccepted,
@@ -531,6 +580,13 @@ function rowToExpense(r: Row): Row {
     shiftId: r.shift_id,
     createdBy: r.created_by ?? '',
     createdAt: ts(r.created_at) ?? ts(r.synced_at),
+    serverVersion: r.synced_at,
+    purchaseLineId: r.purchase_line_id,
+    productName: r.product_name,
+    quantity: r.quantity == null ? undefined : num(r.quantity),
+    unitLabel: r.unit_label,
+    supplierName: r.supplier_name,
+    entryGroupId: r.entry_group_id,
   })
 }
 

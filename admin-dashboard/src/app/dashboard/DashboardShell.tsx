@@ -5,6 +5,7 @@ import { Menu, Store, X } from 'lucide-react'
 import Nav from './Nav'
 import BusinessContextSelect from './BusinessContextSelect'
 import UserMenu from './UserMenu'
+import { DataLoadingProvider } from '@/components/DataLoadingContext'
 
 function Brand() {
   return <div className="flex h-16 shrink-0 items-center gap-3 border-b border-gray-100 px-5">
@@ -15,9 +16,9 @@ function Brand() {
   </div>
 }
 
-export default function DashboardShell({ businesses, businessId, name, email, children }: {
+export default function DashboardShell({ businesses, businessId, name, email, roleLabel, children }: {
   businesses: { id: string; name: string }[]; businessId: string | null
-  name: string; email: string; children: ReactNode
+  name: string; email: string; roleLabel: string; children: ReactNode
 }) {
   const drawer = useRef<HTMLDialogElement>(null)
 
@@ -28,7 +29,9 @@ export default function DashboardShell({ businesses, businessId, name, email, ch
     return () => desktop.removeEventListener('change', closeOnDesktop)
   }, [])
 
-  return <div className="flex h-dvh w-full overflow-hidden bg-gray-50 print:block print:h-auto print:overflow-visible">
+  // Keep focus/keyboard scroll inside the content on mobile. Unlike hidden,
+  // clip does not let these shell containers scroll the header out of view.
+  return <DataLoadingProvider><div className="fixed inset-0 flex min-h-0 w-full overflow-clip bg-gray-50 md:relative md:inset-auto md:h-dvh print:static print:block print:h-auto print:overflow-visible">
     <aside aria-label="Sidebar" className="print:hidden hidden h-full w-64 shrink-0 flex-col overflow-hidden border-r border-gray-200 bg-linear-to-b from-white to-[#f8f9ff] md:flex">
       <Brand />
       <Nav />
@@ -48,18 +51,18 @@ export default function DashboardShell({ businesses, businessId, name, email, ch
       </div>
     </dialog>
 
-    <div className="flex min-w-0 flex-1 flex-col overflow-hidden print:block print:overflow-visible">
-      <header className="print:hidden relative z-20 flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 md:px-8">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-clip print:block print:overflow-visible">
+      <header className="print:hidden sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-gray-200 bg-white px-4 md:px-8">
         <button type="button" aria-label="Buka navigasi" aria-haspopup="dialog" onClick={() => drawer.current?.showModal()}
           className="shrink-0 rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 md:hidden">
           <Menu aria-hidden="true" className="h-5 w-5" />
         </button>
         <div className="ml-auto flex min-w-0 items-center gap-3">
           <div className="w-40 min-w-0 sm:w-52"><BusinessContextSelect businesses={businesses} businessId={businessId} /></div>
-          <UserMenu name={name} email={email} />
+          <UserMenu name={name} email={email} roleLabel={roleLabel} />
         </div>
       </header>
       {children}
     </div>
-  </div>
+  </div></DataLoadingProvider>
 }

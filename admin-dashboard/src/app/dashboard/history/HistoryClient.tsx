@@ -1,6 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import LoadingSpinner from '@/components/LoadingSpinner'
+import DataPanel from '@/components/DataPanel'
+import { useDataLoading } from '@/components/DataLoadingContext'
+
+import { useState, useTransition } from 'react'
 import { Edit, Trash2 } from 'lucide-react'
 import { rupiah } from '@/lib/format'
 import { formatMoney, parseMoney } from '@/lib/money'
@@ -78,7 +82,9 @@ export default function HistoryClient({
 }) {
   const [period, setPeriod] = useState<'day' | 'month'>('month')
   const [editing, setEditing] = useState<Entry | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, startTransition] = useTransition()
+  const routePending = useDataLoading()
+  const [operationKey, setOperationKey] = useState('save')
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
   const [formKey, setFormKey] = useState(0)
@@ -87,17 +93,16 @@ export default function HistoryClient({
 
   const activePeriod = editing?.period ?? period
 
-  async function run(fn: () => Promise<void>) {
-    setLoading(true)
+  function run(fn: () => Promise<void>, key = 'save') {
+    setOperationKey(key)
     setError(null)
     setSaved(null)
-    try {
-      await fn()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
+    return new Promise<void>(resolve => {
+      startTransition(async () => {
+        try { await fn() } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+        finally { resolve() }
+      })
+    })
   }
 
   if (businesses.length === 0) {
@@ -238,7 +243,7 @@ export default function HistoryClient({
               disabled={loading}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
             >
-              {loading ? 'Menyimpan...' : 'Simpan'}
+              {loading && operationKey === 'save' && <LoadingSpinner className="mr-2" />}{loading && operationKey === 'save' ? 'Menyimpan...' : 'Simpan'}
             </button>
           </div>
         </form>
@@ -248,7 +253,7 @@ export default function HistoryClient({
         <div className="p-4 md:p-6 border-b border-gray-100">
           <h2 className="font-semibold text-lg text-gray-900">Data Lama Tersimpan</h2>
         </div>
-        <div className="overflow-x-auto max-h-[32rem]">
+        <DataPanel loading={loading || routePending} label="Memuat data lama..."><div className="overflow-x-auto max-h-[32rem]">
           <table className="w-full text-left text-sm text-gray-600">
             <thead className="bg-gray-50 text-xs uppercase text-gray-700 sticky top-0">
               <tr>
@@ -296,7 +301,7 @@ export default function HistoryClient({
                         title="Hapus"
                         disabled={loading}
                         onClick={() => {
-                          if (confirm(`Hapus data ${formatPeriod(e)}?`)) run(() => deleteSummary(e.id))
+                          if (confirm(`Hapus data ${formatPeriod(e)}?`)) run(() => deleteSummary(e.id), e.id)
                         }}
                         className="p-2 rounded hover:bg-red-50 text-red-600"
                       >
@@ -308,7 +313,7 @@ export default function HistoryClient({
               )}
             </tbody>
           </table>
-        </div>
+        </div></DataPanel>
       </div>
     </div>
   )

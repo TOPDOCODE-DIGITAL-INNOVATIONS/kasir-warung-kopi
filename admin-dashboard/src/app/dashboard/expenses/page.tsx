@@ -1,4 +1,5 @@
-import Link from 'next/link'
+import DataPanel from '@/components/DataPanel'
+import Link from '@/components/LoadingLink'
 import { Wallet, CalendarDays, CalendarRange, Archive } from 'lucide-react'
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { rupiah, formatDateTime } from '@/lib/format'
@@ -6,6 +7,8 @@ import { anchorDate, formatRange } from '@/lib/book-period'
 import { resolvePeriod, fetchAll } from '@/lib/report-period'
 import PeriodSelect from '../PeriodSelect'
 import ExpenseEntry from './ExpenseEntry'
+import ExpenseActions from './ExpenseActions'
+import ExpenseExport from './ExpenseExport'
 
 type Exp = {
   id: string
@@ -22,6 +25,9 @@ type Exp = {
   unit_label: string | null
   entry_group_id: string | null
   supplier_name: string | null
+  synced_at: string
+  purchase_line_id: string | null
+  shift_id: string | null
   businesses: { name: string } | null
 }
 
@@ -44,11 +50,12 @@ export default async function ExpensesPage({
   const res = await fetchAll<Exp>((from, to) => {
     let q = supabase
       .from('expenses')
-      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, businesses(name)')
+      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, synced_at, purchase_line_id, shift_id, businesses(name)')
       .gte('date', start.slice(0, 7))
       .lte('date', end)
       .order('date', { ascending: false })
       .order('created_at', { ascending: false })
+      .order('id')
       .range(from, to)
     q = q.eq('business_id', scopedBusinessId)
     return q
@@ -105,6 +112,10 @@ export default async function ExpensesPage({
         </div>
         <div className="flex flex-wrap gap-2">
           <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} />
+          <ExpenseExport unavailable={!!res.error || !businessId} report={{ branchName: businesses[0]?.name ?? '', period: formatRange(start, end), category: cat,
+            rows: shown.map(e => ({ id: e.id, scope: e.scope, date: e.date, category: e.category, note: e.note, amount: e.amount,
+              fromDrawer: e.from_drawer, createdBy: e.created_by, createdAt: e.created_at, productName: e.product_name, quantity: e.quantity,
+              unitLabel: e.unit_label, supplierName: e.supplier_name, entryGroupId: e.entry_group_id, shiftId: e.shift_id })) }} />
           <PeriodSelect options={options} value={`${start}_${end}`} />
         </div>
       </div>
@@ -119,7 +130,7 @@ export default async function ExpensesPage({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 self-start">
+        <DataPanel className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 self-start">
           <h2 className="font-bold text-gray-900 mb-1">Per Kategori</h2>
           <p className="text-xs text-gray-400 mb-4">Klik kategori untuk menyaring daftar.</p>
           {categories.length === 0 ? (
@@ -152,7 +163,7 @@ export default async function ExpensesPage({
               })}
             </ul>
           )}
-        </section>
+        </DataPanel>
 
         <section className="lg:col-span-2 space-y-3">
           {cat && (
@@ -166,12 +177,12 @@ export default async function ExpensesPage({
             </div>
           )}
           {groupList.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-sm text-gray-500">
+            <DataPanel className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-sm text-gray-500">
               Belum ada pengeluaran pada periode ini.
-            </div>
+            </DataPanel>
           ) : (
             groupList.map(([key, g]) => (
-              <div key={key} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <DataPanel key={key} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className={'flex justify-between items-center gap-3 px-4 py-2.5 border-b border-gray-100 ' + (key[0] === 'M' ? 'bg-purple-50/60' : 'bg-gray-50')}>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{g.title}</p>
@@ -201,11 +212,14 @@ export default async function ExpensesPage({
                             .join(' · ')}
                         </p>
                       </div>
-                      <span className="text-sm font-semibold text-gray-900 whitespace-nowrap">{rupiah(e.amount)}</span>
+                      <div className="flex shrink-0 items-start gap-2"><span className="pt-2 text-sm font-semibold text-gray-900 whitespace-nowrap">{rupiah(e.amount)}</span>
+                        {businessId && <ExpenseActions expense={{ id: e.id, businessId, scope: e.scope === 'monthly' ? 'monthly' : 'daily', date: e.date, category: e.category ?? '', amount: n(e.amount), note: e.note ?? '', version: e.synced_at, fromDrawer: e.from_drawer, purchaseLinked: !!e.purchase_line_id,
+                          financialLock: e.purchase_line_id ? 'Terkait pembelian dan stok. Kategori serta catatan dapat diperbaiki; jumlah, nominal, dan tanggal pembelian tetap dipertahankan.' : e.from_drawer ? 'Dari laci kasir. Kategori dan catatan dapat diperbaiki di sini; nominal dikoreksi melalui kasir pada shift asal yang masih aktif.' : null }} />}
+                      </div>
                     </li>
                   ))}
                 </ul>
-              </div>
+              </DataPanel>
             ))
           )}
         </section>
@@ -216,7 +230,7 @@ export default async function ExpensesPage({
 
 function Stat({ icon: Icon, label, value, hint, tone }: { icon: typeof Wallet; label: string; value: string; hint: string; tone: string }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
+    <DataPanel compact className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
       <div className="flex items-center gap-2 mb-2">
         <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${tone}`}>
           <Icon className="w-4 h-4" />
@@ -225,6 +239,6 @@ function Stat({ icon: Icon, label, value, hint, tone }: { icon: typeof Wallet; l
       </div>
       <p className="text-lg font-bold text-gray-900 truncate">{value}</p>
       <p className="text-xs text-gray-400">{hint}</p>
-    </div>
+    </DataPanel>
   )
 }
