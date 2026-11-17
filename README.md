@@ -40,6 +40,17 @@ Repo ini dideploy sebagai **satu project Vercel dengan 2 service**
 baru. Rancangan role, batas fitur dan prosedur rollout ada di
 [Akun platform dan profil kasir](docs/platform-accounts.md).
 
+### Database dev & prod
+
+| File        | Database | Dipakai oleh                                              |
+|-------------|----------|-----------------------------------------------------------|
+| `.env`      | DEV      | `npm run dev` (dashboard & kasir), `npm run db:status/migrate/test` |
+| `.env.prod` | PROD     | hanya `npm run db:status:prod` / `npm run db:migrate:prod` |
+
+Alur rilis: `npm run db:migrate` + `npm run db:test` di dev → merge ke `main` →
+`npm run db:migrate:prod` (minta konfirmasi ref project) → deploy. SQL tests tidak
+dijalankan di prod. Aplikasi production di Vercel memakai env dari Vercel, bukan file di atas.
+
 ## 2. Deploy ke Vercel
 
 1. Push repo ini ke GitHub/GitLab.
