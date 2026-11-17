@@ -77,7 +77,7 @@ function request(fixture, businessId = 'a') {
     const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } }).outputText
     const getContext = async () => ({ supabase: fixture.db, businessId, businesses: fixture.tables.businesses, user: { id: 'owner' } })
     vm.runInNewContext(code, { module: target, exports: target.exports, FormData, Request, Response, Headers, URL, URLSearchParams, console: { error() {}, warn() {} }, require: name => {
-      if (name === '@/lib/business-context') return { getBusinessContext: getContext, requireBusinessContext: async expected => { if (!businessId || expected !== businessId) throw new Error('Cabang aktif sudah berubah.'); return getContext() }, EMPTY_BUSINESS_ID: '00000000-0000-0000-0000-000000000000' }
+      if (name === '@/lib/business-context') return { getBusinessContext: getContext, requireBusinessContext: async expected => { if (!businessId || (expected !== undefined && expected !== businessId)) throw new Error('Cabang aktif sudah berubah.'); return getContext() }, EMPTY_BUSINESS_ID: '00000000-0000-0000-0000-000000000000' }
       if (name === 'next/cache') return { revalidatePath() {} }
       if (name === 'next/navigation') return { unstable_rethrow() {} }
       if (name === '@/utils/supabase/admin') return { createAdminClient: () => fixture.db }
@@ -290,4 +290,70 @@ test('Overview keeps all-branch totals and recent transactions independently of 
   assert.equal(filtered.summary.sales, 20000)
   assert.equal(filtered.summary.recent.length, 1)
   assert.equal(filtered.summary.recent[0].business_id, 'b')
+})
+
+function productEditFixture(stock = -1) {
+  const fixture = database()
+  const businessId = 'ea200000-0000-0000-0000-000000000001'
+  const inventoryId = 'ea300000-0000-0000-0000-000000000001'
+  fixture.tables.businesses = [{ ...fixture.tables.businesses[0], id: businessId, pos_config: structuredClone(config) }]
+  fixture.tables.products = [{ ...fixture.tables.products[0], business_id: businessId, owner_id: 'owner', inventory_id: inventoryId,
+    stock, updated_at: '2026-11-17T00:00:00Z', image_url: 'https://images.test/original.webp', raw: { options: [{ name: 'Suhu' }] } }]
+  const actions = request(fixture, businessId)('app/dashboard/products/actions.ts')
+  const form = (overrides = {}) => {
+    const data = new FormData()
+    for (const [key, value] of Object.entries({ inventory_id: inventoryId, business_id: businessId, operation_id: 'ea400000-0000-0000-0000-000000000001',
+      version: '2026-11-17T00:00:00Z', name: 'Latte', can_sell: 'on', track_stock: 'on', price: '23000', initial_quantity: '25.125', reason: 'Hasil hitung awal', ...overrides })) data.set(key, value)
+    return data
+  }
+  return { ...fixture, actions, form }
+}
+
+test('merged product edit initializes tracked stock and preserves photo, options and retry fingerprint', async () => {
+  const f = productEditFixture()
+  const data = f.form()
+  const first = await f.actions.saveProduct(data)
+  assert.equal(first.success, true, first.message)
+  const p = f.tables.products[0], event = p.raw._inventory.events[0]
+  assert.equal(p.stock, 25.125)
+  assert.equal(p.stock_mode, 'self')
+  assert.equal(p.image_url, 'https://images.test/original.webp')
+  assert.equal(p.raw.options[0].name, 'Suhu')
+  assert.equal(event.kind, 'tracking')
+  assert.equal(event.quantity, 25.125)
+  assert.equal(event.before, -1)
+  assert.equal(event.after, 25.125)
+  assert.equal(event.reason, 'Hasil hitung awal')
+  assert.match(event.fingerprint, /^[\da-f]{64}$/)
+  // Retrying after the product version changes must not reapply initial stock.
+  p.updated_at = '2026-11-17T01:00:00Z'
+  assert.equal((await f.actions.saveProduct(data)).success, true)
+  assert.equal(p.stock, 25.125)
+  assert.equal(p.raw._inventory.events.length, 1)
+  const conflicting = await f.actions.saveProduct(f.form({ image_intent: 'remove' }))
+  assert.equal(conflicting.success, false)
+  assert.match(conflicting.message, /data berbeda/)
+  assert.equal(p.image_url, 'https://images.test/original.webp')
+})
+
+test('initial stock is ignored for already tracked products and tracking can still be disabled', async () => {
+  const f = productEditFixture(7)
+  assert.equal((await f.actions.saveProduct(f.form({ initial_quantity: '999' }))).success, true)
+  assert.equal(f.tables.products[0].stock, 7)
+  assert.equal(f.tables.products[0].raw._inventory.events[0].quantity, 0)
+  const off = f.form({ operation_id: 'ea400000-0000-0000-0000-000000000002' })
+  off.delete('track_stock')
+  assert.equal((await f.actions.saveProduct(off)).success, true)
+  assert.equal(f.tables.products[0].stock, -1)
+  assert.equal(f.tables.products[0].stock_mode, 'none')
+})
+
+test('invalid initial stock and stale product versions never write stock or history', async () => {
+  for (const overrides of [{ initial_quantity: '-1' }, { initial_quantity: 'NaN' }, { initial_quantity: '1000000000' }, { version: 'stale' }]) {
+    const f = productEditFixture()
+    const original = JSON.stringify(f.tables.products)
+    assert.equal((await f.actions.saveProduct(f.form(overrides))).success, false)
+    assert.equal(JSON.stringify(f.tables.products), original)
+    assert.ok(f.queries.every(query => query.op !== 'update'))
+  }
 })

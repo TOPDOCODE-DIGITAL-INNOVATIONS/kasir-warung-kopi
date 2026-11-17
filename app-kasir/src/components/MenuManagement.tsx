@@ -36,16 +36,16 @@ export const MenuManagement: React.FC = () => {
     categoryId: string;
     price: number;
     costPrice: number;
-    stock: number;
+    stock: string;
     isAvailable: boolean;
     description: string;
     options: ProductOption[];
   }>({
     name: '',
-    categoryId: 'kopi',
+    categoryId: 'coffee',
     price: 10000,
     costPrice: 5000,
-    stock: 100,
+    stock: '-1',
     isAvailable: true,
     description: '',
     options: [],
@@ -53,20 +53,21 @@ export const MenuManagement: React.FC = () => {
 
   const handleOpenAddModal = () => {
     setEditingProduct(null);
+    const defaultCat = categories.find((c) => c.id !== 'all')?.id || 'coffee';
     setFormData({
       name: '',
-      categoryId: 'kopi',
-      price: 12000,
+      categoryId: defaultCat,
+      price: 15000,
       costPrice: 5000,
-      stock: 100,
+      stock: '-1',
       isAvailable: true,
       description: '',
       options: [
         {
           name: 'Suhu',
           choices: [
-            { label: 'Es / Iced', extraPrice: 0 },
-            { label: 'Panas / Hot', extraPrice: 0 },
+            { label: 'Ice', extraPrice: 0 },
+            { label: 'Hot', extraPrice: 0 },
           ],
         },
       ],
@@ -81,7 +82,7 @@ export const MenuManagement: React.FC = () => {
       categoryId: product.categoryId,
       price: product.price,
       costPrice: product.costPrice || 0,
-      stock: product.stock,
+      stock: String(product.stock),
       isAvailable: product.isAvailable,
       description: product.description || '',
       options: product.options ? [...product.options] : [],
@@ -100,6 +101,9 @@ export const MenuManagement: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) return;
+    const rawStock = formData.stock.trim();
+    const parsedStock = rawStock === '' || rawStock === '-' ? -1 : Number(rawStock);
+    const finalStock = Number.isNaN(parsedStock) || parsedStock < 0 ? -1 : Math.trunc(parsedStock);
 
     if (editingProduct) {
       // Update existing
@@ -111,7 +115,7 @@ export const MenuManagement: React.FC = () => {
               categoryId: formData.categoryId,
               price: Number(formData.price),
               costPrice: Number(formData.costPrice),
-              stock: Number(formData.stock),
+              stock: finalStock,
               isAvailable: formData.isAvailable,
               description: formData.description.trim() || undefined,
               options: formData.options,
@@ -128,7 +132,7 @@ export const MenuManagement: React.FC = () => {
         categoryId: formData.categoryId,
         price: Number(formData.price),
         costPrice: Number(formData.costPrice),
-        stock: Number(formData.stock),
+        stock: finalStock,
         isAvailable: formData.isAvailable,
         description: formData.description.trim() || undefined,
         options: formData.options,
@@ -341,11 +345,27 @@ export const MenuManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-[#3E2723] block mb-1">Stok Porsi (-1 = Unlim)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-[#3E2723]">Stok Porsi (-1 = Unlim)</label>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, stock: '-1' })}
+                      className="text-[10px] font-bold text-amber-800 hover:underline"
+                    >
+                      Set Unlimited (-1)
+                    </button>
+                  </div>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="-1 untuk Unlimited"
                     value={formData.stock}
-                    onChange={(e) => setFormData({ ...formData, stock: Number(e.target.value) })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (/^-?\d*$/.test(val)) {
+                        setFormData({ ...formData, stock: val });
+                      }
+                    }}
                     className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-2 text-xs focus:outline-none focus:border-[#3E2723]"
                   />
                 </div>

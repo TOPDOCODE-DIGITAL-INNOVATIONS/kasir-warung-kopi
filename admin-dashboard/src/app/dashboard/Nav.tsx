@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup, Users, FileBarChart } from 'lucide-react'
+import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup, Users, FileBarChart, PiggyBank } from 'lucide-react'
 
 const LINKS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/transactions', label: 'Transaksi', icon: Receipt },
   { href: '/dashboard/recap', label: 'Rekap Keuangan', icon: FileBarChart },
+  { href: '/dashboard/capital', label: 'Modal & Balik Modal', icon: PiggyBank },
   { href: '/dashboard/expenses', label: 'Pengeluaran', icon: Wallet },
   { href: '/dashboard/history', label: 'Data Lama & Tutup Buku', icon: History },
   { href: '/dashboard/products', label: 'Produk', icon: Package },
