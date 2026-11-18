@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/utils/supabase/admin'
 import { financialChange, sameExpense, validateExpense } from '@/app/dashboard/expenses/edit-domain'
+import { expenseNoteSuggestions, isExpenseQuantity, type ExpensePurchaseCatalog } from '../../../../../shared/expense-products'
 
 // Sama dengan region database Supabase (Sydney); lihat src/app/layout.tsx.
 export const preferredRegion = 'syd1'
@@ -31,6 +32,8 @@ const PULL_PAGE = 1000
 const INITIAL_TX_DAYS = 31
 const INITIAL_EXPENSE_DAYS = 62
 const INITIAL_SHIFT_DAYS = 14
+const PURCHASE_BATCH_SIZE = 100
+const OFFLINE_PRODUCT_LIMIT = 30
 
 type Row = Record<string, unknown>
 
@@ -55,7 +58,7 @@ export function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
 }
 
-type Business = { id: string; pos_config: Row | null; pos_config_updated_at: string | null }
+type Business = { id: string; owner_id: string; pos_config: Row | null; pos_config_updated_at: string | null }
 
 async function authenticate(
   request: Request
@@ -75,7 +78,7 @@ async function authenticate(
 
   const { data: business, error } = await supabase
     .from('businesses')
-    .select('id, pos_config, pos_config_updated_at')
+    .select('id, owner_id, pos_config, pos_config_updated_at')
     .eq('sync_token', token)
     .maybeSingle()
   if (error) {
@@ -84,6 +87,53 @@ async function authenticate(
   }
   if (!business) return { error: json({ success: false, error: 'Token sync tidak valid' }, 401) }
   return { supabase, business: business as Business }
+}
+
+async function purchaseFormOptions(supabase: SupabaseClient, business: Business) {
+  const suppliers: NonNullable<ExpensePurchaseCatalog['suppliers']> = []
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await supabase.from('suppliers').select('id,name')
+      .eq('owner_id', business.owner_id).eq('is_active', true).order('name').order('id').range(offset, offset + 499)
+    if (error) throw error
+    suppliers.push(...data)
+    if (data.length < 500) break
+  }
+  const { data, error } = await supabase.from('expenses').select('note')
+    .eq('business_id', business.id).is('product_id', null).not('note', 'is', null)
+    .order('created_at', { ascending: false, nullsFirst: false }).order('id').limit(300)
+  if (error) throw error
+  return { suppliers, notes: expenseNoteSuggestions(data.map(expense => expense.note), '', 100) }
+}
+
+async function expensePurchaseCatalog(supabase: SupabaseClient, business: Business, term: string, limit: number): Promise<ExpensePurchaseCatalog> {
+  const businessId = business.id
+  let query = supabase.from('products').select('inventory_id,name,stock,base_unit:units!products_base_unit_id_fkey(code)')
+    .eq('business_id', businessId).eq('is_active', true).eq('can_buy', true)
+    .order('name').order('inventory_id').limit(limit)
+  if (term) query = query.ilike('name', `%${term.replace(/[\\%_]/g, '\\$&')}%`)
+  const [{ data: products, error }, options] = await Promise.all([
+    query,
+    term ? undefined : purchaseFormOptions(supabase, business),
+  ])
+  if (error) throw error
+  if (!products.length) return { businessId, products: [], ...options }
+  const unitsByProduct = new Map<string, ExpensePurchaseCatalog['products'][number]['units']>()
+  for (let offset = 0; ; offset += 500) {
+    const { data: units, error } = await supabase.from('item_units').select('id,product_id,label,factor_to_base')
+      .in('product_id', products.map(product => product.inventory_id)).eq('is_active', true).order('id').range(offset, offset + 499)
+    if (error) throw error
+    for (const unit of units) {
+      const options = unitsByProduct.get(unit.product_id) ?? []
+      options.push({ id: unit.id, label: unit.label, factor: Number(unit.factor_to_base) })
+      unitsByProduct.set(unit.product_id, options)
+    }
+    if (units.length < 500) break
+  }
+  return { businessId, ...options, products: products.map(product => ({
+    id: product.inventory_id, name: product.name, stock: Number(product.stock),
+    unitCode: (product.base_unit as unknown as { code?: string } | null)?.code ?? 'pcs',
+    units: unitsByProduct.get(product.inventory_id) ?? [],
+  })) }
 }
 
 /** Data master yang dibagi ke semua perangkat kasir dalam satu cabang. */
@@ -102,7 +152,7 @@ async function reconcileProductConfig(supabase: SupabaseClient, businessId: stri
   const existing = new Map<string, Row>()
   for (let start = 0; start < incoming.length; start += 500) {
     const { data, error } = await supabase.from('products')
-      .select('id,name,price,cost_price,stock,category_id,description,is_available,is_active,can_sell,pos_sync_enabled')
+      .select('id,name,price,cost_price,stock,category_id,description,is_available,is_active,can_sell,pos_sync_enabled,image_url')
       .eq('business_id', businessId).in('id', incoming.slice(start, start + 500).map(p => String(p.id)))
     if (error) throw error
     for (const p of data ?? []) existing.set(String(p.id), p)
@@ -113,6 +163,12 @@ async function reconcileProductConfig(supabase: SupabaseClient, businessId: stri
     delete p._inventory
     const stored = existing.get(String(p.id))
     if (stored && (!stored.is_active || !stored.can_sell)) continue
+    // Admin owns the photo; stale POS configs cannot restore a removed/replaced image.
+    if (stored) {
+      p.stock = num(stored.stock)
+      if (typeof stored.image_url === 'string' && stored.image_url) p.imageUrl = stored.image_url
+      else delete p.imageUrl
+    }
     products.set(String(p.id), stored?.pos_sync_enabled === false ? {
       ...p, name: stored.name, price: num(stored.price), costPrice: stored.cost_price === null ? undefined : num(stored.cost_price),
       stock: num(stored.stock), categoryId: stored.category_id || 'uncategorized',
@@ -173,6 +229,18 @@ async function mirrorProducts(supabase: SupabaseClient, businessId: string, prod
     .eq('pos_sync_enabled', true)
     .lt('synced_at', now)
   if (delError) throw delError
+}
+
+async function fetchSaleStocks(supabase: SupabaseClient, businessId: string) {
+  const stocks: { id: string; stock: number }[] = []
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await supabase.from('products').select('id,stock')
+      .eq('business_id', businessId).eq('can_sell', true).eq('is_active', true)
+      .order('id').range(offset, offset + 499)
+    if (error) throw error
+    stocks.push(...data.map(row => ({ id: String(row.id), stock: Number(row.stock) })))
+    if (data.length < 500) return stocks
+  }
 }
 
 /**
@@ -261,7 +329,24 @@ async function upsertTolerant(supabase: SupabaseClient, table: string, rows: Row
       return
     }
     const missing = error.code === 'PGRST204' ? /'([^']+)' column/.exec(error.message)?.[1] : undefined
-    if (missing === 'edit_history') throw new Error('Riwayat koreksi belum dapat disimpan. Jalankan migration database terbaru sebelum mengulangi sync.')
+    if (missing === 'pos_stock_applied' && table === 'transactions') {
+      // An older database lacks the trigger that protects revisions from stale receipts.
+      const restored = current.map(({ pos_stock_applied: ignored, ...row }) => {
+        void ignored
+        return row
+      })
+      const unedited = restored.filter(row => row.edit_history == null).map(({ edit_history: ignored, ...row }) => {
+        void ignored
+        return row
+      })
+      const corrected = restored.filter(row => row.edit_history != null)
+      if (unedited.length) await upsertTolerant(supabase, table, unedited)
+      if (corrected.length) await upsertTolerant(supabase, table, corrected)
+      return
+    }
+    if (missing === 'edit_history' && current.some(row => row.edit_history != null)) {
+      throw new Error('Riwayat koreksi belum dapat disimpan. Jalankan migration database terbaru sebelum mengulangi sync.')
+    }
     if (!missing || dropped.includes(missing)) throw error
     dropped.push(missing)
     current = current.map((r) => {
@@ -288,13 +373,19 @@ export async function POST(request: Request) {
   } catch {
     return json({ success: false, error: 'Body harus JSON' }, 400)
   }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ success: false, error: 'Body harus objek JSON' }, 400)
 
   const businessId = business.id
   const deviceCode = str(body.deviceCode)
   const now = new Date().toISOString()
 
   const transactions = list(body.transactions)
+  const stockEdits = Array.isArray(body.stockEdits) ? body.stockEdits : []
   const expenses = list(body.expenses)
+  const productExpenses = list(body.productExpenses)
+  if (productExpenses.length > PURCHASE_BATCH_SIZE) {
+    return json({ success: false, error: 'Maksimal 100 item pembelian per pengiriman.' }, 413)
+  }
   const knownDeletedExpenses = new Set<string>()
   const legacyProducts = list(body.products)
   const shifts = list(body.shifts)
@@ -313,11 +404,18 @@ export async function POST(request: Request) {
   const editedAt = ts(body.configEditedAt)
   const configEditedAt = editedAt && editedAt > now ? now : editedAt
 
+  if (stockEdits.length > 500) {
+    return json({ success: false, error: 'Maksimal 500 penyesuaian stok per pengiriman.' }, 413)
+  }
   if ([transactions, expenses, legacyProducts, shifts, deletedExpenseIds, drafts, deletedDraftIds].some((a) => a.length > MAX_ROWS)) {
     return json({ success: false, error: `Maksimal ${MAX_ROWS} baris per jenis data` }, 413)
   }
 
   try {
+    if (stockEdits.length) {
+      const { error } = await supabase.rpc('record_pos_stock_edits', { p_business: businessId, p_edits: stockEdits })
+      if (error) throw error
+    }
     if (config) config = await reconcileProductConfig(supabase, businessId, config)
     if (transactions.length) {
       const rows = transactions.map((t) => ({
@@ -351,8 +449,9 @@ export async function POST(request: Request) {
         debt_paid_method: str(t.debtPaidMethod),
         debt_paid_shift_id: str(t.debtPaidShiftId),
         notes: str(t.notes),
-        // Hanya dikirim bila ada koreksi, agar kasir tetap bisa sync walau kolom belum dimigrasi.
-        ...(Array.isArray(t.editHistory) && t.editHistory.length ? { edit_history: t.editHistory } : {}),
+        // Null marks a receipt snapshot without revisions, including a retry from an older device.
+        edit_history: Array.isArray(t.editHistory) && t.editHistory.length ? t.editHistory : null,
+        pos_stock_applied: null, // The database trigger owns this value.
         synced_at: now,
       }))
       await upsertTolerant(supabase, 'transactions', rows)
@@ -375,6 +474,9 @@ export async function POST(request: Request) {
       for (const e of expenses) {
         if (knownDeletedExpenses.has(String(e.id))) continue
         const previous = existing.get(String(e.id))
+        if (!previous && e.quantity != null && !isExpenseQuantity(e.quantity)) {
+          return json({ success: false, error: 'Jumlah pengeluaran tidak valid.' }, 400)
+        }
         if (!previous || !e.editBase || sameExpense(previous, e)) continue
         const base = e.editBase as Row
         if (!sameExpense(previous, base) || (e.serverVersion && e.serverVersion !== previous.synced_at)) conflicts.push(rowToExpense(previous))
@@ -399,7 +501,9 @@ export async function POST(request: Request) {
       }))
       const fresh = rows.filter(row => !existing.has(String(row.id)))
       if (fresh.length) {
-        const { error } = await supabase.from('expenses').upsert(fresh, { onConflict: 'business_id,id', ignoreDuplicates: true })
+        const hasQuantity = fresh.some(row => isExpenseQuantity(incoming.get(String(row.id))?.quantity))
+        const inserts = hasQuantity ? fresh.map(row => ({ ...row, quantity: incoming.get(String(row.id))?.quantity ?? null })) : fresh
+        const { error } = await supabase.from('expenses').upsert(inserts, { onConflict: 'business_id,id', ignoreDuplicates: true })
         if (error) throw error
       }
       for (const row of rows) {
@@ -498,6 +602,18 @@ export async function POST(request: Request) {
       await mirrorProducts(supabase, businessId, legacyProducts, now)
     }
 
+    let productExpenseResults: unknown = undefined
+    if (productExpenses.length) {
+      // The verified branch is fixed here. Use service role without a POS header so the inventory write follows the owner stock rules.
+      const result = await createAdminClient().rpc('record_pos_expense_purchases', { p_business: businessId, p_expenses: productExpenses })
+      if (result.error) {
+        console.error('sync: product expenses', result.error.code)
+        productExpenseResults = productExpenses.map(e => ({ id: e.id, error: 'Pembelian belum tersinkron. Coba lagi setelah server siap.' }))
+      } else {
+        productExpenseResults = result.data
+      }
+    }
+
     await supabase
       .from('businesses')
       .update({ last_synced_at: now, last_device_code: deviceCode })
@@ -507,7 +623,9 @@ export async function POST(request: Request) {
       success: true,
       data: {
         transactions: transactions.length,
+        ...(stockEdits.length && { stockEditsAccepted: true }),
         expenses: expenses.length,
+        productExpenseResults,
         deletedExpenseIds: [...knownDeletedExpenses],
         deletedExpenses: deletedExpenseIds.length,
         shifts: shifts.length,
@@ -566,6 +684,7 @@ function rowToTransaction(r: Row): Row {
 function rowToExpense(r: Row): Row {
   return compact({
     id: r.id,
+    businessId: r.business_id,
     scope: r.scope === 'monthly' ? 'monthly' : 'daily',
     date: r.date,
     category: r.category ?? '',
@@ -619,6 +738,16 @@ export async function GET(request: Request) {
   const businessId = business.id
 
   const params = new URL(request.url).searchParams
+  if (params.has('expenseSearch')) {
+    const term = params.get('expenseSearch')?.trim() ?? ''
+    if (term.length > 150) return json({ success: false, error: 'Pencarian maksimal 150 karakter.' }, 400)
+    try {
+      const catalog = await expensePurchaseCatalog(supabase, business, term, term ? 20 : OFFLINE_PRODUCT_LIMIT)
+      return json({ success: true, expenseCatalog: catalog })
+    } catch {
+      return json({ success: false, error: 'Katalog pembelian belum berhasil dimuat.' }, 503)
+    }
+  }
   const cur = (k: string) => ts(params.get(k))
   const serverTime = new Date().toISOString()
   const daysAgo = (d: number) => new Date(Date.now() - d * 86400000).toISOString()
@@ -631,7 +760,7 @@ export async function GET(request: Request) {
     const draftCursor = cur('draft')
     const init = params.get('init') === '1' || !txCursor
 
-    const [tx, exp, shift, del, draft] = await Promise.all([
+    const [tx, exp, shift, del, draft, expenseCatalog, saleStocks] = await Promise.all([
       fetchPage(supabase, 'transactions', businessId, txCursor, 'synced_at', (q) =>
         init
           ? q.or(`created_at.gte."${daysAgo(INITIAL_TX_DAYS)}",and(payment_type.eq.hutang,debt_status.eq.unpaid)`)
@@ -652,6 +781,10 @@ export async function GET(request: Request) {
         console.error('sync pull: drafts', e)
         return { rows: [], next: draftCursor, more: false } as Page
       }),
+      params.get('expenseCatalog') === '1'
+        ? expensePurchaseCatalog(supabase, business, '', OFFLINE_PRODUCT_LIMIT).catch(() => undefined)
+        : undefined,
+      params.get('saleStocks') === '1' ? fetchSaleStocks(supabase, businessId) : undefined,
     ])
 
     const configUpdatedAt = business.pos_config_updated_at
@@ -667,6 +800,8 @@ export async function GET(request: Request) {
       config: sendConfig ? business.pos_config : null,
       transactions: tx.rows.map(rowToTransaction),
       expenses: exp.rows.map(rowToExpense),
+      expenseCatalog,
+      saleStocks,
       shifts: shift.rows.map((r) => (r.raw && typeof r.raw === 'object' ? r.raw : { id: r.id })),
       deletedExpenseIds: del.rows.filter((r) => r.kind === 'expense').map((r) => r.id),
       drafts: draft.rows.map((r) => (r.raw && typeof r.raw === 'object' ? r.raw : null)).filter(Boolean),

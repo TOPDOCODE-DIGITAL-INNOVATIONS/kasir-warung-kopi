@@ -19,3 +19,7 @@ export function platformAccount(user: Pick<User, 'app_metadata'>): {
 export function platformRoleLabel(role: PlatformRole) {
   return role === 'super_admin' ? 'Super Admin' : 'Owner'
 }
+
+export function platformLandingPath(user: Pick<User, 'app_metadata'>) {
+  return platformAccount(user).role === 'super_admin' ? '/platform' : '/dashboard'
+}

@@ -15,10 +15,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
             </div>
           </div>
           <h2 className="text-2xl font-bold text-center text-gray-900 dark:text-white mb-2">
-            Owner Dashboard
+            KasirKu Admin
           </h2>
           <p className="text-center text-gray-500 dark:text-gray-400 mb-8">
-            Login untuk memantau kasir warung kopi Anda
+            Masuk ke akun Anda
           </p>
 
           <form className="space-y-6">

@@ -19,9 +19,11 @@ import {
 } from '../data/initialData';
 import { migrateCashierPins } from './security';
 import { getExpectedDrawerCash, toLocalDateKey } from './reports';
+import { isExpenseQuantity, type ExpensePurchaseCatalog } from '../../../shared/expense-products';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'warkop_pos_products',
+  STOCK_EDITS: 'warkop_pos_stock_edits',
   CATEGORIES: 'warkop_pos_categories',
   CASHIERS: 'warkop_pos_cashiers',
   ACTIVE_CASHIER_ID: 'warkop_pos_active_cashier_id',
@@ -32,6 +34,7 @@ const STORAGE_KEYS = {
   RECEIPT_SEQ: 'warkop_pos_receipt_seq',
   DEVICE_CODE: 'warkop_pos_device_code',
   EXPENSES: 'warkop_pos_expenses',
+  EXPENSE_CATALOG: 'warkop_pos_expense_catalog',
   /** ID pengeluaran yang sudah pernah terkirim lalu dihapus, agar server ikut menghapusnya */
   EXPENSES_DELETED: 'warkop_pos_expenses_deleted',
   /** Versi data master (menu/kasir/pengaturan) dari server yang sudah ada di perangkat ini */
@@ -269,7 +272,25 @@ export function getProducts(): Product[] {
   return readJSON(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS);
 }
 
+type StockEdit = { operationId: string; productId: string; kind: 'adjust' | 'set'; amount: number };
+
+function getStockEdits(): StockEdit[] {
+  return readJSON<StockEdit[]>(STORAGE_KEYS.STOCK_EDITS, []);
+}
+
 export function saveProducts(products: Product[]): void {
+  const previous = new Map(getProducts().map(product => [product.id, product.stock]));
+  const edits = getStockEdits();
+  for (const product of products) {
+    const stock = previous.get(product.id);
+    if (stock === undefined || stock === product.stock) continue;
+    const adjust = stock >= 0 && product.stock >= 0;
+    edits.push({
+      operationId: crypto.randomUUID(), productId: product.id, kind: adjust ? 'adjust' : 'set',
+      amount: adjust ? Number((product.stock - stock).toFixed(6)) : product.stock,
+    });
+  }
+  writeJSON(STORAGE_KEYS.STOCK_EDITS, edits);
   writeJSON(STORAGE_KEYS.PRODUCTS, products);
   markConfigDirty();
   notifyUpdate();
@@ -368,6 +389,7 @@ export function saveStoreSettings(settings: StoreSettings): void {
     syncApiUrl: settings.syncApiUrl?.trim() || undefined,
   };
   const tokenChanged = (prev.syncApiKey ?? '').trim() !== (next.syncApiKey ?? '');
+  if (prev.syncApiUrl !== next.syncApiUrl) localStorage.removeItem(STORAGE_KEYS.EXPENSE_CATALOG);
   writeJSON(STORAGE_KEYS.SETTINGS, tokenChanged ? { ...next, lastSyncError: undefined } : next);
   if (tokenChanged) {
     onSyncTokenChanged(false);
@@ -974,56 +996,127 @@ function markDraftsSynced(sent: DraftOrder[], sentDeletedIds: string[]): void {
 // PENGELUARAN
 // -------------------------------------------------------------
 
-export const EXPENSE_CATEGORIES = {
-  daily: ['Bahan Baku', 'Es Batu', 'Gas', 'Air Galon', 'Cup / Plastik', 'Susu', 'Gula', 'Transport', 'Lain-lain'],
-  monthly: ['Sewa Tempat', 'Gaji Karyawan', 'Listrik', 'Air PDAM', 'Internet / Wifi', 'Iuran / Retribusi', 'Perawatan Alat', 'Lain-lain'],
-};
+export { EXPENSE_CATEGORIES } from '../../../shared/expense-categories';
 
 export function getExpenses(): Expense[] {
   return readJSON<Expense[]>(STORAGE_KEYS.EXPENSES, []);
 }
 
-export function addExpense(
-  input: Omit<Expense, 'id' | 'createdAt' | 'shiftId'>
-): Expense {
+export function getExpensePurchaseCatalog(): ExpensePurchaseCatalog | null {
+  return readJSON<{ catalog: ExpensePurchaseCatalog } | null>(STORAGE_KEYS.EXPENSE_CATALOG, null)?.catalog ?? null;
+}
+
+export async function searchExpensePurchaseProducts(term: string, signal?: AbortSignal): Promise<ExpensePurchaseCatalog> {
+  const settings = getStoreSettings();
+  const token = settings.syncApiKey?.trim(), syncUrl = getSyncUrl(settings);
+  if (!token || !syncUrl) throw new Error('Hubungkan kasir ke cabang untuk memuat produk pembelian.');
+  const url = new URL(syncUrl, window.location.href);
+  url.searchParams.set('expenseSearch', term.trim());
+  const response = await fetch(url, { headers: syncHeaders(token), cache: 'no-store', signal });
+  const result = await response.json();
+  if (!response.ok || !result.expenseCatalog || !Array.isArray(result.expenseCatalog.products)) {
+    throw new Error('Katalog produk belum bisa dimuat.');
+  }
+  if (token !== currentSyncKey() || syncUrl !== getSyncUrl()) throw new Error('Cabang berubah saat memuat produk.');
+  const catalog = result.expenseCatalog as ExpensePurchaseCatalog;
+  if (!term.trim()) writeJSON(STORAGE_KEYS.EXPENSE_CATALOG, { catalog, loadedAt: Date.now() });
+  return catalog;
+}
+
+type NewExpense = Omit<Expense, 'id' | 'createdAt' | 'shiftId'>;
+
+function prepareExpense(input: NewExpense, createdAt: string): Expense {
   if (!(input.amount > 0)) throw new Error('Nominal pengeluaran harus lebih dari 0.');
   if (!input.category.trim()) throw new Error('Kategori wajib diisi.');
   const validDate = input.scope === 'monthly' ? /^\d{4}-\d{2}$/ : /^\d{4}-\d{2}-\d{2}$/;
   if (!validDate.test(input.date)) throw new Error('Tanggal pengeluaran tidak valid.');
+  if (input.pendingPurchase && (!Number.isFinite(input.amount) || input.amount > 999_999_999)) {
+    throw new Error('Nominal pengeluaran di luar batas yang diperbolehkan.');
+  }
+  if (input.quantity != null && !isExpenseQuantity(input.quantity)) {
+    throw new Error('Jumlah harus lebih dari 0, maksimal 999.999.999, dengan hingga 6 desimal.');
+  }
 
-  const expense: Expense = {
+  return {
     ...input,
     amount: Math.round(input.amount),
     category: input.category.trim(),
     note: input.note?.trim() || undefined,
     fromDrawer: input.scope === 'daily' ? Boolean(input.fromDrawer) : false,
-    id: `EXP-${getDeviceCode()}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    createdAt: new Date().toISOString(),
+    id: input.pendingPurchase ? `EXP-ADMIN-${crypto.randomUUID()}` : `EXP-${getDeviceCode()}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    createdAt,
     isSynced: false,
   };
+}
 
-  if (expense.fromDrawer) {
-    const shift = getActiveShift();
-    if (!shift) throw new Error('Tidak ada shift terbuka. Hilangkan centang "Diambil dari laci" atau buka shift dulu.');
-    if (expense.date !== toLocalDateKey(new Date())) {
+function persistNewExpenses(inputs: NewExpense[]): Expense[] {
+  const createdAt = new Date().toISOString();
+  const expenses = inputs.map(input => prepareExpense(input, createdAt));
+  const drawerExpenses = expenses.filter(expense => expense.fromDrawer);
+  const previousShift = drawerExpenses.length ? getActiveShift() : null;
+  let updatedShift: Shift | null = null;
+  if (drawerExpenses.length) {
+    if (!previousShift) throw new Error('Tidak ada shift terbuka. Hilangkan centang "Diambil dari laci" atau buka shift dulu.');
+    if (drawerExpenses.some(expense => expense.date !== toLocalDateKey(new Date()))) {
       throw new Error('Pengeluaran dari laci hanya bisa untuk tanggal hari ini.');
     }
-    expense.shiftId = shift.id;
-    shift.expensesCash = (shift.expensesCash ?? 0) + expense.amount;
-    writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, shift);
+    for (const expense of drawerExpenses) expense.shiftId = previousShift.id;
+    updatedShift = {
+      ...previousShift,
+      expensesCash: (previousShift.expensesCash ?? 0) + drawerExpenses.reduce((sum, expense) => sum + expense.amount, 0),
+    };
+    writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, updatedShift);
   }
 
-  const list = getExpenses();
-  list.unshift(expense);
-  writeJSON(STORAGE_KEYS.EXPENSES, list);
+  try {
+    writeJSON(STORAGE_KEYS.EXPENSES, [...expenses, ...getExpenses()]);
+  } catch (error) {
+    if (updatedShift) writeJSON(STORAGE_KEYS.ACTIVE_SHIFT, previousShift);
+    throw error;
+  }
   notifyUpdate();
-  return expense;
+  return expenses;
+}
+
+export function addExpense(input: NewExpense): Expense {
+  return persistNewExpenses([input])[0];
+}
+
+export function addExpenseBatch(inputs: NewExpense[], businessId?: string, supplier?: { id: string; name: string }): Expense[] {
+  if (!inputs.length || inputs.length > 100) throw new Error('Isi 1 sampai 100 item pengeluaran.');
+  const products = new Set<string>();
+  for (const input of inputs) {
+    const purchase = input.pendingPurchase;
+    if (purchase && purchase.businessId !== businessId) throw new Error('Produk berasal dari cabang lain. Pilih ulang produk.');
+    if (!purchase?.productId) {
+      if (!input.note?.trim()) throw new Error('Isi nama pembelian untuk setiap item Lain-lain.');
+      continue;
+    }
+    if (products.has(purchase.productId)) throw new Error('Gabungkan jumlah produk yang sama dalam satu item.');
+    products.add(purchase.productId);
+  }
+  if (!businessId && (supplier || products.size)) throw new Error('Hubungkan kasir ke cabang sebelum memilih produk atau supplier.');
+  const operationId = businessId && (products.size || supplier || inputs.length > 1) ? crypto.randomUUID() : undefined;
+  return persistNewExpenses(inputs.map(input => ({
+    ...input,
+    businessId,
+    supplierName: supplier?.name,
+    entryGroupId: operationId,
+    pendingPurchase: operationId && businessId ? {
+      businessId,
+      operationId,
+      supplierId: supplier?.id,
+      productId: input.pendingPurchase?.productId,
+      itemUnitId: input.pendingPurchase?.itemUnitId,
+    } : undefined,
+  })));
 }
 
 export function updateExpense(id: string, input: Pick<Expense, 'scope' | 'date' | 'category' | 'amount' | 'note'>, expected: Expense): Expense {
   const list = getExpenses(), index = list.findIndex(e => e.id === id);
   if (index < 0) throw new Error('Pengeluaran tidak ditemukan. Muat ulang daftar.');
   const previous = list[index];
+  if (previous.pendingPurchase) throw new Error('Sinkronkan pembelian produk sebelum mengeditnya.');
   if (JSON.stringify(previous) !== JSON.stringify(expected)) throw new Error('Pengeluaran sudah berubah. Tutup dan buka kembali form edit.');
   if (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > 999_999_999 || Math.abs(input.amount * 100 - Math.round(input.amount * 100)) > 0.00001) throw new Error('Nominal harus lebih dari 0, maksimal Rp 999.999.999, dan maksimal dua angka desimal.');
   if (!input.category.trim() || input.category.trim().length > 100) throw new Error('Kategori wajib diisi, maksimal 100 karakter.');
@@ -1053,6 +1146,7 @@ export function deleteExpense(id: string): { ok: boolean; message: string } {
   const list = getExpenses();
   const exp = list.find((e) => e.id === id);
   if (!exp) return { ok: false, message: 'Pengeluaran tidak ditemukan.' };
+  if (exp.pendingPurchase) return { ok: false, message: 'Sinkronkan pembelian produk sebelum menghapusnya.' };
   if (exp.purchaseLineId) return { ok: false, message: 'Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.' };
 
   let message = 'Pengeluaran dihapus.';
@@ -1198,6 +1292,7 @@ export function getUnsyncedCount(): number {
 export function hasPendingPush(): boolean {
   return (
     getUnsyncedCount() > 0 ||
+    getStockEdits().length > 0 ||
     getUnsyncedDrafts().length > 0 ||
     getDeletedDraftIds().length > 0 ||
     !!localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT) ||
@@ -1283,6 +1378,48 @@ function getRecentShifts(): Shift[] {
 }
 
 type SyncResult = { success: boolean; message: string; syncedCount: number };
+type ProductExpenseResult = Pick<Expense, 'id' | 'serverVersion' | 'purchaseLineId' | 'productName' | 'quantity' | 'unitLabel' | 'entryGroupId' | 'supplierName'> & {
+  error?: string;
+  deleted?: boolean;
+};
+
+function applyProductExpenseResults(sent: Expense[], results: ProductExpenseResult[] | undefined): number {
+  const byId = new Map(Array.isArray(results) ? results.map(result => [result.id, result]) : []);
+  const payload = new Map(sent.map(expense => [expense.id, JSON.stringify(expense)]));
+  const deleted: string[] = [];
+  let saved = 0;
+  const syncedAt = new Date().toISOString();
+  const entries = getExpenses().map(expense => {
+    if (!expense.pendingPurchase || payload.get(expense.id) !== JSON.stringify(expense)) return expense;
+    const result = byId.get(expense.id);
+    if (result?.deleted) {
+      deleted.push(expense.id);
+      return expense;
+    }
+    if (!result?.serverVersion || result.error) {
+      return { ...expense, purchaseSyncError: result?.error ?? 'Server belum mengonfirmasi pembelian ini. Coba sinkron lagi.' };
+    }
+    saved++;
+    return {
+      ...expense,
+      pendingPurchase: undefined,
+      purchaseSyncError: undefined,
+      purchaseLineId: result.purchaseLineId ?? undefined,
+      productName: result.productName ?? expense.productName,
+      quantity: result.quantity ?? undefined,
+      unitLabel: result.unitLabel ?? undefined,
+      supplierName: result.supplierName ?? undefined,
+      entryGroupId: result.entryGroupId,
+      serverVersion: result.serverVersion,
+      isSynced: true,
+      syncedAt,
+    };
+  });
+  writeJSON(STORAGE_KEYS.EXPENSES, entries);
+  if (deleted.length) applyPulledData({ deletedExpenseIds: deleted });
+  notifyUpdate();
+  return saved;
+}
 
 let syncInFlight: Promise<SyncResult> | null = null;
 let syncInFlightKey = '';
@@ -1368,16 +1505,22 @@ async function doCloudSync(): Promise<SyncResult> {
     push = push ?? extra;
   }
 
+  const pendingPurchaseMessage = getUnsyncedExpenses().some(expense => expense.pendingPurchase)
+    ? 'Masih ada pembelian produk yang belum tersinkron. Periksa catatan di Pengeluaran.'
+    : undefined;
+  const pendingMessage = pendingPurchaseMessage ?? (getStockEdits().length
+    ? 'Masih ada perubahan stok menu yang belum tersinkron.' : undefined);
   const current = getStoreSettings();
-  writeJSON(STORAGE_KEYS.SETTINGS, { ...current, lastSyncedAt: new Date().toISOString(), lastSyncError: undefined });
+  writeJSON(STORAGE_KEYS.SETTINGS, { ...current, lastSyncedAt: new Date().toISOString(), lastSyncError: pendingMessage });
   notifyUpdate();
 
   const parts = [push?.sent, pull.received ? `menerima ${pull.received} perubahan dari perangkat lain` : '']
     .filter(Boolean)
     .join(', ');
+  if (pendingMessage) pushBackoffUntil = Date.now() + PUSH_BACKOFF_MS;
   return {
-    success: true,
-    message: parts ? `Berhasil: ${parts}.` : 'Semua data sudah sinkron.',
+    success: !pendingMessage,
+    message: pendingMessage ?? (parts ? `Berhasil: ${parts}.` : 'Semua data sudah sinkron.'),
     syncedCount: (push?.syncedCount ?? 0) + pull.received,
   };
 }
@@ -1394,15 +1537,24 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
   let sentDel = 0;
   let configSent = false;
   let draftsSent = 0;
+  const attemptedPurchases = new Set<string>();
   try {
     for (let batch = 0; ; batch++) {
+      const stockEdits = batch === 0 ? getStockEdits().slice(0, 500) : [];
       const draftBatch = batch === 0 ? getUnsyncedDrafts().slice(0, SYNC_BATCH_DRAFTS) : [];
       const draftDelBatch = batch === 0 ? getDeletedDraftIds().slice(0, SYNC_BATCH_DRAFTS) : [];
       const txBatch = getUnsyncedTransactions().slice(0, SYNC_BATCH_TX);
-      const expBatch = getUnsyncedExpenses().slice(0, SYNC_BATCH_EXPENSES);
+      const unsyncedExpenses = getUnsyncedExpenses();
+      const expBatch = unsyncedExpenses.filter(expense => !expense.pendingPurchase).slice(0, SYNC_BATCH_EXPENSES);
+      const pendingPurchases = unsyncedExpenses.filter(expense => expense.pendingPurchase && !attemptedPurchases.has(expense.id));
+      const firstGroup = pendingPurchases[0]?.pendingPurchase?.operationId;
+      const productBatch = firstGroup
+        ? pendingPurchases.filter(expense => expense.pendingPurchase?.operationId === firstGroup)
+        : pendingPurchases.filter(expense => !expense.pendingPurchase?.operationId).slice(0, 20);
+      for (const purchase of productBatch) attemptedPurchases.add(purchase.id);
       const delBatch = getDeletedExpenseIds().slice(0, SYNC_BATCH_EXPENSES);
       // Batch pertama selalu dikirim (membawa data master & shift); berikutnya hanya jika masih ada sisa.
-      if (batch > 0 && txBatch.length + expBatch.length + delBatch.length === 0) break;
+      if (batch > 0 && txBatch.length + expBatch.length + delBatch.length + productBatch.length === 0) break;
       if (batch >= SYNC_MAX_BATCHES) break;
 
       const payload = {
@@ -1410,7 +1562,9 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
         deviceCode: getDeviceCode(),
         timestamp: new Date().toISOString(),
         transactions: txBatch,
+        ...(stockEdits.length ? { stockEdits } : {}),
         expenses: expBatch,
+        ...(productBatch.length ? { productExpenses: productBatch } : {}),
         deletedExpenseIds: delBatch,
         ...(batch === 0
           ? {
@@ -1428,6 +1582,9 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
         headers: syncHeaders(apiKey),
         body: JSON.stringify(payload),
       });
+      if (apiKey !== currentSyncKey() || syncUrl !== getSyncUrl()) {
+        return { success: false, message: 'Cabang berubah saat sinkronisasi. Coba lagi.', syncedCount: sentTx + sentExp + sentDel };
+      }
 
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
@@ -1466,6 +1623,10 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
         applyPulledData({ deletedExpenseIds: data.deletedExpenseIds });
       }
       if (batch === 0) {
+        if (stockEdits.length && data?.stockEditsAccepted === true) {
+          const accepted = new Set(stockEdits.map(edit => edit.operationId));
+          writeJSON(STORAGE_KEYS.STOCK_EDITS, getStockEdits().filter(edit => !accepted.has(edit.operationId)));
+        }
         if (configDirtyAt && data?.configAccepted) {
           configSent = true;
           // Hanya bersihkan jika tidak ada perubahan baru selama request berjalan.
@@ -1491,6 +1652,7 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
       }
 
       markExpensesAsSynced(expBatch, delBatch);
+      if (productBatch.length) sentExp += applyProductExpenseResults(productBatch, data?.productExpenseResults);
       markTransactionsAsSynced(
         txBatch.map((t) => t.id),
         txBatch
@@ -1547,6 +1709,8 @@ export interface PullResponse {
   config?: SharedConfig | null;
   transactions?: Transaction[];
   expenses?: Expense[];
+  expenseCatalog?: ExpensePurchaseCatalog;
+  saleStocks?: { id: string; stock: number }[];
   shifts?: Shift[];
   deletedExpenseIds?: string[];
   drafts?: DraftOrder[];
@@ -1614,6 +1778,7 @@ function resetPullState(): void {
   localStorage.removeItem(STORAGE_KEYS.PULL_CURSORS);
   localStorage.removeItem(STORAGE_KEYS.PULL_INIT_DONE);
   localStorage.removeItem(STORAGE_KEYS.CONFIG_VERSION);
+  localStorage.removeItem(STORAGE_KEYS.EXPENSE_CATALOG);
 }
 
 /**
@@ -1626,6 +1791,7 @@ function onSyncTokenChanged(fromLink: boolean): void {
   const hadLocalEdits = !!localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
   resetPullState();
   localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+  localStorage.removeItem(STORAGE_KEYS.STOCK_EDITS);
   // Shift perangkat lain milik cabang lama tidak boleh ikut rekap cabang baru.
   localStorage.removeItem(STORAGE_KEYS.REMOTE_SHIFTS);
   // Link kasir di perangkat yang belum pernah bertransaksi & belum diubah: pakai menu/kasir dari
@@ -1655,8 +1821,11 @@ function contentPrint(o: object): string {
   return stableStringify(rest);
 }
 
-function applyRemoteConfig(cfg: SharedConfig): void {
-  if (Array.isArray(cfg.products)) writeJSON(STORAGE_KEYS.PRODUCTS, cfg.products);
+function applyRemoteConfig(cfg: SharedConfig, preserveLocalStock: boolean): void {
+  if (Array.isArray(cfg.products)) {
+    const local = preserveLocalStock ? new Map(getProducts().map(product => [product.id, product.stock])) : null;
+    writeJSON(STORAGE_KEYS.PRODUCTS, cfg.products.map(product => ({ ...product, stock: local?.get(product.id) ?? product.stock })));
+  }
   if (Array.isArray(cfg.categories)) writeJSON(STORAGE_KEYS.CATEGORIES, cfg.categories);
   if (Array.isArray(cfg.cashiers) && cfg.cashiers.length > 0) writeJSON(STORAGE_KEYS.CASHIERS, cfg.cashiers);
   if (cfg.settings && typeof cfg.settings === 'object') {
@@ -1669,15 +1838,34 @@ function applyRemoteConfig(cfg: SharedConfig): void {
 export function applyPulledData(data: PullResponse): number {
   let changed = 0;
   const now = new Date().toISOString();
+  const preserveLocalStock = getUnsyncedTransactions().length > 0 || getStockEdits().length > 0;
+
+  if (data.expenseCatalog && Array.isArray(data.expenseCatalog.products)) {
+    writeJSON(STORAGE_KEYS.EXPENSE_CATALOG, { catalog: data.expenseCatalog, loadedAt: Date.now() });
+    changed++;
+  }
 
   // Data master: yang terakhir diubah yang menang.
   if (data.config && data.configUpdatedAt) {
     const dirtyAt = localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
     if (!dirtyAt || data.configUpdatedAt >= dirtyAt) {
-      applyRemoteConfig(data.config);
+      applyRemoteConfig(data.config, preserveLocalStock);
       localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
       localStorage.removeItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE);
       localStorage.setItem(STORAGE_KEYS.CONFIG_VERSION, data.configUpdatedAt);
+      changed++;
+    }
+  }
+
+  if (Array.isArray(data.saleStocks) && !preserveLocalStock) {
+    const stocks = new Map(data.saleStocks.map(product => [product.id, product.stock]));
+    const products = getProducts();
+    const updated = products.map(product => {
+      const stock = stocks.get(product.id);
+      return typeof stock === 'number' && stock !== product.stock ? { ...product, stock } : product;
+    });
+    if (updated.some((product, index) => product !== products[index])) {
+      writeJSON(STORAGE_KEYS.PRODUCTS, updated);
       changed++;
     }
   }
@@ -1833,6 +2021,9 @@ async function pullFromCloud(
       if (!localStorage.getItem(STORAGE_KEYS.PULL_INIT_DONE)) url.searchParams.set('init', '1');
       const version = localStorage.getItem(STORAGE_KEYS.CONFIG_VERSION);
       if (version) url.searchParams.set('config', version);
+      const catalogAt = readJSON<{ loadedAt: number } | null>(STORAGE_KEYS.EXPENSE_CATALOG, null)?.loadedAt ?? 0;
+      if (page === 0 && Date.now() - catalogAt >= 5 * 60_000) url.searchParams.set('expenseCatalog', '1');
+      if (page === 0) url.searchParams.set('saleStocks', '1');
 
       const res = await fetch(url.toString(), { method: 'GET', headers: syncHeaders(apiKey), cache: 'no-store' });
       if (!res.ok) {
@@ -1848,7 +2039,7 @@ async function pullFromCloud(
 
       // Token diganti selama request berjalan: data ini milik cabang lama, jangan disimpan
       // (cursor & data master cabang lama akan merusak tarikan pertama dari cabang baru).
-      if (currentSyncKey() !== apiKey) {
+      if (currentSyncKey() !== apiKey || getSyncUrl() !== syncUrl) {
         return {
           success: false,
           aborted: true,

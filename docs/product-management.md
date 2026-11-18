@@ -2,6 +2,15 @@
 
 Dokumen implementasi awal 11 November 2026. **Alur terbaru sejak 12 November dijelaskan pada [Pengeluaran admin dan stok opname](admin-stock-counts.md)**: pembelian melalui Pengeluaran, opname massal, penyesuaian atomik, dan riwayat terpisah. Bagian di bawah merupakan catatan implementasi sebelumnya, termasuk mekanisme penyelesaian pembelian lama yang masih dipertahankan. Pernyataan tanpa migration, pembelian pertama, tombol Tambah Stok, dan operasi multi-request di bawah tidak berlaku untuk alur baru.
 
+**Pembaruan form 17 November:** Penjualan dan Pembelian dipisahkan. Pembelian
+pertama opsional kini tersedia kembali di Produk Baru melalui RPC Pengeluaran
+existing, termasuk stok dan pengeluaran, tanpa migration tambahan. Mekanismenya
+berbeda dari catatan historis di bawah; lihat [Form produk](product-form.md).
+
+**Pembaruan riwayat 17 November:** tab, filter tanggal, pembelian tanpa jumlah,
+alamat supplier, dan urutan harga per satuan dijelaskan pada
+[Riwayat produk](product-history.md), menggantikan batas 50 catatan di bawah.
+
 ## Alur pengguna
 
 - Cabang produk mengikuti **Cabang aktif** di header, sesuai [konteks cabang admin](business-context.md).

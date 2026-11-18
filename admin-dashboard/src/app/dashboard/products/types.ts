@@ -9,6 +9,7 @@ export type ProductRow = {
   price: number; cost: number | null; stock: number; minStock: number; available: boolean
   version: string; soldQuantity: number; soldAmount: number; boughtQuantity: number; boughtAmount: number
   stockUpdatedAt: string | null
+  imageUrl: string | null
   hasRecipe: boolean; pendingOperation: string | null
 }
 export type ProductPageData = {
@@ -22,7 +23,15 @@ export type StockEvent = {
   status: 'pending' | 'complete'; purchaseId?: string; fingerprint?: string
 }
 export type HistoryData = {
+  error?: string
   events: StockEvent[]
-  purchases: { id: string; date: string; number: string; supplier: string; quantity: number; amount: number; status: string }[]
+  purchases: PurchaseHistoryRow[]
   adjustments: { id: string; mode: string; before: number; after: number; delta: number; reason: string; date: string; by: string }[]
+}
+export type HistoryTab = 'purchases' | 'adjustments' | 'events'
+export type HistoryRequest = { tab: HistoryTab; start: string; end: string }
+export type PurchaseHistoryRow = {
+  id: string; source: 'purchase' | 'expense'; date: string; monthly: boolean; number: string
+  supplierId: string | null; supplier: string; address: string | null
+  quantity: number | null; amount: number; unitPrice: number | null; note: string
 }

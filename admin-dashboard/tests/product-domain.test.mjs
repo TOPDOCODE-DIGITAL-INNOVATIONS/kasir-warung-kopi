@@ -57,6 +57,12 @@ test('POS config contains no admin journal and retains the newest POS options', 
   assert.equal(config.stock, -1)
   assert.equal(config.costPrice, undefined)
 })
+
+test('the database photo overrides a stale POS photo, including explicit removal', () => {
+  const p = { id: 'latte', image_url: 'https://images.test/new.webp', price: 23000, stock: -1 }
+  assert.equal(d.productForPos(p, { imageUrl: 'https://images.test/old.webp' }).imageUrl, p.image_url)
+  assert.equal(d.productForPos({ ...p, image_url: null }, { imageUrl: p.image_url }).imageUrl, undefined)
+})
 test('sales totals use historical item amounts, exclude cancellations and separate branches', () => {
   const item = (q, total) => ({ product: { id: 'p-1', price: 999999 }, quantity: q, totalPrice: total })
   const totals = d.summarizeSales([

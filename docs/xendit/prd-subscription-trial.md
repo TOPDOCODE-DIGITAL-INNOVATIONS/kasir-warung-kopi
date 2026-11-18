@@ -1,0 +1,167 @@
+# PRD Subscription dan Free Trial KasirKu
+
+- **Status** · Draf untuk persetujuan produk
+- **Tanggal** · 18 November 2026
+- **Cakupan fase pertama** · Pengelolaan langganan dan trial oleh Super Admin Platform dengan Xendit untuk pasar Indonesia
+
+## 1. Tujuan dan cakupan
+
+Fase pertama menyediakan menu **Subscription & Trial** di area `/platform`. Super Admin aktif mengelola trial, paket bulanan dan tahunan dalam IDR, serta memantau checkout, perpanjangan, dan riwayat tagihan. Jika pembayaran diperlukan, Owner menyetujui dan membayar pada halaman checkout Xendit yang dibuat dari area platform.
+
+| Tahap | Pembayar | Yang dibayar | Penerima dana |
+|---|---|---|---|
+| Langganan KasirKu · fase pertama | Owner | Paket langganan KasirKu | Akun Xendit platform KasirKu |
+| Pembayaran di kasir · tahap berikutnya | Pelanggan outlet | Barang atau layanan yang dibeli di kasir | Saldo sub-account merchant di Xendit, lalu rekening merchant melalui payout |
+
+Fase pertama berfokus pada pengelolaan akun dan tagihan dari Super Admin. Implementasi di dashboard Owner (`/dashboard`), aplikasi kasir, dan API sinkronisasi ditunda. Self-service Owner serta pembatasan akses akibat trial atau langganan habis menjadi fase berikutnya. Onboarding merchant, verifikasi bisnis, pembayaran pelanggan di POS, split fee, payout, dan rekonsiliasi penjualan merchant masuk PRD tersendiri.
+
+## 2. Kondisi aplikasi saat ini
+
+- Owner mendaftar dan masuk dengan Supabase Auth. Cabang terhubung ke akun melalui `businesses.owner_id`. Super Admin punya area `/platform` sendiri. Role platform dan status administrasi akun tersimpan di `app_metadata`. Status administrasi Owner saat ini tidak membatasi operasional.
+- Aplikasi kasir mendukung transaksi offline serta memakai token cabang untuk `/api/sync`. Hubungan antara status tagihan, akses dashboard, dan izin perangkat dibahas saat implementasi menjangkau aplikasi operasional.
+- Production sudah memiliki akun, cabang, dan histori penjualan. Fase pertama memasang model billing secara aditif. Waktu transisi serta pemulihan data offline menjadi bagian perencanaan saat pembatasan akses mulai diterapkan.
+
+Rujukan repo · [Akun platform dan profil kasir](../platform-accounts.md) · [API sinkronisasi](../../admin-dashboard/src/app/api/sync/route.ts) · [Penyimpanan lokal kasir](../../app-kasir/src/lib/storage.ts)
+
+## 3. Kebijakan produk
+
+| Topik | Usulan untuk fase pertama | Keputusan |
+|---|---|---|
+| Unit langganan | Satu langganan efektif per akun Owner. | Kuota cabang/perangkat dan penerapan hak akses di kasir dibahas pada fase operasional. |
+| Paket | Bulanan dan tahunan, biaya tetap dalam IDR, dengan perpanjangan otomatis setelah Owner memberikan persetujuan. | Harga, pajak yang berlaku, dan cara menampilkan harga perlu disetujui. |
+| Trial | Super Admin memulai trial 14 hari untuk Owner dengan email terverifikasi. Trial dicatat sekali per Owner per lingkungan, tanpa metode bayar. | Durasi 14 hari digunakan untuk uji lokal. Konfirmasi kebijakan sebelum rollout live. |
+| Konversi | Super Admin menyiapkan paket yang dipilih Owner. Jika pembayaran sukses saat trial berjalan, akhir trial dan awal periode berbayar mengikuti kebijakan yang dikomunikasikan saat checkout. | Usulan awal mengenakan biaya saat checkout dan mengakhiri trial saat periode berbayar dimulai. |
+| Gagal perpanjangan | Catat siklus gagal, jadwal retry Xendit, dan kebutuhan tindak lanjut di platform. Usulan toleransi akses 3 hari dicatat untuk fase operasional. | Setujui jumlah retry dan aturan pemulihan pada fase pertama. |
+| Penghentian | Super Admin menangani permintaan penghentian perpanjangan. Riwayat periode berbayar tetap tercatat. | Kebijakan refund dan penanganan tagihan yang telanjur diproses perlu disetujui. |
+| Perubahan paket | Pemilihan paket baru berlaku setelah periode berjalan berakhir. Pembayaran prorata menjadi tahap lanjutan. | Setujui aturan perpindahan serta perubahan harga untuk pelanggan lama. |
+
+Status langganan dan periode berbayar disimpan di modul billing. `account_status` tetap menjadi status administrasi akun. Pembayaran sukses memperbarui status dan periode billing yang ditampilkan di Super Admin.
+
+## 4. Alur pengguna dan layar
+
+| Bagian | Kebutuhan |
+|---|---|
+| **Daftar Subscription & Trial** | Cari menurut Owner, email, status, atau paket. Tampilkan akhir trial, periode berbayar, tagihan berikutnya, dan status pembayaran terakhir. |
+| **Detail trial dan langganan** | Tampilkan riwayat trial, siklus tagihan, nominal, status, serta referensi pembayaran. Super Admin dapat memulai trial, menyiapkan checkout atas permintaan Owner, atau menghentikan perpanjangan sesuai kebijakan. |
+| **Operasi pembayaran** | Salin tautan checkout dari Xendit untuk disampaikan kepada Owner. Sediakan pengecekan ulang status sesi, plan, dan siklus dari platform. Catat pelaku, waktu, dan hasil tindakan. |
+| **Hosted checkout Xendit** | Owner meninjau nominal, jadwal, dan persetujuan penagihan lalu mengotorisasi pembayaran di halaman Xendit. Status pembayaran diverifikasi oleh server. |
+
+### Alur utama
+
+1. **Trial.** Super Admin memilih Owner yang memenuhi syarat dan memulai trial. Server mencatat awal, akhir, dan penggunaan trial dalam satu mutasi yang aman terhadap klik ulang. Trial berakhir pada waktu yang dicatat dan tidak menimbulkan tagihan otomatis.
+2. **Pembayaran pertama.** Super Admin menyiapkan paket yang diminta Owner. Server membuat satu upaya checkout, lalu UI menampilkan tautan Xendit untuk disampaikan kepada Owner. Periode berbayar dicatat setelah server memverifikasi pembayaran serta kecocokan akun, paket, dan nominal.
+3. **Perpanjangan.** Xendit mencoba menagih menurut jadwal yang disetujui Owner. Pembayaran sah menambahkan periode sesuai siklus. Jika gagal, Super Admin melihat status, jadwal retry, atau metode pemulihan yang tersedia.
+4. **Berhenti memperpanjang.** Super Admin mencatat permintaan Owner dan meminta penghentian lewat server. UI menyatakan perpanjangan berhenti setelah hasil dari Xendit dikonfirmasi. Permintaan yang bertepatan dengan tagihan berjalan masuk rekonsiliasi.
+5. **Pulih.** Super Admin memeriksa sesi atau siklus sebelumnya sebelum menyiapkan checkout pemulihan. Owner mengotorisasi pembayaran atau metode baru melalui alur Xendit. Jika diperlukan plan pengganti, jadwal lama harus berhenti sebelum jadwal pengganti dapat menagih.
+
+### Status yang ditampilkan
+
+| Status | Arti di Super Admin |
+|---|---|
+| Belum mulai | Belum ada trial atau periode berbayar yang tercatat. |
+| Trial aktif | Trial sedang berjalan sampai tanggal yang tercatat. |
+| Menunggu pembayaran | Checkout sudah dibuat atau metode bayar sedang diverifikasi. |
+| Berlangganan | Pembayaran terverifikasi dan periode berbayar masih berlaku. |
+| Perlu pembayaran | Tagihan perpanjangan gagal atau perlu tindak lanjut. |
+| Perpanjangan dihentikan | Jadwal penagihan berhenti. Tampilkan akhir periode yang sudah dibayar, jika ada. |
+| Periode habis | Trial atau periode berbayar sudah lewat. Fase pertama menampilkan status ini di platform. |
+
+Simpan status checkout, status tagihan, dan periode billing secara terpisah. Langganan yang masih aktif di Xendit dapat memiliki tagihan yang belum lunas. Penghentian jadwal juga bisa terjadi saat periode berbayar masih berlaku.
+
+## 5. Integrasi Xendit
+
+### Pengaturan dan kontrak pembayaran
+
+- Usulan utama memakai **Payment Sessions** `POST /sessions` dengan tipe `SUBSCRIPTION` dan mode `PAYMENT_LINK`. Server membuat sesi untuk tagihan di akun platform. Owner menggunakan tautan checkout Xendit yang disampaikan melalui Super Admin. Pilih kanal Indonesia yang tersedia pada akun platform dan mendukung *merchant-initiated transactions* (MIT). [Create a session](https://docs.xendit.co/apidocs/create-session) · [Cara kerja Subscriptions](https://docs.xendit.co/docs/how-subscriptions-work)
+- Kontrak Payment Sessions yang ditinjau mencantumkan interval `DAY`, `WEEK`, dan `MONTH`. Usulan pemetaan paket memakai `MONTH × 1` dan `MONTH × 12`. API Create Subscription Plan langsung menyediakan interval `YEAR`. Konfirmasi paket tahunan dan opsi penagihan pertama di test mode sebelum mengunci implementasi. Jika hosted session tidak memenuhi perilaku yang dibutuhkan, evaluasi hosted linking yang diikuti pembuatan Subscription Plan dengan token dari Xendit. [Create a session](https://docs.xendit.co/apidocs/create-session) · [Create Subscription Plan](https://docs.xendit.co/apidocs/create-recurring-plan)
+- Uji jumlah tagihan pertama dan jaraknya ke tagihan kedua, termasuk anchor untuk tanggal 29–31, Februari, dan tahun kabisat. Referensi Payment Sessions membatasi hari *anchor* bulanan sampai tanggal 28. Tanggal yang disepakati di checkout dan jadwal provider yang terverifikasi menjadi dasar periode berbayar. Simpan waktu dalam UTC dan tampilkan zona waktu pada tanggal tagihan. [Create a session](https://docs.xendit.co/apidocs/create-session) · [Get Subscription Plan](https://docs.xendit.co/apidocs/get-subscription-plan-2)
+- Untuk membatalkan perpanjangan, uji deactivation plan dan penanganan upaya yang sedang berjalan. Gunakan pembacaan sesi, plan, dan siklus untuk pengecekan setelah timeout atau saat status lokal berbeda dengan Xendit. [Get session](https://docs.xendit.co/apidocs/get-session) · [Deactivate Subscription Plan](https://docs.xendit.co/apidocs/deactivate-subscription-plan-2) · [Get List of Subscription Cycles](https://docs.xendit.co/apidocs/get-list-of-subscription-cycles-2)
+
+### Struktur kode yang direncanakan
+
+| Lokasi | Tanggung jawab |
+|---|---|
+| `admin-dashboard/src/app/platform/subscriptions/` | Halaman serta aksi Super Admin untuk trial dan langganan. Aksi memeriksa role dan memanggil modul server. |
+| `admin-dashboard/src/lib/xendit/client.ts` | Klien server-only untuk konfigurasi akun, autentikasi, timeout, dan pemetaan respons Xendit. |
+| `admin-dashboard/src/lib/xendit/subscriptions/` | Operasi sesi checkout, recurring plan, siklus, verifikasi webhook, serta rekonsiliasi langganan. |
+| `admin-dashboard/src/app/api/xendit/subscriptions/` | Endpoint HTTP yang terkait dengan Xendit Subscriptions, termasuk `webhook/route.ts`. Handler meneruskan proses ke modul server di atas. |
+
+Panggilan HTTP ke Xendit dipusatkan di modul integrasi. Aturan trial dan status billing berada di domain billing. Dari log, operator dapat menelusuri satu upaya checkout hingga webhook atau rekonsiliasi lewat ID korelasi, referensi internal, ID sesi/plan/siklus provider, lingkungan test/live, dan kode hasil. Log menyamarkan secret, token, serta data pembayaran sensitif. Integrasi pembayaran pelanggan di masa depan memiliki namespace Xendit tersendiri untuk POS.
+
+### Webhook dan rekonsiliasi
+
+1. Endpoint server memverifikasi `x-callback-token`, asal lingkungan test/live, dan akun Xendit yang diharapkan. Secret key dan token webhook disimpan di environment server. Nomor kartu dan CVV diproses pada kanal pembayaran Xendit. [Panduan webhook Xendit](https://docs.xendit.co/docs/handling-webhooks)
+2. Simpan event terverifikasi ke antrean yang persisten sebelum mengembalikan 2xx. Worker memproses ulang kegagalan dengan aman. Bedakan error sementara dari event yang butuh investigasi. Catat waktu, referensi, dan hasil pemrosesan dengan data sensitif disamarkan.
+3. Cocokkan ID sesi, plan, dan siklus dengan referensi internal. Verifikasi nominal, mata uang, dan status pembayaran. Server menggunakan event keberhasilan siklus yang terverifikasi atau hasil rekonsiliasi API sebagai bukti pembayaran. Aktivasi plan, pengaitan metode bayar, dan URL kembali dari checkout hanya memberi informasi tentang progres. [Subscription Webhook](https://docs.xendit.co/apidocs/subscription-webhook) · [Panduan webhook Xendit](https://docs.xendit.co/docs/handling-webhooks)
+4. Dedup event dan terapkan efek pembayaran maksimal sekali per siklus yang sah. Event dapat datang dua kali atau di luar urutan. Event gagal yang terlambat tidak boleh menimpa siklus yang sudah dibayar. Event sukses untuk plan lama dipetakan ke periode asal dan ditinjau bila bertabrakan dengan langganan pengganti.
+5. Saat pembuatan sesi timeout, simpan upaya dalam status belum terkonfirmasi dan cocokkan referensi sebelum membuat sesi lain. Gunakan idempotency key provider pada endpoint yang mendukungnya. Batasi satu checkout yang masih bisa ditagih untuk Owner yang sama, termasuk saat dibuka dari dua tab.
+6. Rekonsiliasi berkala mengecek sesi atau siklus tertunda dan perbedaan status. Super Admin dapat memicu pengecekan ulang yang ter-audit. Selisih nominal, refund, dispute, atau dugaan tagihan ganda masuk antrean penanganan. Periode billing mengikuti hasil verifikasi.
+
+## 6. Batas fase pertama dan persiapan fase operasional
+
+- Hanya Super Admin aktif yang mengakses halaman dan aksi pengelolaan Subscription & Trial. Pembaruan dari Xendit diproses oleh webhook yang terverifikasi atau rekonsiliasi server.
+- Di fase pertama, status billing berlaku untuk administrasi platform. Dashboard Owner, aplikasi kasir, `/api/sync`, dan aturan transaksi offline tetap memakai alur operasional saat ini. Akses Owner production dipertahankan saat fase pertama dirilis.
+
+Fase operasional berikutnya dapat mencakup self-service di dashboard Owner, pemberitahuan kepada Owner atau kasir, dan pembatasan penjualan baru setelah akses habis. PRD fase itu perlu menetapkan periode transisi pengguna lama, izin offline berbatas waktu, penyelesaian shift, dan cara memasukkan antrean transaksi yang sudah dibuat. Uji kondisi koneksi putus dan perubahan jam perangkat sebelum menerapkan pembatasan.
+
+## 7. Model data dan tampilan tinjauan
+
+Halaman tinjauan tersedia di **Super Admin → Subscription & Trial** (`/platform/subscriptions`). Daftar menampilkan Owner yang sudah terdaftar, status dan akhir trial, status langganan, paket, periode berbayar, serta tagihan berikutnya. Klik nama Owner untuk melihat waktu mulai/akhir trial, informasi perpanjangan, serta masing-masing 25 riwayat siklus dan checkout terbaru. Filter lingkungan menentukan data `test` atau `live` yang dibaca.
+
+Paket Bulanan dan Tahunan tersedia sebagai draf dengan harga kosong sampai harga disetujui. Owner tanpa data billing tampil sebagai belum mulai. Super Admin dapat memakai **Mulai Trial** di detail Owner. [Migration trial](../../supabase/migrations/20261118150000_platform_start_trial.sql) menyimpan awal, akhir, pelaku, dan audit secara atomik. Pembuatan checkout dan penerimaan webhook mengikuti validasi Xendit Test Mode.
+
+Model dipasang melalui migration aditif [Platform Billing Preview](../../supabase/migrations/20261118140000_platform_billing_preview.sql) di schema privat `billing`. Relasi Owner memakai foreign key ke `auth.users(id)`. Satu akun billing per pasangan Owner dan lingkungan menjaga trial serta ID customer test terpisah dari live. Jika desain lanjutan memerlukan perubahan tabel lama, dokumentasikan alasannya, dampak terhadap data yang sudah berjalan, dan prosedur pemulihannya sebelum menambah migration baru.
+
+| Data | Isi inti |
+|---|---|
+| `billing_plans` | Kode dan versi paket, harga IDR, interval, status penawaran. Harga yang ditampilkan dan disetujui dicatat pada checkout. |
+| `billing_accounts` | Satu baris per Owner per lingkungan, ID customer Xendit, awal dan akhir trial, serta Super Admin yang memulai trial. |
+| `billing_subscriptions` | Owner, versi paket, referensi plan Xendit, persetujuan penagihan, status perpanjangan, dan periode berbayar yang terverifikasi. Pertahankan riwayat plan pengganti. |
+| `billing_checkout_sessions` | Percobaan checkout, referensi unik, paket dan harga yang disetujui, ID sesi provider, status penyelesaian, dan waktu kedaluwarsa. |
+| `billing_cycles` | Plan dan siklus provider, jadwal serta periode yang dicakup, nominal, status, referensi pembayaran, dan waktu dibayar. |
+| `billing_webhook_events` | Referensi event, sumber, kunci dedup, status pemrosesan, percobaan, dan alasan jika perlu ditinjau. Terapkan kebijakan retensi atas data webhook. |
+| `billing_audit_events` | Tindakan pengelolaan trial, checkout, penghentian perpanjangan, dan rekonsiliasi dengan identitas Super Admin, waktu, serta hasil. |
+
+Daftar dan detail memakai dua fungsi baca dengan akses server `service_role`. Fungsi memeriksa role Super Admin aktif, memisahkan lingkungan data dan membatasi jumlah baris. Model menyimpan maksimal satu langganan berjalan dan satu checkout terbuka per Owner per lingkungan. Penerapan pembayaran dan pembaruan periode billing secara atomik menjadi bagian tahap integrasi. Pengujian migration memakai data di luar production untuk memeriksa akun, cabang, transaksi, dan relasi lama. Pembayaran penjualan POS, sub-account merchant, dan payout memiliki pencatatan tersendiri pada tahap berikutnya.
+
+## 8. Rilis dan kriteria penerimaan
+
+1. **Validasi Xendit Test Mode.** Buktikan checkout bulanan dan tahunan, kanal MIT, pembayaran pertama, perpanjangan, pembatalan, dan bentuk webhook pada versi API yang dipilih. Gunakan simulasi siklus yang tersedia. [Simulate cycle payment](https://docs.xendit.co/apidocs/simulate-cycle-payment)
+2. **Bangun pengelolaan platform.** Siapkan model billing, halaman Super Admin, checkout melalui Xendit, webhook, dan rekonsiliasi. Uji alur dengan data dan kredensial test mode.
+3. **Pilot dari Super Admin.** Validasi tindakan operator, ketepatan nominal, riwayat pembayaran, dan jalur rekonsiliasi. Pembatasan akses dashboard atau kasir dibahas dalam rilis fase operasional.
+
+### Validasi Xendit Test Mode
+
+Gunakan secret key **Test Mode** dari environment server atau input sementara selama validasi. Gunakan kanal yang tersedia pada akun Xendit yang akan dipakai. [API keys](https://docs.xendit.co/docs/api-keys)
+
+**Hasil awal uji API, 18 November 2026.** Payment Sessions untuk `MONTH × 1` dan `MONTH × 12` sama-sama mengembalikan HTTP 201 dengan checkout test dan referensi recurring plan. Pembacaan ulang mengonfirmasi interval, nominal IDR, serta `immediate_payment: true`. Kedua plan masih `REQUIRES_ACTION` sebelum metode bayar diotorisasi. Kedua sesi uji dibatalkan setelah pengecekan. [Create a session](https://docs.xendit.co/apidocs/create-session) · [Get Subscription Plan](https://docs.xendit.co/apidocs/get-subscription-plan-2) · [Cancel a session](https://docs.xendit.co/apidocs/cancel-session)
+
+| Skenario | Hasil yang perlu dicatat |
+|---|---|
+| Bulanan | Checkout berhasil dibuat dengan jadwal `MONTH × 1`, Owner dapat mengotorisasi metode bayar, dan hasil pembayaran pertama bisa dibuktikan dari siklus. |
+| Tahunan | Uji `MONTH × 12` pada Payment Sessions dan cek tanggal siklus berikutnya. Jika konfigurasi itu tidak cocok, uji hosted linking diikuti pembuatan Subscription Plan dengan interval `YEAR`. |
+| Tagihan pertama dan perpanjangan | Catat tanggal dan nominal tagihan pertama serta jadwal siklus berikutnya. Uji anchor dekat akhir bulan dan pastikan tidak ada dua tagihan pertama untuk periode yang sama. |
+| Siklus dan webhook | Simulasikan siklus bila tersedia. Cocokkan status dan ID sesi, plan, serta siklus pada hasil API dan webhook. Uji verifikasi token dan pemrosesan ulang sebelum menghubungkan checkout ke akun Owner. |
+
+- [ ] Super Admin aktif dapat memulai trial sekali untuk Owner yang memenuhi syarat. Trial berakhir pada waktu server yang benar dan tidak menimbulkan tagihan.
+- [ ] Super Admin dapat menyiapkan checkout bulanan atau tahunan. Pembayaran pertama dan perpanjangan menagih nominal yang disetujui dan mencatat periode yang sesuai. Mengulang klik atau mengirim ulang webhook tidak menambah tagihan maupun periode.
+- [ ] Callback dengan token salah, nominal tidak cocok, atau referensi yang tidak sesuai tidak mengubah status pembayaran. Redirect checkout dan event aktivasi plan tidak cukup untuk menandai lunas.
+- [ ] Event terlambat, duplikat, terbalik urutannya, dan timeout provider berhasil diuji. Ketidaksesuaian dapat ditemukan melalui rekonsiliasi tanpa menagih ulang secara otomatis.
+- [ ] Setelah penghentian perpanjangan terkonfirmasi, tidak ada siklus berikutnya yang dibuat oleh alur ini. Riwayat periode berbayar tetap tersimpan. Tagihan yang sedang berjalan punya jalur penanganan.
+- [ ] Super Admin aktif dapat melihat dan menindaklanjuti pembayaran dengan jejak audit. Owner, kasir, dan endpoint sinkronisasi mengikuti alur akses yang sudah berjalan saat trial atau periode billing habis.
+- [ ] Migration baru dapat diterapkan dengan data lama tanpa mengubah histori penjualan dan kepemilikan cabang. Panggilan Xendit dan webhook dapat ditelusuri dari satu referensi checkout di log.
+
+Pantau konversi trial ke pembayaran pertama, keberhasilan perpanjangan, tagihan tertunda, dan selisih rekonsiliasi. Tetapkan ambang peringatan setelah pilot.
+
+## 9. Arah tahap berikutnya · Pembayaran pelanggan di POS
+
+Alur produk yang ingin dicapai adalah **Pelanggan → Aplikasi Kasir → pembayaran Xendit untuk sub-account merchant → saldo merchant → payout ke rekening merchant**. Unjuk kerja pembayaran POS harus diuji terpisah dari langganan. XenPlatform menyediakan pengelolaan sub-account dan perutean pembayaran. Pemilihan antara pemrosesan langsung menggunakan konteks sub-account dan split ke akun tujuan bergantung pada pengaturan merchant dan biaya platform. [XenPlatform Overview](https://docs.xendit.co/docs/xenplatform-overview) · [Route & split payments](https://docs.xendit.co/docs/split-payments)
+
+PRD lanjutan perlu menetapkan unit sub-account (merchant atau cabang), onboarding dan KYC, pemilik rekening serta otorisasi payout, settlement, fee dan split, refund/dispute, metode pembayaran, dan rekonsiliasi per cabang. Konfirmasi versi XenPlatform serta ketersediaan produknya untuk akun dan negara target sebelum menentukan alur perutean. [Sub-accounts](https://docs.xendit.co/docs/sub-accounts) · [Payouts for sub-accounts](https://docs.xendit.co/docs/payouts-for-sub-accounts) · [XenPlatform V3 API Migration Guide](https://docs.xendit.co/docs/xenplatform-v3-api-migration-guide)
+
+## 10. Keputusan sebelum implementasi
+
+1. Setujui harga bulanan/tahunan, perlakuan pajak, durasi trial, kriteria kelayakan, serta persetujuan perpanjangan saat checkout.
+2. Setujui siapa yang boleh memulai trial dan menyiapkan checkout, waktu tagihan pertama, cara menyampaikan tautan, jumlah retry, dan kebijakan pembatalan/refund.
+3. Konfirmasi kanal MIT, versi API, perilaku jadwal tahunan, dan otorisasi akun Xendit platform pada test mode sebelum mengaktifkan tagihan live.
+4. Bahas periode transisi, kuota cabang/perangkat, toleransi akses, dan izin offline saat menyusun fase dashboard Owner dan kasir.

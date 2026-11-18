@@ -41,8 +41,8 @@ export function buildExpenseReport(report: ExpenseReport) {
     const quantity = row.quantity == null ? '' : `${Number(row.quantity).toLocaleString('id-ID', { maximumFractionDigits: 6 })} ${row.unitLabel === 'l' ? 'L' : row.unitLabel ?? ''}`.trim()
     const created = row.createdAt && Number.isFinite(Date.parse(row.createdAt)) ? `${dateTime.format(new Date(row.createdAt))} WIB` : ''
     return `<tr><td class="number">${index + 1}</td><td>${escape(dateLabel(row))}</td><td>${row.scope === 'monthly' ? 'Bulanan' : 'Harian'}</td><td>${escape(category)}</td>
-      <td><strong>${escape(purchase)}</strong>${small(`ID: ${row.id}`)}${row.entryGroupId ? small(`Kelompok: ${row.entryGroupId}`) : ''}</td>
-      <td>${escape(row.productName || '-')}${quantity ? small(quantity) : ''}</td><td>${escape(row.supplierName || '-')}</td>
+      <td><strong>${escape(purchase)}</strong>${!row.productName && quantity ? small(`Jumlah: ${quantity}`) : ''}${small(`ID: ${row.id}`)}${row.entryGroupId ? small(`Kelompok: ${row.entryGroupId}`) : ''}</td>
+      <td>${escape(row.productName || '-')}${row.productName && quantity ? small(quantity) : ''}</td><td>${escape(row.supplierName || '-')}</td>
       <td class="money">${escape(currency.format(Number(row.amount) || 0))}</td><td>${row.fromDrawer ? 'Laci kasir' : 'Di luar laci'}${row.shiftId ? small(`Shift: ${row.shiftId}`) : ''}</td>
       <td>${escape(row.createdBy || '-')}${small(created)}</td></tr>`
   }).join('')

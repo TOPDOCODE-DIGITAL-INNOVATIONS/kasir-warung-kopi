@@ -104,7 +104,7 @@ async function* datasetRows(dataset: BackupDataset, context: ExportContext): Asy
         // POS options are current in pos_config; keep the private admin journal
         // from products and operational values from their typed columns.
         const raw = { ...stored, ...latest, id: row.id, name: row.name, categoryId: row.category_id,
-          price: row.price, costPrice: row.cost_price, stock: row.stock, isAvailable: row.is_available }
+          price: row.price, costPrice: row.cost_price, stock: row.stock, isAvailable: row.is_available, imageUrl: row.image_url ?? undefined }
         yield { ...row, raw } as BackupRow
       }
       cursor = data[data.length - 1] as BackupRow

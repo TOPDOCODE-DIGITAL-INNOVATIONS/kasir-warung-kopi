@@ -17,9 +17,13 @@ function load(relative, dependencies = {}) {
   }).outputText
   vm.runInNewContext(compiled, {
     module: target, exports: target.exports, FormData, console, Date, TextEncoder, Uint8Array,
+    process: { env: { SUPABASE_SERVICE_ROLE_KEY: 'fixture-key' } },
     require(name) {
       if (name in dependencies) return dependencies[name]
       if (name === 'server-only') return {}
+      if (name === 'react') return { cache: callback => callback }
+      if (name === 'next/navigation') return { redirect: path => { throw new Error(path) } }
+      if (name === '@/lib/platform-account') return load('src/lib/platform-account.ts', dependencies)
       if (name.startsWith('node:')) return require(name)
       if (name.startsWith('.')) return load(path.relative(root, path.resolve(path.dirname(file), name + '.ts')), dependencies)
       throw new Error(`Unexpected dependency ${name}`)
@@ -51,6 +55,74 @@ test('super admin guard verifies current Auth data and rejects signed-out, owner
     '@/utils/supabase/server': { createClient: async () => ({ auth: { getUser: async () => ({ data: { user } }) } }) },
   })
   assert.equal((await guard.requireSuperAdmin()).user.id, user.id)
+})
+
+test('platform Owner actions recheck the current actor before using the service client', async () => {
+  const action = load('src/app/platform/owners/actions.ts', {
+    'next/cache': { revalidatePath() {} },
+    '@/lib/platform-auth': { requireSuperAdmin: async () => { throw new Error('Forbidden') } },
+    '@/utils/supabase/admin': { createAdminClient: () => { assert.fail('Unauthorized request reached the service client') } },
+  })
+  await assert.rejects(action.getOwnerPage({}), /Forbidden/)
+  await assert.rejects(action.getOwnerDetail('e8110000-0000-0000-0000-000000000003', '1'), /Forbidden/)
+  await assert.rejects(action.setOwnerStatus(new FormData()), /Forbidden/)
+})
+
+test('Owner status changes use the server actor and check the previous status', async () => {
+  const id = 'e8110000-0000-0000-0000-000000000003'
+  const form = new FormData()
+  for (const [key, value] of Object.entries({ id, previous_status: 'active', status: 'inactive', p_actor: 'forged' })) {
+    form.set(key, value)
+  }
+  let stored = false
+  const refreshes = []
+  const action = load('src/app/platform/owners/actions.ts', {
+    'next/cache': { revalidatePath(path) { refreshes.push(path) } },
+    '@/lib/platform-auth': { requireSuperAdmin: async () => ({ user: { id: 'verified-actor' } }) },
+    '@/utils/supabase/admin': { createAdminClient: () => ({ rpc: async (name, args) => {
+      assert.equal(name, 'platform_set_owner_status')
+      assert.deepEqual(plain(args), { p_actor: 'verified-actor', p_owner: id, p_expected_status: 'active', p_status: 'inactive' })
+      const data = !stored
+      stored = true
+      return { data, error: null }
+    } }) },
+  })
+  assert.equal((await action.setOwnerStatus(form)).success, true)
+  assert.equal((await action.setOwnerStatus(form)).success, false)
+  assert.deepEqual(refreshes, ['/platform/owners', '/platform'])
+})
+
+test('starting a trial uses the verified actor and server duration and refreshes billing pages once', async () => {
+  const id = 'e8130000-0000-0000-0000-000000000003'
+  const form = new FormData()
+  for (const [key, value] of Object.entries({ owner_id: id, environment: 'test', p_actor: 'forged', duration: '60' })) {
+    form.set(key, value)
+  }
+  const path = 'src/app/platform/subscriptions/trial-actions.ts'
+  const forbidden = load(path, {
+    'next/cache': { revalidatePath() { assert.fail('Unauthorized request refreshed the route') } },
+    '@/lib/platform-auth': { requireSuperAdmin: async () => { throw new Error('Forbidden') } },
+    '@/utils/supabase/admin': { createAdminClient: () => { assert.fail('Unauthorized request reached the service client') } },
+  })
+  await assert.rejects(forbidden.startTrial(form), /Forbidden/)
+
+  let calls = 0
+  const refreshes = []
+  const action = load(path, {
+    'next/cache': { revalidatePath(pathname) { refreshes.push(pathname) } },
+    '@/lib/platform-auth': { requireSuperAdmin: async () => ({ user: { id: 'verified-actor' } }) },
+    '@/utils/supabase/admin': { createAdminClient: () => ({ rpc: async (name, args) => {
+      assert.equal(name, 'platform_start_trial')
+      assert.deepEqual(plain(args), { p_actor: 'verified-actor', p_owner: id, p_environment: 'test', p_duration_days: 14 })
+      return { data: ++calls === 1 ? 'started' : 'trial_already_used', error: null }
+    } }) },
+  })
+  assert.equal((await action.startTrial(form)).success, true)
+  assert.equal((await action.startTrial(form)).success, false)
+  form.set('environment', 'unknown')
+  assert.equal((await action.startTrial(form)).success, false)
+  assert.equal(calls, 2)
+  assert.deepEqual(refreshes, ['/platform/subscriptions', `/platform/subscriptions/${id}`])
 })
 
 const branchId = 'e8200000-0000-0000-0000-000000000001'

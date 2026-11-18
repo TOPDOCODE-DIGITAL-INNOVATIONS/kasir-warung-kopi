@@ -9,11 +9,13 @@ import MoneyInput from '../products/MoneyInput'
 import { deleteExpense, updateExpense } from './actions'
 import { rupiah } from '@/lib/format'
 import type { EditableExpense } from './types'
+import { EXPENSE_CATEGORIES } from '../../../../../shared/expense-categories'
 
 const input = 'w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500'
 
 function EditModal({ expense, onClose, onSaved }: { expense: EditableExpense; onClose: () => void; onSaved: () => void }) {
   const [scope, setScope] = useState(expense.scope), [date, setDate] = useState(expense.date)
+  const [category, setCategory] = useState(expense.category)
   const [pending, setPending] = useState(false), [error, setError] = useState('')
   async function save(form: FormData) {
     setPending(true); setError('')
@@ -31,10 +33,22 @@ function EditModal({ expense, onClose, onSaved }: { expense: EditableExpense; on
       <fieldset disabled={pending} className="space-y-4">
         {expense.financialLock && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{expense.financialLock}</p>}
         <div className="grid gap-4 sm:grid-cols-2">
-          <label className="space-y-2 text-sm text-gray-700"><span>Jenis pengeluaran</span><select disabled={!!expense.financialLock} className={input} value={scope} onChange={e => { const s = e.target.value as typeof scope; setScope(s); setDate(s === 'monthly' ? date.slice(0, 7) : `${date.slice(0, 7)}-01`) }}><option value="daily">Harian</option><option value="monthly">Bulanan</option></select></label>
+          <label className="space-y-2 text-sm text-gray-700"><span>Jenis pengeluaran</span>
+            <select disabled={!!expense.financialLock} className={input} value={scope} onChange={event => {
+              const next = event.target.value as typeof scope
+              setScope(next)
+              setDate(next === 'monthly' ? date.slice(0, 7) : `${date.slice(0, 7)}-01`)
+              if (!EXPENSE_CATEGORIES[next].includes(category)) setCategory(EXPENSE_CATEGORIES[next][0])
+            }}><option value="daily">Harian</option><option value="monthly">Bulanan</option></select>
+          </label>
           <label className="space-y-2 text-sm text-gray-700"><span>{scope === 'monthly' ? 'Bulan' : 'Tanggal'}</span><input disabled={!!expense.financialLock} required type={scope === 'monthly' ? 'month' : 'date'} value={date} onChange={e => setDate(e.target.value)} className={input} /></label>
         </div>
-        <label className="block space-y-2 text-sm text-gray-700"><span>Kategori</span><input name="category" defaultValue={expense.category} required maxLength={100} className={input} /></label>
+        <label className="block space-y-2 text-sm text-gray-700"><span>Kategori</span>
+          <select name="category" value={category} onChange={event => setCategory(event.target.value)} className={input} required>
+            {!EXPENSE_CATEGORIES[scope].includes(category) && <option value={category}>{category}</option>}
+            {EXPENSE_CATEGORIES[scope].map(option => <option key={option}>{option}</option>)}
+          </select>
+        </label>
         <fieldset disabled={!!expense.financialLock}><label htmlFor="edit-expense-amount" className="mb-2 block text-sm text-gray-700">Nominal</label><MoneyInput id="edit-expense-amount" name="amount" defaultValue={expense.amount} required className={input} /></fieldset>
         <label className="block space-y-2 text-sm text-gray-700"><span>Catatan (opsional)</span><textarea name="note" defaultValue={expense.note} maxLength={500} rows={3} className={input} /></label>
       </fieldset>

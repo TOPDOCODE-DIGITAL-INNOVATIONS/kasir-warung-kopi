@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { platformLandingPath } from '@/lib/platform-account'
 import { getSiteUrl } from '@/lib/site-url'
 import { createClient } from '@/utils/supabase/server'
 
@@ -30,7 +31,7 @@ export async function register(_previousState: RegisterState, formData: FormData
 
   const supabase = await createClient()
   const { data: currentUser } = await supabase.auth.getUser()
-  if (currentUser.user) redirect('/dashboard')
+  if (currentUser.user) redirect(platformLandingPath(currentUser.user))
 
   const { data, error } = await supabase.auth.signUp({
     email,
