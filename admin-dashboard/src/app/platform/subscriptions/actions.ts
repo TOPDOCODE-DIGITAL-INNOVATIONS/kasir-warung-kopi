@@ -7,7 +7,9 @@ import { billingFilters, type BillingEnvironment, type BillingFilter, type Billi
 const PAGE_SIZE = 25
 
 export function billingEnvironment(value: unknown): BillingEnvironment {
-  return value === 'test' ? 'test' : 'live'
+  if (value === 'test' || value === 'live') return value
+  const key = process.env.XENDIT_SECRET_KEY || process.env.XENDIT_TEST_SECRET_KEY || ''
+  return key.startsWith('xnd_development_') ? 'test' : 'live'
 }
 
 export async function getBillingOverview(params: { environment?: unknown; q?: unknown; status?: unknown; page?: unknown }) {

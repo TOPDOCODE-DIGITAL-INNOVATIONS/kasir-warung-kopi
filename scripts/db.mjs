@@ -210,6 +210,7 @@ export async function test() {
     'sync_drafts_and_transaction_edits.sql',
     'admin_inventory.sql',
     'platform_account_roles.sql',
+    'platform_xendit_webhook.sql',
   ]
 
   const platformMigration = fs

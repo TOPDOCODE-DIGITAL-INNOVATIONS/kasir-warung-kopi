@@ -5,6 +5,8 @@ import { rupiah } from '@/lib/format'
 import { billingEnvironment, getBillingOwnerDetail } from '../actions'
 import { billingDate, subscriptionLabels, trialLabels } from '../display'
 import StartTrialButton from '../StartTrialButton'
+import XenditSubscriptionPanel from '../XenditSubscriptionPanel'
+import { getCheckoutContext } from '../xendit-actions'
 
 const panel = 'overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm'
 const tableHead = 'whitespace-nowrap px-4 py-3'
@@ -26,8 +28,12 @@ export default async function BillingDetailPage({ params, searchParams }: {
   const environment = billingEnvironment(search.environment)
   const list = `/platform/subscriptions?environment=${environment}`
   let detail
+  let checkoutContext = null
   try {
-    detail = await getBillingOwnerDetail(id, environment)
+    ;[detail, checkoutContext] = await Promise.all([
+      getBillingOwnerDetail(id, environment),
+      getCheckoutContext(id, environment),
+    ])
   } catch (error) {
     unstable_rethrow(error)
   }
@@ -86,6 +92,14 @@ export default async function BillingDetailPage({ params, searchParams }: {
               ))}
             </dl>
             {label === 'Free Trial' && <StartTrialButton ownerId={owner.owner_id} name={name} environment={environment} canStart={owner.trial_status === 'none'} />}
+            {label === 'Langganan' && (
+              <XenditSubscriptionPanel
+                ownerId={owner.owner_id}
+                ownerName={name}
+                environment={environment}
+                context={checkoutContext}
+              />
+            )}
           </section>
         ))}
       </div>

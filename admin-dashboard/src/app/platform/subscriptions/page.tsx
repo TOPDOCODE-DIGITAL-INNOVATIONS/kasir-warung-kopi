@@ -7,6 +7,7 @@ import { rupiah } from '@/lib/format'
 import { getBillingOverview } from './actions'
 import { billingDate, subscriptionLabels, trialLabels } from './display'
 import { billingFilters } from './types'
+import PlanPriceForm from './PlanPriceForm'
 
 const route = '/platform/subscriptions'
 const field = 'mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
@@ -95,6 +96,7 @@ export default async function SubscriptionsPage({ searchParams }: {
                     <p className="mt-2 text-sm text-gray-600">
                       {plan.amount == null ? 'Harga belum ditentukan' : `${rupiah(plan.amount)} / ${plan.code === 'monthly' ? 'bulan' : 'tahun'}`}
                     </p>
+                    <PlanPriceForm code={plan.code} amount={plan.amount} />
                   </li>
                 ))}
               </ul>
