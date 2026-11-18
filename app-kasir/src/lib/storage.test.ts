@@ -21,9 +21,11 @@ import {
   saveTransaction,
   startNewShift,
   addExpense,
+  addExpenseBatch,
   updateExpense,
   deleteExpense,
   getExpenses,
+  getExpensePurchaseCatalog,
   performCloudSync,
   getUnsyncedCount,
   pruneSyncedTransactions,
@@ -44,7 +46,7 @@ import {
 import { verifyPin, hashPin, isValidPin, sha256Hex } from './security';
 import { can } from './permissions';
 import { computeSalesReport, resolveDateRange, isInRange, computeMonthlyRecap, monthlyRecapToTSV, toLocalDateKey, toMonthKey, getExpectedDrawerCash } from './reports';
-import { PaymentType, Transaction } from '../types';
+import { Expense, PaymentType, Transaction } from '../types';
 
 class MemoryStorage {
   private store = new Map<string, string>();
@@ -454,6 +456,74 @@ describe('rekap bulanan', () => {
 });
 
 describe('sync pengeluaran', () => {
+  it('mencatat satu nota berisi produk dan nama pembelian bebas dengan satu supplier dan total laci', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    startNewShift('c-1', 100000);
+    const form = { scope: 'daily' as const, date: toLocalDateKey(new Date()), category: 'Bahan Baku', createdBy: 'Budi', fromDrawer: true };
+    const milk = { ...form, amount: 20000, quantity: 2, productName: 'Susu',
+      pendingPurchase: { businessId: 'branch', productId: 'milk' } };
+    const supplier = { id: 'vendor', name: 'Pasar' };
+    expect(() => addExpenseBatch([milk, { ...form, amount: 7000 }], 'branch', supplier)).toThrow(/nama pembelian/);
+    expect(getExpenses()).toHaveLength(0);
+    const pokcoy = { ...form, amount: 7000, note: 'Pokcoy', quantity: 2 };
+    expect(() => addExpenseBatch([milk, { ...pokcoy, quantity: 0 }], 'branch', supplier)).toThrow(/Jumlah/);
+    expect(getExpenses()).toHaveLength(0);
+    const [first, second] = addExpenseBatch([milk, pokcoy], 'branch', supplier);
+    expect(first.entryGroupId).toBeTruthy();
+    expect(first.entryGroupId).toBe(second.entryGroupId);
+    expect(second).toMatchObject({ note: 'Pokcoy', quantity: 2, supplierName: 'Pasar', category: 'Bahan Baku' });
+    expect(second.productName).toBeUndefined();
+    expect(getActiveShift()?.expensesCash).toBe(27000);
+    stubServer(body => {
+      expect(body.expenses).toEqual([]);
+      expect(body.productExpenses.map((expense: Expense) => expense.id)).toEqual([first.id, second.id]);
+      expect(body.productExpenses[1].quantity).toBe(2);
+      expect(body.productExpenses[1].pendingPurchase).toMatchObject({ operationId: first.entryGroupId, supplierId: supplier.id });
+      return { productExpenseResults: [first, second].map(expense => ({
+        id: expense.id, quantity: expense.quantity, serverVersion: 'saved', entryGroupId: first.entryGroupId, supplierName: 'Pasar',
+      })) };
+    });
+    expect((await performCloudSync()).success).toBe(true);
+    expect(getUnsyncedCount()).toBe(0);
+    expect(getExpenses().find(expense => expense.id === second.id)).toMatchObject({ note: 'Pokcoy', quantity: 2 });
+    expect(getActiveShift()?.expensesCash).toBe(27000);
+  });
+
+  it('menyimpan pembelian produk offline dan hanya menandainya terkirim setelah pembelian dikonfirmasi', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    startNewShift('c-1', 100000);
+    const purchase = addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Susu',
+      amount: 20000, createdBy: 'Budi', fromDrawer: true, quantity: 2, productName: 'Susu',
+      pendingPurchase: { businessId: 'branch', productId: 'milk' } });
+    const ordinary = addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Transport', amount: 15000, createdBy: 'Budi' });
+    expect(getActiveShift()?.expensesCash).toBe(20000);
+    expect(deleteExpense(purchase.id).ok).toBe(false);
+    let attempts = 0;
+    const initialPull = stubServer(body => {
+      attempts++;
+      expect(body.expenses.map((expense: Expense) => expense.id)).toEqual([ordinary.id]);
+      expect(body.productExpenses).toMatchObject([{ id: purchase.id, quantity: 2 }]);
+      return {}; // A server from before the purchase feature must not mark this as uploaded.
+    });
+    expect((await performCloudSync()).success).toBe(false);
+    expect(attempts).toBe(1);
+    expect(getUnsyncedCount()).toBe(1);
+    expect(initialPull[0]).toContain('expenseCatalog=1');
+    stubServer(body => {
+      expect(body.expenses).toEqual([]);
+      expect(body.productExpenses[0].id).toBe(purchase.id);
+      return { productExpenseResults: [{ id: purchase.id, purchaseLineId: 'line', serverVersion: 'saved', quantity: 2, unitLabel: 'L' }] };
+    }, { ...EMPTY_PULL, expenseCatalog: { businessId: 'branch', products: [{ id: 'milk', name: 'Susu', stock: 2, unitCode: 'l', units: [] }] },
+      configUpdatedAt: '2026-01-01T00:00:00.000Z' });
+    expect((await performCloudSync()).success).toBe(true);
+    expect(getUnsyncedCount()).toBe(0);
+    expect(getExpenses().find(expense => expense.id === purchase.id)).toMatchObject({ purchaseLineId: 'line', isSynced: true, unitLabel: 'L' });
+    expect(getActiveShift()?.expensesCash).toBe(20000);
+    expect(getExpensePurchaseCatalog()?.products[0].name).toBe('Susu');
+    saveStoreSettings({ ...getStoreSettings(), syncApiKey: 'different-branch' });
+    expect(getExpensePurchaseCatalog()).toBeNull();
+  });
+
   it('penghapusan yang diberitahukan server saat push menghapus salinan lama walau perangkat belum pernah pull', async () => {
     saveStoreSettings({ ...getStoreSettings(), syncApiKey: 'token', syncApiUrl: 'https://example.test/sync' });
     const original = addExpense({ scope: 'daily', date: toLocalDateKey(new Date()), category: 'Transport', amount: 15000, createdBy: 'Budi' });

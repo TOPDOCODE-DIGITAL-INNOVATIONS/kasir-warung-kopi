@@ -9,6 +9,7 @@ import PeriodSelect from '../PeriodSelect'
 import ExpenseEntry from './ExpenseEntry'
 import ExpenseActions from './ExpenseActions'
 import ExpenseExport from './ExpenseExport'
+import { expenseNoteSuggestions } from '../../../../../shared/expense-products'
 
 type Exp = {
   id: string
@@ -67,6 +68,7 @@ export default async function ExpensesPage({
   const catKey = (e: Exp) => e.category?.trim() || 'Lainnya'
   const cat = sp.cat ?? ''
   const shown = cat ? inPeriod.filter((e) => catKey(e) === cat) : inPeriod
+  const recentNotes = expenseNoteSuggestions(inPeriod.filter(expense => !expense.product_name).map(expense => expense.note), '', 100)
 
   const total = inPeriod.reduce((s, e) => s + n(e.amount), 0)
   const daily = inPeriod.filter((e) => e.scope !== 'monthly')
@@ -105,7 +107,7 @@ export default async function ExpensesPage({
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} heading={
+      <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} recentNotes={recentNotes} heading={
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Pengeluaran</h1>
           <p className="text-gray-500 text-sm mt-1">Periode {formatRange(start, end)} · pengeluaran dari admin dan kasir.</p>
@@ -193,12 +195,12 @@ export default async function ExpensesPage({
                     <li key={`${e.businesses?.name}-${e.id}`} className="flex justify-between gap-3 px-4 py-3">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-900">
-                          {catKey(e)}
+                          {e.product_name || e.note || catKey(e)}
                           {e.from_drawer && <span className="ml-2 text-xs font-normal px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">dari laci</span>}
                         </p>
-                        {e.product_name && <p className="mt-1 text-sm text-gray-700">{e.product_name}{e.quantity != null ? ` · ${Number(e.quantity).toLocaleString('id-ID', { maximumFractionDigits: 6 })} ${e.unit_label === 'l' ? 'L' : e.unit_label ?? ''}` : ''}</p>}
+                        {(e.product_name || e.note) && <p className="mt-1 text-sm text-gray-700">{catKey(e)}{e.quantity != null && ` · ${e.product_name ? '' : 'Jumlah: '}${Number(e.quantity).toLocaleString('id-ID', { maximumFractionDigits: 6 })}${e.unit_label ? ` ${e.unit_label === 'l' ? 'L' : e.unit_label}` : ''}`}</p>}
                         {e.entry_group_id && <p className="mt-1 text-xs text-gray-400">Kelompok input: {e.entry_group_id.slice(0, 8)}</p>}
-                        {e.note && <p className="text-sm text-gray-600 break-words">{e.note}</p>}
+                        {e.product_name && e.note && <p className="text-sm text-gray-600 break-words">{e.note}</p>}
                         {e.supplier_name && <p className="mt-1 text-xs text-gray-500">Supplier: {e.supplier_name}</p>}
                         <p className="text-xs text-gray-400 mt-0.5">
                           {[

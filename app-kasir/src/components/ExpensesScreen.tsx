@@ -2,16 +2,20 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Wallet, Plus, Pencil, Trash2, CalendarDays, CalendarRange, FileDown } from 'lucide-react';
 import { printExpenseReport } from '../../../shared/expense-report';
 import { RupiahInput } from './RupiahInput';
+import ExpenseProductPicker from './ExpenseProductPicker';
+import { expenseNoteSuggestions, type ExpensePurchaseProduct } from '../../../shared/expense-products';
 import { Cashier, Expense, ExpenseScope, Shift } from '../types';
 import {
-  addExpense,
+  addExpenseBatch,
   updateExpense,
   deleteExpense,
   EXPENSE_CATEGORIES,
   formatIDR,
   getExpenses,
+  getExpensePurchaseCatalog,
   getStoreSettings,
   POS_UPDATE_EVENT,
+  searchExpensePurchaseProducts,
 } from '../lib/storage';
 import { toLocalDateKey, toMonthKey } from '../lib/reports';
 import { can } from '../lib/permissions';
@@ -23,6 +27,19 @@ interface ExpensesScreenProps {
 
 const inputCls =
   'w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-2 text-sm focus:outline-none focus:border-[#3E2723]';
+const unitLabel = (unit?: string) => unit === 'l' ? 'L' : unit ?? '';
+type ExpenseItem = {
+  id: number;
+  category: string;
+  amount: number;
+  note: string;
+  purchase: { product: ExpensePurchaseProduct; businessId: string } | null;
+  quantity: string;
+  unit: string;
+};
+const newExpenseItem = (id: number, scope: ExpenseScope): ExpenseItem => ({
+  id, category: EXPENSE_CATEGORIES[scope][0], amount: 0, note: '', purchase: null, quantity: '', unit: '',
+});
 
 function formatDayLabel(key: string): string {
   const [y, m, d] = key.split('-').map(Number);
@@ -52,6 +69,10 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
   const [note, setNote] = useState<string>('');
   const [fromDrawer, setFromDrawer] = useState<boolean>(true);
   const [editing, setEditing] = useState<Expense | null>(null);
+  const [items, setItems] = useState(() => [newExpenseItem(0, 'daily')]);
+  const nextItemId = useRef(1);
+  const [catalog, setCatalog] = useState(getExpensePurchaseCatalog);
+  const [supplierId, setSupplierId] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
   const financialLocked = !!editing && (!!editing.purchaseLineId || (!!editing.fromDrawer && editing.shiftId !== activeShift?.id));
   const dateLocked = financialLocked || !!editing?.fromDrawer;
@@ -59,6 +80,8 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
   const resetForm = () => {
     setEditing(null); setScope('daily'); setDate(today); setFormMonth(toMonthKey(new Date()));
     setCategory(EXPENSE_CATEGORIES.daily[0]); setAmount(''); setNote(''); setFromDrawer(true);
+    setItems([newExpenseItem(nextItemId.current++, 'daily')]);
+    setSupplierId('');
   };
 
   const startEdit = (expense: Expense) => {
@@ -69,39 +92,65 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
   };
 
   useEffect(() => {
-    const load = () => setExpenses(getExpenses());
+    const load = () => { setExpenses(getExpenses()); setCatalog(getExpensePurchaseCatalog()); };
+    const controller = new AbortController();
+    if (navigator.onLine && !getExpensePurchaseCatalog()?.suppliers && getStoreSettings().syncApiKey) {
+      void searchExpensePurchaseProducts('', controller.signal).then(result => {
+        if (!controller.signal.aborted) setCatalog(result);
+      }).catch(() => undefined);
+    }
     load();
     window.addEventListener(POS_UPDATE_EVENT, load);
-    return () => window.removeEventListener(POS_UPDATE_EVENT, load);
+    return () => { controller.abort(); window.removeEventListener(POS_UPDATE_EVENT, load); };
   }, []);
 
   const canUseDrawer = scope === 'daily' && Boolean(activeShift) && date === today;
+  const historicalNotes = useMemo(() => [
+    ...expenses.filter(expense => !expense.productName && (!catalog || expense.businessId === catalog.businessId)).map(expense => expense.note),
+    ...(catalog?.notes ?? []),
+  ], [expenses, catalog]);
+
+  const changeItem = (id: number, values: Partial<ExpenseItem>) => setItems(previous =>
+    previous.map(item => item.id === id ? { ...item, ...values } : item));
 
   const switchScope = (s: ExpenseScope) => {
     setScope(s);
     setCategory(EXPENSE_CATEGORIES[s][0]);
+    if (!editing) setItems(previous => previous.map(item => ({
+      ...item, category: EXPENSE_CATEGORIES[s].includes(item.category) ? item.category : EXPENSE_CATEGORIES[s][0],
+    })));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const values = {
-        scope,
-        date: scope === 'daily' ? date : formMonth,
-        category,
-        amount: Number(amount),
-        note,
-      };
+      const transactionDate = scope === 'daily' ? date : formMonth;
+      let queued = false;
       if (editing) {
         if (!canManage) throw new Error('Hanya Supervisor / Owner yang dapat mengedit pengeluaran.');
-        updateExpense(editing.id, values, editing);
-      } else addExpense({
-        ...values,
-        fromDrawer: canUseDrawer && fromDrawer,
-        createdBy: activeCashier.name,
-      });
-      setMonth(values.date.slice(0, 7));
-      setNotice({ type: 'success', msg: editing ? 'Pengeluaran diperbarui. Perubahan akan ikut sinkronisasi.' : 'Pengeluaran tersimpan.' });
+        updateExpense(editing.id, { scope, date: transactionDate, category, amount: Number(amount), note }, editing);
+      } else {
+        const supplier = catalog?.suppliers?.find(option => option.id === supplierId);
+        if (supplierId && !supplier) throw new Error('Supplier sudah berubah. Pilih kembali supplier yang tersedia.');
+        const branch = catalog?.businessId ?? items.find(item => item.purchase)?.purchase?.businessId;
+        const saved = addExpenseBatch(items.map(item => {
+          const purchase = item.purchase;
+          return {
+            scope, date: transactionDate, category: item.category, amount: item.amount, note: item.note,
+            fromDrawer: canUseDrawer && fromDrawer, createdBy: activeCashier.name,
+            quantity: item.quantity ? Number(item.quantity) : undefined,
+            ...(purchase && {
+              pendingPurchase: { businessId: purchase.businessId, productId: purchase.product.id, itemUnitId: item.unit || undefined },
+              productName: purchase.product.name,
+              unitLabel: item.quantity ? purchase.product.units.find(option => option.id === item.unit)?.label ?? purchase.product.unitCode : undefined,
+            }),
+          };
+        }), branch, supplier);
+        queued = saved.some(expense => expense.pendingPurchase);
+      }
+      setMonth(transactionDate.slice(0, 7));
+      setNotice({ type: 'success', msg: editing ? 'Pengeluaran diperbarui. Perubahan akan ikut sinkronisasi.'
+        : queued ? 'Pengeluaran tersimpan di perangkat dan akan dikirim saat sinkronisasi.' : 'Pengeluaran tersimpan.' });
       resetForm();
     } catch (err: unknown) {
       setNotice({ type: 'error', msg: err instanceof Error ? err.message : 'Gagal menyimpan pengeluaran.' });
@@ -150,22 +199,26 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
     <div className="flex items-start justify-between gap-3 py-2">
       <div className="min-w-0">
         <div className="font-bold text-xs text-[#2C2420]">
-          {e.category}
+          {e.productName || e.note || e.category}
           {e.fromDrawer && (
             <span className="ml-1.5 text-[9px] font-bold uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">
               Dari laci
             </span>
           )}
         </div>
-        {e.note && <div className="text-[11px] text-stone-600 break-words">{e.note}</div>}
+        {(e.productName || e.note) && <div className="text-[11px] text-stone-600">
+          {e.category}{e.quantity != null && ` · ${e.productName ? '' : 'Jumlah: '}${e.quantity.toLocaleString('id-ID', { maximumFractionDigits: 6 })}${e.unitLabel ? ` ${unitLabel(e.unitLabel)}` : ''}`}{e.supplierName && ` · ${e.supplierName}`}
+        </div>}
+        {e.productName && e.note && <div className="text-[11px] text-stone-600 break-words">{e.note}</div>}
+        {e.pendingPurchase && <div className="text-[10px] text-amber-800">{e.purchaseSyncError ?? 'Menunggu sinkronisasi pengeluaran'}</div>}
         <div className="text-[10px] text-stone-400">oleh {e.createdBy}</div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <span className="font-black text-xs text-rose-700">-{formatIDR(e.amount)}</span>
-        {canManage && (
+        {canManage && !e.pendingPurchase && (
           <button type="button" onClick={() => startEdit(e)} className="p-1 text-stone-400 hover:text-[#3E2723]" aria-label={`Edit pengeluaran ${e.category}`} title="Edit pengeluaran"><Pencil className="w-3.5 h-3.5" /></button>
         )}
-        {canManage && (
+        {canManage && !e.pendingPurchase && (
           <button
             disabled={!!e.purchaseLineId}
             onClick={() => handleDelete(e)}
@@ -264,7 +317,7 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
                 <input type="month" disabled={dateLocked} value={formMonth} onChange={(e) => setFormMonth(e.target.value)} className={inputCls} required />
               )}
             </div>
-            <div>
+            {editing ? <div>
               <label className="text-xs font-bold text-[#3E2723] block mb-1">Kategori</label>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className={inputCls}>
                 {!EXPENSE_CATEGORIES[scope].includes(category) && <option value={category}>{category}</option>}
@@ -274,29 +327,90 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
                   </option>
                 ))}
               </select>
+            </div> : <label className="block text-xs font-bold text-[#3E2723]">Supplier (opsional)
+              <select value={supplierId} onChange={event => setSupplierId(event.target.value)} className={`mt-1 ${inputCls}`}>
+                <option value="">Tanpa supplier</option>
+                {catalog?.suppliers?.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+              </select>
+            </label>}
+          </div>
+
+          {editing ? (
+            <>
+              {editing.productName && <p className="text-xs text-stone-600">Produk: {editing.productName}{editing.quantity != null && ` · ${editing.quantity} ${unitLabel(editing.unitLabel)}`}</p>}
+              <fieldset disabled={financialLocked}>
+                <label className="mb-1 block text-xs font-bold text-[#3E2723]">Nominal</label>
+                <RupiahInput value={Number(amount) || 0} onChange={value => setAmount(String(value))}
+                  className={inputCls.replace('px-3', 'pr-3')} aria-label="Nominal" required />
+              </fieldset>
+              <label className="block text-xs font-bold text-[#3E2723]">{editing.productName ? 'Catatan (opsional)' : 'Nama pembelian'}
+                <input value={note} onChange={event => setNote(event.target.value)} maxLength={500} className={`mt-1 ${inputCls}`} />
+              </label>
+            </>
+          ) : (
+            <div className="space-y-3">
+              {items.map((item, index) => {
+                const product = item.purchase?.product;
+                const listId = `pos-purchase-notes-${item.id}`;
+                const suggestions = product ? [] : expenseNoteSuggestions(historicalNotes, item.note);
+                return (
+                  <section key={item.id} aria-label={`Item ${index + 1}`} className="space-y-2 rounded border border-[#EFEBE9] p-2.5">
+                    {items.length > 1 && <div className="flex justify-between">
+                      <span className="text-xs font-semibold text-stone-600">Item {index + 1}</span>
+                      <button type="button" aria-label={`Hapus item ${index + 1}`}
+                        onClick={() => setItems(previous => previous.filter(row => row.id !== item.id))}
+                        className="text-rose-700"><Trash2 className="h-4 w-4" /></button>
+                    </div>}
+                    <ExpenseProductPicker inputClass={inputCls}
+                      excludedIds={items.flatMap(row => row.id !== item.id && row.purchase ? [row.purchase.product.id] : [])}
+                      onSelect={(selected, businessId, fallbackName) => changeItem(item.id, {
+                        purchase: selected && businessId ? { product: selected, businessId } : null,
+                        quantity: '', unit: '', note: item.note || fallbackName || '',
+                      })} />
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block text-xs font-bold text-[#3E2723]">Kategori
+                        <select className={`mt-1 ${inputCls}`} value={item.category} onChange={event => changeItem(item.id, { category: event.target.value })}>
+                          {EXPENSE_CATEGORIES[scope].map(option => <option key={option}>{option}</option>)}
+                        </select>
+                      </label>
+                      <label className="block text-xs font-bold text-[#3E2723]">Nominal
+                        <RupiahInput value={item.amount} onChange={value => changeItem(item.id, { amount: value })}
+                          className={`mt-1 ${inputCls.replace('px-3', 'pr-3')} font-bold`} aria-label="Nominal" required />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block text-xs font-bold text-[#3E2723]">Jumlah {(!product || product.stock < 0) && '(opsional)'}
+                        <input className={`mt-1 ${inputCls}`} type="number" inputMode="decimal" value={item.quantity} required={!!product && product.stock >= 0}
+                          min="0.000001" max="999999999" step="0.000001" onChange={event => changeItem(item.id, { quantity: event.target.value })} />
+                      </label>
+                      {product && <label className="block text-xs font-bold text-[#3E2723]">Satuan pembelian
+                        <select className={`mt-1 ${inputCls}`} value={item.unit} onChange={event => changeItem(item.id, { unit: event.target.value })}>
+                          <option value="">{unitLabel(product.unitCode)} (satuan dasar)</option>
+                          {product.units.map(option => <option key={option.id} value={option.id}>
+                            {unitLabel(option.label)}{option.factor !== 1 ? ` = ${option.factor} ${unitLabel(product.unitCode)}` : ''}
+                          </option>)}
+                        </select>
+                      </label>}
+                    </div>
+                    <label className="block text-xs font-bold text-[#3E2723]">{product ? 'Catatan (opsional)' : 'Nama pembelian'}
+                      <input value={item.note} onChange={event => changeItem(item.id, { note: event.target.value })}
+                        list={!product ? listId : undefined} required={!product} maxLength={500}
+                        placeholder={product ? undefined : 'Contoh: Pokcoy atau ongkir'} className={`mt-1 ${inputCls}`} />
+                    </label>
+                    {!product && <datalist id={listId}>{suggestions.map(suggestion => <option key={suggestion} value={suggestion} />)}</datalist>}
+                  </section>
+                );
+              })}
+              <div className="flex flex-wrap justify-between gap-2 text-sm">
+                <button type="button" disabled={items.length >= 100}
+                  onClick={() => { const item = newExpenseItem(nextItemId.current++, scope); setItems(previous => [...previous, item]); }}
+                  className="inline-flex items-center gap-1 font-semibold text-[#5D4037] disabled:opacity-50">
+                  <Plus className="h-4 w-4" /> Tambah Item
+                </button>
+                <strong>Total {formatIDR(items.reduce((sum, item) => sum + item.amount, 0))}</strong>
+              </div>
             </div>
-          </div>
-
-          <fieldset disabled={financialLocked}>
-            <label className="text-xs font-bold text-[#3E2723] block mb-1">Nominal</label>
-            <RupiahInput
-              value={Number(amount) || 0}
-              onChange={(v) => setAmount(v ? String(v) : '')}
-              className={`${inputCls.replace('px-3', 'pr-3')} font-bold`}
-              required
-            />
-          </fieldset>
-
-          <div>
-            <label className="text-xs font-bold text-[#3E2723] block mb-1">Catatan (opsional)</label>
-            <input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={scope === 'daily' ? 'mis. es batu 2 balok' : 'mis. gaji 2 karyawan'}
-              maxLength={500}
-              className={inputCls}
-            />
-          </div>
+          )}
 
           {scope === 'daily' && (
             <label className={`flex items-start gap-2 text-xs ${canUseDrawer ? '' : 'opacity-50'}`}>

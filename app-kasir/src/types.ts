@@ -182,6 +182,9 @@ export interface Expense {
   unitLabel?: string;
   supplierName?: string;
   entryGroupId?: string;
+  businessId?: string;
+  pendingPurchase?: import('../../shared/expense-products').PendingExpensePurchase;
+  purchaseSyncError?: string;
 }
 
 export interface StoreSettings {

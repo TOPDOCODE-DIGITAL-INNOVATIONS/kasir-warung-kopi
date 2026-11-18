@@ -11,7 +11,7 @@ const selectionMessage = 'Pilih produk dari hasil pencarian atau pilih Lain-lain
 
 export default function ExpenseProductSearch({ businessId, value, excludedIds, disabled, onSelect }: {
   businessId: string; value: ExpenseProduct | null; excludedIds: string[]; disabled: boolean
-  onSelect: (product: ExpenseProduct | null) => void
+  onSelect: (product: ExpenseProduct | null, fallbackName?: string) => void
 }) {
   const id = useId(), field = useRef<HTMLInputElement>(null), revision = useRef(0)
   const [text, setText] = useState(value?.name ?? ''), [committed, setCommitted] = useState(value?.name ?? '')
@@ -40,7 +40,9 @@ export default function ExpenseProductSearch({ businessId, value, excludedIds, d
     revision.current++
     const name = product?.name ?? 'Lain-lain'
     setText(name); setCommitted(name); field.current?.setCustomValidity('')
-    onSelect(product); field.current?.focus(); setOpen(false); setActive(-1)
+    const fallbackName = !product && text.trim() !== committed && text.trim().toLocaleLowerCase('id') !== 'lain-lain'
+      ? text.trim() : undefined
+    onSelect(product, fallbackName); field.current?.focus(); setOpen(false); setActive(-1)
   }
 
   function move(direction: 1 | -1) {
