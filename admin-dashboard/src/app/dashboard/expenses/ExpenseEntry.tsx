@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { usePendingRefresh } from '@/hooks/usePendingRefresh'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { Plus, Trash2 } from 'lucide-react'
@@ -82,11 +82,23 @@ function ExpenseModal({ businessId, onClose, onSaved }: { businessId: string; on
   </AdminModal>
 }
 
-export default function ExpenseEntry({ businessId }: { businessId: string | null }) {
+export default function ExpenseEntry({ businessId, heading, children }: {
+  businessId: string | null
+  heading: ReactNode
+  children: ReactNode
+}) {
   const { refreshing, refresh } = usePendingRefresh(), [open, setOpen] = useState(false), [message, setMessage] = useState('')
   return <>
-    <button type="button" disabled={!businessId || refreshing} onClick={() => { setMessage(''); setOpen(true) }} className={`${primary} inline-flex items-center gap-2`}><Plus className="h-4 w-4" />Tambah Pengeluaran</button>
-    {message && <p role="status" className="text-sm text-green-700">{message}</p>}
+    <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+      {heading}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" disabled={!businessId || refreshing} onClick={() => { setMessage(''); setOpen(true) }} className={`${primary} inline-flex items-center gap-2`}>
+          <Plus aria-hidden="true" className="h-4 w-4" />Tambah Pengeluaran
+        </button>
+        {children}
+      </div>
+    </div>
+    {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</p>}
     {open && businessId && <ExpenseModal businessId={businessId} onClose={() => setOpen(false)} onSaved={text => { setOpen(false); setMessage(text); refresh() }} />}
   </>
 }

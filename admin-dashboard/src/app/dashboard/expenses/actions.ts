@@ -130,7 +130,7 @@ export async function saveExpenseBatch(form: FormData) {
     })
     if (error) throw new Error(error.message)
     for (const path of ['/dashboard/expenses', '/dashboard/products', '/dashboard/recap', '/dashboard']) revalidatePath(path)
-    return { success: true, message: 'Pengeluaran berhasil disimpan. Barang dengan pelacakan stok telah ditambahkan.' }
+    return { success: true, message: 'Pengeluaran berhasil disimpan.' }
   } catch (error) {
     unstable_rethrow(error)
     return { success: false, message: error instanceof Error ? error.message : 'Pengeluaran belum berhasil disimpan.' }

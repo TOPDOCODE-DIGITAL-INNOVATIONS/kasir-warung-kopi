@@ -105,20 +105,18 @@ export default async function ExpensesPage({
 
   return (
     <div className="space-y-6 max-w-6xl">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} heading={
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Pengeluaran</h1>
           <p className="text-gray-500 text-sm mt-1">Periode {formatRange(start, end)} · pengeluaran dari admin dan kasir.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} />
-          <ExpenseExport unavailable={!!res.error || !businessId} report={{ branchName: businesses[0]?.name ?? '', period: formatRange(start, end), category: cat,
-            rows: shown.map(e => ({ id: e.id, scope: e.scope, date: e.date, category: e.category, note: e.note, amount: e.amount,
-              fromDrawer: e.from_drawer, createdBy: e.created_by, createdAt: e.created_at, productName: e.product_name, quantity: e.quantity,
-              unitLabel: e.unit_label, supplierName: e.supplier_name, entryGroupId: e.entry_group_id, shiftId: e.shift_id })) }} />
-          <PeriodSelect options={options} value={`${start}_${end}`} />
-        </div>
-      </div>
+      }>
+        <ExpenseExport unavailable={!!res.error || !businessId} report={{ branchName: businesses[0]?.name ?? '', period: formatRange(start, end), category: cat,
+          rows: shown.map(e => ({ id: e.id, scope: e.scope, date: e.date, category: e.category, note: e.note, amount: e.amount,
+            fromDrawer: e.from_drawer, createdBy: e.created_by, createdAt: e.created_at, productName: e.product_name, quantity: e.quantity,
+            unitLabel: e.unit_label, supplierName: e.supplier_name, entryGroupId: e.entry_group_id, shiftId: e.shift_id })) }} />
+        <PeriodSelect options={options} value={`${start}_${end}`} />
+      </ExpenseEntry>
 
       {res.error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{res.error}</p>}
 
