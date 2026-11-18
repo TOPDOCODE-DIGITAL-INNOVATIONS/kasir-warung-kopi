@@ -27,29 +27,46 @@ role lama dibiarkan tersimpan agar perubahan ini tidak menghapus atribut akun la
 Jika field terpercaya belum tersedia saat rollout, aplikasi memperlakukan akun
 sebagai Owner aktif demi kompatibilitas. Nilai eksplisit yang tidak dikenal ditolak.
 
-`getBusinessContext` membaca role dari hasil `auth.getUser()` dan tetap membatasi
-semua data bisnis ke pemiliknya. Menu akun menampilkan role yang sebenarnya.
-`requireSuperAdmin()` adalah helper server-only untuk area platform mendatang:
-helper memeriksa akun terbaru melalui Auth, menolak Owner, pengguna tanpa login,
-dan super admin berstatus inactive. Pemeriksaan tidak hanya menggunakan role JWT
-lama. Helper ini belum membuka endpoint atau halaman pengelolaan platform.
+`getBusinessContext` membaca role dari hasil `auth.getUser()` dan membatasi data
+bisnis ke pemiliknya. Menu akun menampilkan role yang sebenarnya.
+`requireSuperAdmin()` membaca akun terbaru melalui Auth dan memberi akses platform
+hanya kepada Super Admin aktif.
+
+## Kelola Owner
+
+- Super Admin dan Owner memakai halaman login yang sama. Super Admin diarahkan ke
+  **Overview Platform** di `/platform`. Dashboard Owner tersedia di `/dashboard`.
+- Overview menampilkan jumlah Owner, Owner aktif, Owner nonaktif, dan cabang
+  terdaftar milik akun Owner.
+- Menu **Kelola Owner** memuat akun Supabase Auth dengan nama, email, status, dan
+  tanggal daftar serta jumlah cabang. Nama Owner membuka halaman detail akun
+  dan daftar cabangnya. Pencarian nama atau email dan filter status dijalankan
+  sebelum pengambilan halaman daftar.
+- Aktifkan dan Nonaktifkan menyimpan `account_status` setelah konfirmasi. Untuk
+  tahap ini, status Owner berfungsi sebagai catatan administrasi akun.
+- Migration `20261118120000_platform_owner_management.sql` menambahkan dua fungsi
+  dengan izin khusus `service_role`. Aplikasi memeriksa akses sebelum membaca
+  daftar dan sebelum menyimpan. Database memeriksa kembali pelaku, role akun
+  sasaran, dan status sebelumnya saat menyimpan. Migration memasang fungsi
+  tanpa memodifikasi data akun atau data cabang saat diterapkan.
+- Migration `20261118130000_platform_overview.sql` menambahkan fungsi baca untuk
+  Overview, hitungan cabang per Owner, dan detail akun dengan daftar nama serta
+  tanggal pembuatan cabang. Informasi operasional seperti token, konfigurasi
+  kasir, dan transaksi berada di dashboard Owner.
 
 ## Yang ditunda
 
-- Halaman/list pengelolaan akun Owner dan pengelolaan super admin lain.
-- Aksi aktivasi/nonaktivasi akun melalui dashboard.
+- Pengelolaan Super Admin lain.
 - Pemblokiran akses dashboard Owner, operasional cabang, aplikasi kasir, dan API
   sinkronisasi berdasarkan account_status. Status Owner saat ini hanya persiapan.
 - Subscription, trial, dan akses transaksi/data bisnis lintas Owner oleh super admin.
 
-Tidak ada perubahan pada RLS kepemilikan, token cabang, mode offline, alur transaksi,
-atau pengurangan stok. Menjadi super admin tidak memberikan bypass RLS. Akun
-super admin yang belum memiliki cabang mendapat kondisi dashboard tanpa cabang;
-belum ada menu platform baru, sesuai keputusan penundaan rancangan tampilannya.
+Menu platform menyediakan pengelolaan akun. Pembatasan RLS untuk data bisnis
+tetap mengikuti kepemilikan cabang.
 
 ## Migration dan keamanan data lama
 
-Migration baru: `20261116080000_platform_account_roles.sql`. Tidak ada migration lama
+Migration fondasi: `20261116080000_platform_account_roles.sql`. Tidak ada migration lama
 yang diedit, tabel/kolom bisnis baru, atau tabel master user kedua.
 
 - Backfill hanya akun dengan platform_role/account_status yang belum ada atau null.

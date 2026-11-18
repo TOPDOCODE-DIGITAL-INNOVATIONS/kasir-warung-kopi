@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { platformLandingPath } from '@/lib/platform-account'
 import { createClient } from '@/utils/supabase/server'
 
 export async function GET(request: NextRequest) {
@@ -6,8 +7,8 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const supabase = await createClient()
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (!error) return NextResponse.redirect(new URL('/dashboard', request.url))
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error && data.user) return NextResponse.redirect(new URL(platformLandingPath(data.user), request.url))
   }
 
   const loginUrl = new URL('/login', request.url)

@@ -19,14 +19,19 @@ const LINKS = [
   { href: '/dashboard/backup', label: 'Backup', icon: DatabaseBackup },
 ]
 
-export default function Nav({ onNavigate }: { onNavigate?: () => void }) {
+const PLATFORM_LINKS = [
+  { href: '/platform', label: 'Overview', icon: LayoutDashboard },
+  { href: '/platform/owners', label: 'Kelola Owner', icon: Users },
+]
+
+export default function Nav({ onNavigate, platform = false }: { onNavigate?: () => void; platform?: boolean }) {
   const pathname = usePathname()
   return (
     <nav aria-label="Navigasi utama" className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
       <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-400">Menu utama</p>
       <ul className="space-y-0.5">
-        {LINKS.map(({ href, label, icon: Icon }) => {
-          const active = href === '/dashboard' ? pathname === href : pathname.startsWith(href)
+        {(platform ? PLATFORM_LINKS : LINKS).map(({ href, label, icon: Icon }) => {
+          const active = pathname === href || (href !== '/dashboard' && href !== '/platform' && pathname.startsWith(href + '/'))
           return (
             <li key={href}>
               <Link href={href} onClick={onNavigate} aria-current={active ? 'page' : undefined}

@@ -1,11 +1,13 @@
+import { redirect } from 'next/navigation'
 import { getBusinessContext } from '@/lib/business-context'
 import DashboardShell from './DashboardShell'
-import { platformRoleLabel } from '@/lib/platform-account'
+import { platformLandingPath, platformRoleLabel } from '@/lib/platform-account'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, account, businesses, businessId } = await getBusinessContext()
+  if (account.role === 'super_admin') redirect(platformLandingPath(user))
   const metadataName = user.user_metadata?.name ?? user.user_metadata?.full_name
   const name = typeof metadataName === 'string' && metadataName.trim()
     ? metadataName.trim() : user.email?.split('@')[0] || 'Owner'
