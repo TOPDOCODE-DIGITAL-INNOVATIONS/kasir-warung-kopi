@@ -23,6 +23,7 @@ import { isExpenseQuantity, type ExpensePurchaseCatalog } from '../../../shared/
 
 const STORAGE_KEYS = {
   PRODUCTS: 'warkop_pos_products',
+  STOCK_EDITS: 'warkop_pos_stock_edits',
   CATEGORIES: 'warkop_pos_categories',
   CASHIERS: 'warkop_pos_cashiers',
   ACTIVE_CASHIER_ID: 'warkop_pos_active_cashier_id',
@@ -271,7 +272,25 @@ export function getProducts(): Product[] {
   return readJSON(STORAGE_KEYS.PRODUCTS, INITIAL_PRODUCTS);
 }
 
+type StockEdit = { operationId: string; productId: string; kind: 'adjust' | 'set'; amount: number };
+
+function getStockEdits(): StockEdit[] {
+  return readJSON<StockEdit[]>(STORAGE_KEYS.STOCK_EDITS, []);
+}
+
 export function saveProducts(products: Product[]): void {
+  const previous = new Map(getProducts().map(product => [product.id, product.stock]));
+  const edits = getStockEdits();
+  for (const product of products) {
+    const stock = previous.get(product.id);
+    if (stock === undefined || stock === product.stock) continue;
+    const adjust = stock >= 0 && product.stock >= 0;
+    edits.push({
+      operationId: crypto.randomUUID(), productId: product.id, kind: adjust ? 'adjust' : 'set',
+      amount: adjust ? Number((product.stock - stock).toFixed(6)) : product.stock,
+    });
+  }
+  writeJSON(STORAGE_KEYS.STOCK_EDITS, edits);
   writeJSON(STORAGE_KEYS.PRODUCTS, products);
   markConfigDirty();
   notifyUpdate();
@@ -1273,6 +1292,7 @@ export function getUnsyncedCount(): number {
 export function hasPendingPush(): boolean {
   return (
     getUnsyncedCount() > 0 ||
+    getStockEdits().length > 0 ||
     getUnsyncedDrafts().length > 0 ||
     getDeletedDraftIds().length > 0 ||
     !!localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT) ||
@@ -1488,17 +1508,19 @@ async function doCloudSync(): Promise<SyncResult> {
   const pendingPurchaseMessage = getUnsyncedExpenses().some(expense => expense.pendingPurchase)
     ? 'Masih ada pembelian produk yang belum tersinkron. Periksa catatan di Pengeluaran.'
     : undefined;
+  const pendingMessage = pendingPurchaseMessage ?? (getStockEdits().length
+    ? 'Masih ada perubahan stok menu yang belum tersinkron.' : undefined);
   const current = getStoreSettings();
-  writeJSON(STORAGE_KEYS.SETTINGS, { ...current, lastSyncedAt: new Date().toISOString(), lastSyncError: pendingPurchaseMessage });
+  writeJSON(STORAGE_KEYS.SETTINGS, { ...current, lastSyncedAt: new Date().toISOString(), lastSyncError: pendingMessage });
   notifyUpdate();
 
   const parts = [push?.sent, pull.received ? `menerima ${pull.received} perubahan dari perangkat lain` : '']
     .filter(Boolean)
     .join(', ');
-  if (pendingPurchaseMessage) pushBackoffUntil = Date.now() + PUSH_BACKOFF_MS;
+  if (pendingMessage) pushBackoffUntil = Date.now() + PUSH_BACKOFF_MS;
   return {
-    success: !pendingPurchaseMessage,
-    message: pendingPurchaseMessage ?? (parts ? `Berhasil: ${parts}.` : 'Semua data sudah sinkron.'),
+    success: !pendingMessage,
+    message: pendingMessage ?? (parts ? `Berhasil: ${parts}.` : 'Semua data sudah sinkron.'),
     syncedCount: (push?.syncedCount ?? 0) + pull.received,
   };
 }
@@ -1518,6 +1540,7 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
   const attemptedPurchases = new Set<string>();
   try {
     for (let batch = 0; ; batch++) {
+      const stockEdits = batch === 0 ? getStockEdits().slice(0, 500) : [];
       const draftBatch = batch === 0 ? getUnsyncedDrafts().slice(0, SYNC_BATCH_DRAFTS) : [];
       const draftDelBatch = batch === 0 ? getDeletedDraftIds().slice(0, SYNC_BATCH_DRAFTS) : [];
       const txBatch = getUnsyncedTransactions().slice(0, SYNC_BATCH_TX);
@@ -1539,6 +1562,7 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
         deviceCode: getDeviceCode(),
         timestamp: new Date().toISOString(),
         transactions: txBatch,
+        ...(stockEdits.length ? { stockEdits } : {}),
         expenses: expBatch,
         ...(productBatch.length ? { productExpenses: productBatch } : {}),
         deletedExpenseIds: delBatch,
@@ -1599,6 +1623,10 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
         applyPulledData({ deletedExpenseIds: data.deletedExpenseIds });
       }
       if (batch === 0) {
+        if (stockEdits.length && data?.stockEditsAccepted === true) {
+          const accepted = new Set(stockEdits.map(edit => edit.operationId));
+          writeJSON(STORAGE_KEYS.STOCK_EDITS, getStockEdits().filter(edit => !accepted.has(edit.operationId)));
+        }
         if (configDirtyAt && data?.configAccepted) {
           configSent = true;
           // Hanya bersihkan jika tidak ada perubahan baru selama request berjalan.
@@ -1682,6 +1710,7 @@ export interface PullResponse {
   transactions?: Transaction[];
   expenses?: Expense[];
   expenseCatalog?: ExpensePurchaseCatalog;
+  saleStocks?: { id: string; stock: number }[];
   shifts?: Shift[];
   deletedExpenseIds?: string[];
   drafts?: DraftOrder[];
@@ -1762,6 +1791,7 @@ function onSyncTokenChanged(fromLink: boolean): void {
   const hadLocalEdits = !!localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
   resetPullState();
   localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+  localStorage.removeItem(STORAGE_KEYS.STOCK_EDITS);
   // Shift perangkat lain milik cabang lama tidak boleh ikut rekap cabang baru.
   localStorage.removeItem(STORAGE_KEYS.REMOTE_SHIFTS);
   // Link kasir di perangkat yang belum pernah bertransaksi & belum diubah: pakai menu/kasir dari
@@ -1791,8 +1821,11 @@ function contentPrint(o: object): string {
   return stableStringify(rest);
 }
 
-function applyRemoteConfig(cfg: SharedConfig): void {
-  if (Array.isArray(cfg.products)) writeJSON(STORAGE_KEYS.PRODUCTS, cfg.products);
+function applyRemoteConfig(cfg: SharedConfig, preserveLocalStock: boolean): void {
+  if (Array.isArray(cfg.products)) {
+    const local = preserveLocalStock ? new Map(getProducts().map(product => [product.id, product.stock])) : null;
+    writeJSON(STORAGE_KEYS.PRODUCTS, cfg.products.map(product => ({ ...product, stock: local?.get(product.id) ?? product.stock })));
+  }
   if (Array.isArray(cfg.categories)) writeJSON(STORAGE_KEYS.CATEGORIES, cfg.categories);
   if (Array.isArray(cfg.cashiers) && cfg.cashiers.length > 0) writeJSON(STORAGE_KEYS.CASHIERS, cfg.cashiers);
   if (cfg.settings && typeof cfg.settings === 'object') {
@@ -1805,6 +1838,7 @@ function applyRemoteConfig(cfg: SharedConfig): void {
 export function applyPulledData(data: PullResponse): number {
   let changed = 0;
   const now = new Date().toISOString();
+  const preserveLocalStock = getUnsyncedTransactions().length > 0 || getStockEdits().length > 0;
 
   if (data.expenseCatalog && Array.isArray(data.expenseCatalog.products)) {
     writeJSON(STORAGE_KEYS.EXPENSE_CATALOG, { catalog: data.expenseCatalog, loadedAt: Date.now() });
@@ -1815,10 +1849,23 @@ export function applyPulledData(data: PullResponse): number {
   if (data.config && data.configUpdatedAt) {
     const dirtyAt = localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
     if (!dirtyAt || data.configUpdatedAt >= dirtyAt) {
-      applyRemoteConfig(data.config);
+      applyRemoteConfig(data.config, preserveLocalStock);
       localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
       localStorage.removeItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE);
       localStorage.setItem(STORAGE_KEYS.CONFIG_VERSION, data.configUpdatedAt);
+      changed++;
+    }
+  }
+
+  if (Array.isArray(data.saleStocks) && !preserveLocalStock) {
+    const stocks = new Map(data.saleStocks.map(product => [product.id, product.stock]));
+    const products = getProducts();
+    const updated = products.map(product => {
+      const stock = stocks.get(product.id);
+      return typeof stock === 'number' && stock !== product.stock ? { ...product, stock } : product;
+    });
+    if (updated.some((product, index) => product !== products[index])) {
+      writeJSON(STORAGE_KEYS.PRODUCTS, updated);
       changed++;
     }
   }
@@ -1976,6 +2023,7 @@ async function pullFromCloud(
       if (version) url.searchParams.set('config', version);
       const catalogAt = readJSON<{ loadedAt: number } | null>(STORAGE_KEYS.EXPENSE_CATALOG, null)?.loadedAt ?? 0;
       if (page === 0 && Date.now() - catalogAt >= 5 * 60_000) url.searchParams.set('expenseCatalog', '1');
+      if (page === 0) url.searchParams.set('saleStocks', '1');
 
       const res = await fetch(url.toString(), { method: 'GET', headers: syncHeaders(apiKey), cache: 'no-store' });
       if (!res.ok) {

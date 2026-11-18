@@ -455,6 +455,39 @@ describe('rekap bulanan', () => {
   });
 });
 
+describe('sync stok penjualan', () => {
+  it('menjaga stok lokal saat ada penjualan tertunda lalu memakai saldo server setelah transaksi terkirim', async () => {
+    saveProducts(getProducts().map((product, index) => index === 0 ? { ...product, stock: 10 } : product));
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    startNewShift('c-1', 100000);
+    const productId = getProducts()[0].id;
+    const transaction = saveTransaction(makeTx('tunai', 2, productId));
+    applyPulledData({ saleStocks: [{ id: productId, stock: 10 }] });
+    expect(getProducts()[0].stock).toBe(8);
+
+    const queries = stubServer(body => {
+      expect(body.transactions).toMatchObject([{ id: transaction.id }]);
+      expect(body.stockEdits).toBeUndefined();
+    }, { ...EMPTY_PULL, configUpdatedAt: '2026-01-01T00:00:00.000Z', saleStocks: [{ id: productId, stock: 6 }] });
+    expect((await performCloudSync()).success).toBe(true);
+    expect(queries[0]).toContain('saleStocks=1');
+    expect(getProducts()[0].stock).toBe(6);
+  });
+
+  it('mengirim perubahan stok yang sengaja disimpan dari katalog sebagai operasi tersendiri', async () => {
+    saveProducts(getProducts().map((product, index) => index === 0 ? { ...product, stock: 10 } : product));
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    const productId = getProducts()[0].id;
+    saveProducts(getProducts().map((product, index) => index === 0 ? { ...product, stock: 12 } : product));
+    stubServer(body => {
+      expect(body.stockEdits).toMatchObject([{ productId, kind: 'adjust', amount: 2 }]);
+      return { stockEditsAccepted: true, configAccepted: true, configUpdatedAt: '2026-01-01T00:00:00.000Z' };
+    }, { ...EMPTY_PULL, configUpdatedAt: '2026-01-01T00:00:00.000Z', saleStocks: [{ id: productId, stock: 12 }] });
+    expect((await performCloudSync()).success).toBe(true);
+    expect(hasPendingPush()).toBe(false);
+  });
+});
+
 describe('sync pengeluaran', () => {
   it('mencatat satu nota berisi produk dan nama pembelian bebas dengan satu supplier dan total laci', async () => {
     saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });

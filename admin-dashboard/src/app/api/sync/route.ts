@@ -165,6 +165,7 @@ async function reconcileProductConfig(supabase: SupabaseClient, businessId: stri
     if (stored && (!stored.is_active || !stored.can_sell)) continue
     // Admin owns the photo; stale POS configs cannot restore a removed/replaced image.
     if (stored) {
+      p.stock = num(stored.stock)
       if (typeof stored.image_url === 'string' && stored.image_url) p.imageUrl = stored.image_url
       else delete p.imageUrl
     }
@@ -228,6 +229,18 @@ async function mirrorProducts(supabase: SupabaseClient, businessId: string, prod
     .eq('pos_sync_enabled', true)
     .lt('synced_at', now)
   if (delError) throw delError
+}
+
+async function fetchSaleStocks(supabase: SupabaseClient, businessId: string) {
+  const stocks: { id: string; stock: number }[] = []
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await supabase.from('products').select('id,stock')
+      .eq('business_id', businessId).eq('can_sell', true).eq('is_active', true)
+      .order('id').range(offset, offset + 499)
+    if (error) throw error
+    stocks.push(...data.map(row => ({ id: String(row.id), stock: Number(row.stock) })))
+    if (data.length < 500) return stocks
+  }
 }
 
 /**
@@ -316,7 +329,24 @@ async function upsertTolerant(supabase: SupabaseClient, table: string, rows: Row
       return
     }
     const missing = error.code === 'PGRST204' ? /'([^']+)' column/.exec(error.message)?.[1] : undefined
-    if (missing === 'edit_history') throw new Error('Riwayat koreksi belum dapat disimpan. Jalankan migration database terbaru sebelum mengulangi sync.')
+    if (missing === 'pos_stock_applied' && table === 'transactions') {
+      // An older database lacks the trigger that protects revisions from stale receipts.
+      const restored = current.map(({ pos_stock_applied: ignored, ...row }) => {
+        void ignored
+        return row
+      })
+      const unedited = restored.filter(row => row.edit_history == null).map(({ edit_history: ignored, ...row }) => {
+        void ignored
+        return row
+      })
+      const corrected = restored.filter(row => row.edit_history != null)
+      if (unedited.length) await upsertTolerant(supabase, table, unedited)
+      if (corrected.length) await upsertTolerant(supabase, table, corrected)
+      return
+    }
+    if (missing === 'edit_history' && current.some(row => row.edit_history != null)) {
+      throw new Error('Riwayat koreksi belum dapat disimpan. Jalankan migration database terbaru sebelum mengulangi sync.')
+    }
     if (!missing || dropped.includes(missing)) throw error
     dropped.push(missing)
     current = current.map((r) => {
@@ -350,6 +380,7 @@ export async function POST(request: Request) {
   const now = new Date().toISOString()
 
   const transactions = list(body.transactions)
+  const stockEdits = Array.isArray(body.stockEdits) ? body.stockEdits : []
   const expenses = list(body.expenses)
   const productExpenses = list(body.productExpenses)
   if (productExpenses.length > PURCHASE_BATCH_SIZE) {
@@ -373,11 +404,18 @@ export async function POST(request: Request) {
   const editedAt = ts(body.configEditedAt)
   const configEditedAt = editedAt && editedAt > now ? now : editedAt
 
+  if (stockEdits.length > 500) {
+    return json({ success: false, error: 'Maksimal 500 penyesuaian stok per pengiriman.' }, 413)
+  }
   if ([transactions, expenses, legacyProducts, shifts, deletedExpenseIds, drafts, deletedDraftIds].some((a) => a.length > MAX_ROWS)) {
     return json({ success: false, error: `Maksimal ${MAX_ROWS} baris per jenis data` }, 413)
   }
 
   try {
+    if (stockEdits.length) {
+      const { error } = await supabase.rpc('record_pos_stock_edits', { p_business: businessId, p_edits: stockEdits })
+      if (error) throw error
+    }
     if (config) config = await reconcileProductConfig(supabase, businessId, config)
     if (transactions.length) {
       const rows = transactions.map((t) => ({
@@ -411,8 +449,9 @@ export async function POST(request: Request) {
         debt_paid_method: str(t.debtPaidMethod),
         debt_paid_shift_id: str(t.debtPaidShiftId),
         notes: str(t.notes),
-        // Hanya dikirim bila ada koreksi, agar kasir tetap bisa sync walau kolom belum dimigrasi.
-        ...(Array.isArray(t.editHistory) && t.editHistory.length ? { edit_history: t.editHistory } : {}),
+        // Null marks a receipt snapshot without revisions, including a retry from an older device.
+        edit_history: Array.isArray(t.editHistory) && t.editHistory.length ? t.editHistory : null,
+        pos_stock_applied: null, // The database trigger owns this value.
         synced_at: now,
       }))
       await upsertTolerant(supabase, 'transactions', rows)
@@ -584,6 +623,7 @@ export async function POST(request: Request) {
       success: true,
       data: {
         transactions: transactions.length,
+        ...(stockEdits.length && { stockEditsAccepted: true }),
         expenses: expenses.length,
         productExpenseResults,
         deletedExpenseIds: [...knownDeletedExpenses],
@@ -720,7 +760,7 @@ export async function GET(request: Request) {
     const draftCursor = cur('draft')
     const init = params.get('init') === '1' || !txCursor
 
-    const [tx, exp, shift, del, draft, expenseCatalog] = await Promise.all([
+    const [tx, exp, shift, del, draft, expenseCatalog, saleStocks] = await Promise.all([
       fetchPage(supabase, 'transactions', businessId, txCursor, 'synced_at', (q) =>
         init
           ? q.or(`created_at.gte."${daysAgo(INITIAL_TX_DAYS)}",and(payment_type.eq.hutang,debt_status.eq.unpaid)`)
@@ -744,6 +784,7 @@ export async function GET(request: Request) {
       params.get('expenseCatalog') === '1'
         ? expensePurchaseCatalog(supabase, business, '', OFFLINE_PRODUCT_LIMIT).catch(() => undefined)
         : undefined,
+      params.get('saleStocks') === '1' ? fetchSaleStocks(supabase, businessId) : undefined,
     ])
 
     const configUpdatedAt = business.pos_config_updated_at
@@ -760,6 +801,7 @@ export async function GET(request: Request) {
       transactions: tx.rows.map(rowToTransaction),
       expenses: exp.rows.map(rowToExpense),
       expenseCatalog,
+      saleStocks,
       shifts: shift.rows.map((r) => (r.raw && typeof r.raw === 'object' ? r.raw : { id: r.id })),
       deletedExpenseIds: del.rows.filter((r) => r.kind === 'expense').map((r) => r.id),
       drafts: draft.rows.map((r) => (r.raw && typeof r.raw === 'object' ? r.raw : null)).filter(Boolean),

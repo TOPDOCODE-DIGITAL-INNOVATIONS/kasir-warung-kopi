@@ -9,7 +9,7 @@ import ts from 'typescript'
 const require = createRequire(import.meta.url)
 const sourceRoot = path.resolve(import.meta.dirname, '../src')
 
-function database({ missingHistory = false } = {}) {
+function database({ missingHistory = false, missingSaleStock = false } = {}) {
   const tables = {
     businesses: [{ id: 'a', name: 'Cabang A', owner_id: 'owner', sync_token: 'test-token', pos_config: null, pos_config_updated_at: null }, { id: 'b', name: 'Cabang B', owner_id: 'owner' }],
     products: [
@@ -42,6 +42,9 @@ function database({ missingHistory = false } = {}) {
         maybeSingle: async () => ({ data: execute()[0] ?? null, error: null }),
         single: async () => ({ data: execute()[0] ?? null, error: null }),
         then(resolve) {
+          if (missingSaleStock && table === 'transactions' && log.op === 'upsert' && log.values.some(row => 'pos_stock_applied' in row)) {
+            return Promise.resolve({ data: null, error: { code: 'PGRST204', message: "Could not find the 'pos_stock_applied' column of 'transactions' in the schema cache" } }).then(resolve)
+          }
           if (missingHistory && table === 'transactions' && log.op === 'upsert' && log.values.some(row => row.edit_history)) {
             return Promise.resolve({ data: null, error: { code: 'PGRST204', message: "Could not find the 'edit_history' column of 'transactions' in the schema cache" } }).then(resolve)
           }
@@ -225,6 +228,17 @@ test('expense PDF receives the active branch, period/category filters and over 1
   assert.equal(exportButton.props.report.rows[0].supplierName, 'Supplier')
   assert.ok(exportButton.props.report.rows.every(e => e.id.startsWith('EXPORT_')))
   assert.equal(fixture.queries.filter(q => q.table === 'expenses' && q.op === 'select').length, 2, 'Only the two paginated page queries are needed')
+})
+
+test('a database without the sales-stock migration keeps saved corrections when an older receipt is resent', async () => {
+  const fixture = database({ missingSaleStock: true })
+  const editHistory = [{ at: '2026-11-18T02:00:00.000Z', reason: 'Koreksi' }]
+  fixture.tables.transactions.push({ business_id: 'a', id: 'tx-old', edit_history: editHistory })
+  const sync = request(fixture)('app/api/sync/route.ts').POST
+  const response = await sync(post({ transactions: [{ id: 'tx-old' }, { id: 'tx-new', editHistory }] }))
+  assert.equal(response.status, 200)
+  assert.equal(fixture.tables.transactions[0].edit_history, editHistory)
+  assert.deepEqual(fixture.tables.transactions[1].edit_history, editHistory)
 })
 
 test('merged sync accepts config, drafts and edit history while preserving inventory data', async () => {
