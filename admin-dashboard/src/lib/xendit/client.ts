@@ -32,6 +32,15 @@ function resolveSecretKey(environment: BillingEnvironment): string {
   return key
 }
 
+export function hasXenditKey(environment: BillingEnvironment) {
+  try {
+    resolveSecretKey(environment)
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function xenditRequest<T = Record<string, unknown>>(
   environment: BillingEnvironment,
   path: string,

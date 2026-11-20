@@ -90,7 +90,16 @@ Panggilan HTTP ke Xendit dipusatkan di modul integrasi. Aturan trial dan status 
 2. Terima `payment_session.completed` dan `payment_session.expired` melalui endpoint yang sudah digunakan. Cocokkan lingkungan, referensi, ID sesi, nominal, dan mata uang. Penyelesaian checkout `PAY` dengan ID pembayaran yang terverifikasi menerapkan periode secara atomik. [Payment Session Webhook](https://docs.xendit.co/apidocs/webhook-notification-sent-defined-webhook-url-updates-payment-session)
 3. Pembayaran diterapkan sekali per sesi dan ID pembayaran. Status batal atau kedaluwarsa yang datang setelah pembayaran tidak mengurangi periode.
 4. Pertahankan satu checkout terbuka per Owner dan lingkungan. Percobaan pembuatan ulang memakai referensi checkout yang sama jika statusnya masih belum terkonfirmasi.
-5. **Cek Status Xendit** mengambil status sesi terbaru dari API dan menerapkan pembayaran yang sudah terverifikasi.
+5. **Pemantauan Pembayaran** menampilkan checkout tertunda dan webhook yang perlu ditinjau, dengan pilihan Test dan Live. Super Admin dapat memeriksa ulang checkout yang sudah memiliki ID sesi Xendit. Checkout yang belum memiliki ID sesi dapat dilanjutkan dari detail langganan dengan referensi yang sama.
+6. Supabase Cron meminta rekonsiliasi setiap 15 menit. Server mengambil hingga 10 checkout tertunda per lingkungan yang memiliki key Xendit dan ID sesi. Pembayaran yang dikonfirmasi melalui API Xendit diterapkan melalui fungsi yang sama dengan webhook. Webhook yang sebelumnya perlu ditinjau dapat diselesaikan otomatis jika hasil pemeriksaan mengonfirmasi data yang cocok. Selisih nominal, mata uang, atau identitas pembayaran tetap terlihat untuk ditinjau.
+
+#### Mengaktifkan rekonsiliasi berkala
+
+1. Set `BILLING_CRON_SECRET` di environment server dashboard. Gunakan nilai acak yang berbeda untuk setiap deployment.
+2. Pada Supabase Vault untuk deployment tersebut, simpan URL lengkap `https://<domain-dashboard>/api/xendit/payments/reconcile` dengan nama `kasirku_billing_reconcile_url`, serta nilai yang sama dengan `BILLING_CRON_SECRET` dengan nama `kasirku_billing_reconcile_secret`. URL harus dapat dijangkau dari Supabase dan mengarah ke dashboard yang menggunakan database tersebut. Job mengirim `POST` dengan `Authorization: Bearer …`.
+3. Jalankan [billing-reconciliation.sql](../../supabase/jobs/billing-reconciliation.sql) di SQL Editor. Periksa jadwal di Supabase Cron dan respons HTTP di `net._http_response`. Respons `200` berarti server menerima job. Body memuat jumlah yang diperiksa, diterapkan, dan perlu ditinjau per lingkungan.
+
+[Supabase Cron](https://supabase.com/docs/guides/cron/quickstart) · [Supabase Vault](https://supabase.com/docs/guides/database/vault) · [pg_net](https://supabase.com/docs/guides/database/extensions/pg_net)
 
 ## 6. Batas fase pertama dan persiapan fase operasional
 

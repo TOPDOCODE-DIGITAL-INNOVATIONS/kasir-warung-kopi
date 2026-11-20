@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup, Users, FileBarChart, PiggyBank, Truck, CreditCard } from 'lucide-react'
+import { LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup, Users, FileBarChart, PiggyBank, Truck, CreditCard, ListChecks } from 'lucide-react'
 
 const LINKS = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -23,6 +23,7 @@ const PLATFORM_LINKS = [
   { href: '/platform', label: 'Overview', icon: LayoutDashboard },
   { href: '/platform/owners', label: 'Kelola Owner', icon: Users },
   { href: '/platform/subscriptions', label: 'Subscription & Trial', icon: CreditCard },
+  { href: '/platform/payments', label: 'Pemantauan Pembayaran', icon: ListChecks },
 ]
 
 export default function Nav({ onNavigate, platform = false }: { onNavigate?: () => void; platform?: boolean }) {
