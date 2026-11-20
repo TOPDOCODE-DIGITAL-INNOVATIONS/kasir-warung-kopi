@@ -5,13 +5,8 @@ import { Check, Copy, ExternalLink, RefreshCw, CreditCard, Ban } from 'lucide-re
 import AdminModal from '@/components/AdminModal'
 import SubmitButton from '@/components/SubmitButton'
 import { rupiah } from '@/lib/format'
-import {
-  cancelOpenXenditCheckout,
-  createXenditCheckout,
-  syncXenditStatus,
-  type CheckoutContext,
-} from './xendit-actions'
-import type { BillingEnvironment } from './types'
+import type { CheckoutActionResult, CheckoutContext } from '@/lib/platform-billing/session-service'
+import type { BillingEnvironment } from '@/lib/platform-billing/config'
 
 const primary =
   'inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50'
@@ -25,21 +20,29 @@ export default function XenditPaymentPanel({
   ownerName,
   environment,
   context,
+  initialPlan,
+  createCheckoutAction,
+  syncCheckoutAction,
+  cancelCheckoutAction,
 }: {
-  ownerId: string
+  ownerId?: string
   ownerName: string
   environment: BillingEnvironment
-  context: CheckoutContext | null
+  context: CheckoutContext
+  initialPlan?: string
+  createCheckoutAction: (form: FormData) => Promise<CheckoutActionResult>
+  syncCheckoutAction: (form: FormData) => Promise<CheckoutActionResult>
+  cancelCheckoutAction: (form: FormData) => Promise<CheckoutActionResult>
 }) {
   const [modalOpen, setModalOpen] = useState(false)
-  const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly')
+  const [selectedPlan, setSelectedPlan] = useState(initialPlan)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [copied, setCopied] = useState(false)
 
-  const plans = context?.plans ?? []
-  const openCheckout = context?.open_checkout ?? null
+  const { plans, open_checkout: openCheckout } = context
+  const planCode = plans.find(plan => plan.code === selectedPlan)?.code ?? plans[0]?.code
   const envLabel = environment === 'test' ? 'Test Mode' : 'Live Mode'
 
   async function runAction(name: string, fn: () => Promise<{ success: boolean; message: string; checkoutUrl?: string }>) {
@@ -65,12 +68,12 @@ export default function XenditPaymentPanel({
   function handleCreateCheckout(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const formData = new FormData(e.currentTarget)
-    void runAction('create', () => createXenditCheckout(formData))
+    void runAction('create', () => createCheckoutAction(formData))
   }
 
   function makeFormData() {
     const fd = new FormData()
-    fd.set('owner_id', ownerId)
+    if (ownerId) fd.set('owner_id', ownerId)
     fd.set('environment', environment)
     return fd
   }
@@ -145,7 +148,7 @@ export default function XenditPaymentPanel({
               onClick={() => {
                 const fd = makeFormData()
                 fd.set('plan_code', openCheckout.plan_code)
-                void runAction('create', () => createXenditCheckout(fd))
+                void runAction('create', () => createCheckoutAction(fd))
               }}
               className={primary}
             >
@@ -157,7 +160,7 @@ export default function XenditPaymentPanel({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        {!openCheckout && (
+        {!openCheckout && planCode && (
           <button
             type="button"
             disabled={!!pendingAction}
@@ -169,7 +172,7 @@ export default function XenditPaymentPanel({
             className={primary}
           >
             <CreditCard className="h-4 w-4" />
-            Buat Link Pembayaran ({envLabel})
+            Buat Link Paket Cabang Tambahan
           </button>
         )}
 
@@ -177,7 +180,7 @@ export default function XenditPaymentPanel({
           <button
             type="button"
             disabled={!!pendingAction}
-            onClick={() => runAction('sync', () => syncXenditStatus(makeFormData()))}
+            onClick={() => runAction('sync', () => syncCheckoutAction(makeFormData()))}
             className={secondary}
           >
             <RefreshCw className={`h-4 w-4 ${pendingAction === 'sync' ? 'animate-spin' : ''}`} />
@@ -189,7 +192,7 @@ export default function XenditPaymentPanel({
           <button
             type="button"
             disabled={!!pendingAction}
-            onClick={() => runAction('cancel', () => cancelOpenXenditCheckout(makeFormData()))}
+            onClick={() => runAction('cancel', () => cancelCheckoutAction(makeFormData()))}
             className={danger}
           >
             <Ban className="h-4 w-4" />
@@ -198,6 +201,7 @@ export default function XenditPaymentPanel({
         )}
 
       </div>
+      {!openCheckout && !planCode && <p className="text-sm text-gray-500">Paket bulanan dan tahunan belum tersedia.</p>}
 
       {notice && (
         <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
@@ -212,20 +216,20 @@ export default function XenditPaymentPanel({
 
       {modalOpen && (
         <AdminModal
-          title="Buat Pembayaran Langganan"
+          title="Bayar Paket Cabang Tambahan"
           description={`${ownerName} · ${envLabel}`}
           pending={pendingAction === 'create'}
           onClose={() => setModalOpen(false)}
         >
           <form onSubmit={handleCreateCheckout} aria-busy={pendingAction === 'create'} className="space-y-4 p-5">
-            <input type="hidden" name="owner_id" value={ownerId} />
+            {ownerId && <input type="hidden" name="owner_id" value={ownerId} />}
             <input type="hidden" name="environment" value={environment} />
 
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-gray-700">Pilih Paket Langganan</label>
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-gray-700">Pilih periode</legend>
               <div className="grid gap-3 sm:grid-cols-2">
                 {plans.map((p) => {
-                  const active = selectedPlan === p.code
+                  const active = planCode === p.code
                   return (
                     <label
                       key={p.code}
@@ -255,10 +259,10 @@ export default function XenditPaymentPanel({
                   )
                 })}
               </div>
-            </div>
+            </fieldset>
 
             <p className="text-xs text-gray-500">
-              Owner membayar satu kali melalui Xendit. Periode langganan bertambah setelah pembayaran terverifikasi.
+              Cabang pertama gratis. Xendit memproses satu pembayaran untuk periode paket cabang tambahan yang dipilih.
             </p>
 
             {error && (
@@ -277,6 +281,7 @@ export default function XenditPaymentPanel({
                 Batal
               </button>
               <SubmitButton
+                disabled={!planCode}
                 pending={pendingAction === 'create'}
                 pendingLabel="Membuat sesi Xendit..."
                 className={primary}

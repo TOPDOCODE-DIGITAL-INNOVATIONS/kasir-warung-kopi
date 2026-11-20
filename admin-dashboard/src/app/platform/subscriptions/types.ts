@@ -3,6 +3,8 @@ export type { BillingEnvironment } from '@/lib/platform-billing/config'
 export const TRIAL_DURATION_DAYS = 14
 
 export const billingFilters = {
+  free_branch: 'Dalam cakupan gratis',
+  additional_uncovered: 'Owner multi-cabang tanpa paket',
   trial_active: 'Trial aktif',
   subscription_active: 'Langganan aktif',
   pending: 'Menunggu pembayaran',
@@ -13,11 +15,14 @@ export const billingFilters = {
 export type BillingFilter = keyof typeof billingFilters
 export type TrialStatus = 'none' | 'scheduled' | 'active' | 'expired'
 export type SubscriptionStatus = 'none' | 'pending' | 'active' | 'past_due' | 'expired'
+export type BranchCoverage = 'free' | 'covered' | 'pending' | 'uncovered'
 
 export type BillingOwner = {
   owner_id: string
   name: string | null
   email: string | null
+  branch_count: number
+  branch_coverage: BranchCoverage
   trial_status: TrialStatus
   trial_start: string | null
   trial_end: string | null
@@ -38,7 +43,7 @@ export type BillingOwnerDetail = {
   owner: BillingOwner
   cycles: {
     id: string; plan_name: string; status: string; amount: number; scheduled_at: string | null
-    paid_at: string | null; xendit_payment_id: string | null
+    period_start: string | null; period_end: string | null; paid_at: string | null; xendit_payment_id: string | null
   }[]
   checkouts: {
     id: string; plan_name: string; status: string; amount: number; reference_id: string

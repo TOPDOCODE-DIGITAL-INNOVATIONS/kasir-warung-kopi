@@ -70,6 +70,10 @@ export async function createXenditPaymentSession(account: PlatformXenditAccount,
   checkoutUrl: string
   expiresAt: string | null
 }> {
+  // Keep the same request body when resuming a checkout reserved before branch billing.
+  const description = /^pay-(test|live)-branch-/.test(params.referenceId)
+    ? `Paket Cabang Tambahan KasirKu - ${params.planName}`
+    : `Pembayaran KasirKu Paket ${params.planName}`
   const res = await xenditRequest<XenditSessionResponse>(account.secretKey, '/sessions', {
     method: 'POST',
     idempotencyKey: params.referenceId,
@@ -82,7 +86,7 @@ export async function createXenditPaymentSession(account: PlatformXenditAccount,
       amount: params.amount,
       currency: 'IDR',
       country: 'ID',
-      description: `Pembayaran KasirKu Paket ${params.planName}`,
+      description,
       success_return_url: params.successReturnUrl,
       cancel_return_url: params.cancelReturnUrl,
     },

@@ -1,9 +1,17 @@
 import { getBusinesses } from './actions'
 import BusinessClient from './BusinessClient'
 import { getSiteUrl } from '@/lib/site-url'
+import { getBusinessContext } from '@/lib/business-context'
+import { unstable_rethrow } from 'next/navigation'
+import { getOwnerCheckout } from '../subscription/actions'
 
 export default async function BusinessesPage() {
-  const [businesses, siteUrl] = await Promise.all([getBusinesses(), getSiteUrl()])
+  const [businesses, siteUrl, context] = await Promise.all([getBusinesses(), getSiteUrl(), getBusinessContext()])
+  const branchCount = context.businesses.length
+  const checkout = branchCount > 0 ? await getOwnerCheckout().catch(error => {
+    unstable_rethrow(error)
+    return null
+  }) : null
   return (
     <div className="space-y-6">
       <div>
@@ -14,6 +22,8 @@ export default async function BusinessesPage() {
       </div>
       <BusinessClient
         initialBusinesses={businesses ?? []}
+        branchCount={branchCount}
+        billingPlans={checkout?.plans ?? []}
         syncUrl={`${siteUrl}/api/sync`}
         kasirUrl={`${siteUrl}/kasir/`}
       />

@@ -1,12 +1,12 @@
 import Link from 'next/link'
 import { unstable_rethrow } from 'next/navigation'
-import { CalendarClock, CircleAlert, CreditCard, UserRound } from 'lucide-react'
+import { Building2, CalendarClock, CircleAlert, CreditCard } from 'lucide-react'
 import DataPanel from '@/components/DataPanel'
 import FilterForm, { FilterSubmit } from '@/components/FilterForm'
 import { rupiah } from '@/lib/format'
 import { billingUnavailableMessage } from '@/lib/platform-billing/db'
 import { getBillingOverview } from './actions'
-import { billingDate, subscriptionLabels, trialLabels } from './display'
+import { billingDate, billingPeriod, branchCoverageLabels, subscriptionLabels, trialLabels } from './display'
 import { billingFilters } from './types'
 import PlanPriceForm from './PlanPriceForm'
 
@@ -16,10 +16,10 @@ const panel = 'overflow-hidden rounded-xl border border-gray-100 bg-white shadow
 const pageButton = 'rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50'
 
 const cards = [
+  { key: 'free_branch', Icon: Building2, tone: 'bg-blue-50 text-blue-700' },
   { key: 'trial_active', Icon: CalendarClock, tone: 'bg-amber-50 text-amber-700' },
   { key: 'subscription_active', Icon: CreditCard, tone: 'bg-green-50 text-green-600' },
-  { key: 'past_due', Icon: CircleAlert, tone: 'bg-red-50 text-red-600' },
-  { key: 'not_started', Icon: UserRound, tone: 'bg-gray-100 text-gray-500' },
+  { key: 'additional_uncovered', Icon: CircleAlert, tone: 'bg-amber-50 text-amber-700' },
 ] as const
 
 export default async function SubscriptionsPage({ searchParams }: {
@@ -39,7 +39,7 @@ export default async function SubscriptionsPage({ searchParams }: {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Subscription &amp; Trial</h1>
-        <p className="mt-1 text-sm text-gray-500">Pantau trial, paket, dan periode penagihan akun Owner.</p>
+        <p className="mt-1 text-sm text-gray-500">Satu cabang gratis untuk setiap Owner. Paket bulanan dan tahunan tersedia untuk cabang tambahan.</p>
       </div>
       {overview ? (
         <>
@@ -77,24 +77,27 @@ export default async function SubscriptionsPage({ searchParams }: {
 
           <section aria-labelledby="subscription-plans" className={panel}>
             <h2 id="subscription-plans" className="border-b border-gray-100 px-5 py-4 font-semibold text-gray-900">Paket langganan</h2>
-            {overview.plans.length ? (
-              <ul className="grid gap-4 p-5 sm:grid-cols-2">
-                {overview.plans.map(plan => (
-                  <li key={plan.code} className="rounded-lg border border-gray-200 p-4">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-sm font-semibold text-gray-900">{plan.name}</h3>
-                      <span className="rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
-                        {plan.status === 'active' ? 'Aktif' : 'Draf'}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-sm text-gray-600">
-                      {plan.amount == null ? 'Harga belum ditentukan' : `${rupiah(plan.amount)} / ${plan.code === 'monthly' ? 'bulan' : 'tahun'}`}
-                    </p>
-                    <PlanPriceForm code={plan.code} amount={plan.amount} />
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="px-5 py-4 text-sm text-gray-500">Belum ada paket langganan.</p>}
+            <ul className="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-3">
+              <li className="rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+                <h3 className="text-sm font-semibold text-gray-900">Satu cabang gratis</h3>
+                <p className="mt-2 text-sm text-gray-600">Rp 0</p>
+              </li>
+              {overview.plans.map(plan => (
+                <li key={plan.code} className="rounded-lg border border-gray-200 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-gray-900">{plan.name}</h3>
+                    <span className="rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+                      {plan.status === 'active' ? 'Aktif' : 'Draf'}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-gray-600">
+                    {plan.amount == null ? 'Harga belum ditentukan' : `${rupiah(plan.amount)} / ${plan.code === 'monthly' ? 'bulan' : 'tahun'}`}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">Paket cabang tambahan</p>
+                  <PlanPriceForm code={plan.code} amount={plan.amount} />
+                </li>
+              ))}
+            </ul>
           </section>
 
           <DataPanel label="Memuat daftar Owner..." className={panel}>
@@ -102,7 +105,7 @@ export default async function SubscriptionsPage({ searchParams }: {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-gray-600">
                 <thead className="bg-gray-50 text-xs uppercase text-gray-700">
-                  <tr>{['Owner', 'Trial', 'Langganan', 'Paket', 'Periode berbayar', 'Perpanjang sebelum'].map(label =>
+                  <tr>{['Owner', 'Cabang', 'Trial', 'Langganan', 'Paket', 'Periode berbayar', 'Perpanjang sebelum'].map(label =>
                     <th key={label} scope="col" className="whitespace-nowrap px-4 py-3">{label}</th>)}</tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -115,6 +118,10 @@ export default async function SubscriptionsPage({ searchParams }: {
                         </Link>
                         {owner.name && owner.email && <p className="mt-0.5 break-all">{owner.email}</p>}
                       </th>
+                      <td className="min-w-40 px-4 py-3">
+                        <p className="font-medium text-gray-900">{owner.branch_count.toLocaleString('id-ID')} cabang</p>
+                        <p className="mt-0.5 text-xs text-gray-500">{branchCoverageLabels[owner.branch_coverage]}</p>
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <p className={owner.trial_status === 'active' ? 'font-medium text-amber-700' : undefined}>{trialLabels[owner.trial_status]}</p>
                         {owner.trial_end && <p className="mt-0.5 text-xs text-gray-500">Berakhir {billingDate(owner.trial_end)}</p>}
@@ -126,12 +133,11 @@ export default async function SubscriptionsPage({ searchParams }: {
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">{owner.plan_name || '—'}</td>
-                      <td className="whitespace-nowrap px-4 py-3">{owner.period_end
-                        ? `${billingDate(owner.period_start)} – ${billingDate(owner.period_end)}` : '—'}</td>
+                      <td className="whitespace-nowrap px-4 py-3">{billingPeriod(owner.period_start, owner.period_end)}</td>
                       <td className="whitespace-nowrap px-4 py-3">{billingDate(owner.next_billing_at ?? owner.period_end)}</td>
                     </tr>
                   ))}
-                  {!overview.owners.length && <tr><td colSpan={6} className="p-8 text-center text-gray-500">Tidak ada Owner pada hasil ini.</td></tr>}
+                  {!overview.owners.length && <tr><td colSpan={7} className="p-8 text-center text-gray-500">Tidak ada Owner pada hasil ini.</td></tr>}
                 </tbody>
               </table>
             </div>

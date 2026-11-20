@@ -210,6 +210,7 @@ export async function test() {
     'sync_drafts_and_transaction_edits.sql',
     'admin_inventory.sql',
     'platform_account_roles.sql',
+    'platform_billing_preview.sql',
     'platform_xendit_one_time_payments.sql',
     'platform_payment_monitoring.sql',
   ]

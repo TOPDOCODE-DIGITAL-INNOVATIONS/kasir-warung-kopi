@@ -92,8 +92,9 @@ test('creating a platform link uses a one-time payment on the master account', a
   const account = { secretKey: 'xnd_development_test', businessId: 'master-business' }
   await checkout.createXenditPaymentSession(account, params)
   await checkout.createXenditPaymentSession(account, params)
+  await checkout.createXenditPaymentSession(account, { ...params, referenceId: 'pay-test-branch-reference', planName: 'Tahunan' })
   await assert.rejects(checkout.createXenditPaymentSession({ ...account, businessId: 'sub-account' }, params), /Business ID/)
-  const [first, retry] = requests
+  const [first, retry, additional] = requests
   assert.deepEqual(first, retry)
   assert.equal(first.url, 'https://api.xendit.co/sessions')
   assert.equal(first.headers['Idempotency-key'], params.referenceId)
@@ -101,6 +102,8 @@ test('creating a platform link uses a one-time payment on the master account', a
   assert.equal(first.body.session_type, 'PAY')
   assert.equal(first.body.subscription, undefined)
   assert.equal(first.body.success_return_url, params.successReturnUrl)
+  assert.equal(first.body.description, 'Pembayaran KasirKu Paket Paket Test')
+  assert.equal(additional.body.description, 'Paket Cabang Tambahan KasirKu - Tahunan')
 })
 
 test('checkout never reserves a row or calls Xendit without the required schema', async () => {
@@ -121,8 +124,37 @@ test('checkout never reserves a row or calls Xendit without the required schema'
   const form = new FormData()
   form.set('owner_id', ownerId)
   form.set('environment', 'test')
+  assert.match((await createXenditCheckout(form)).message, /Pilih paket/)
+  form.set('plan_code', 'yearly')
   assert.deepEqual(await createXenditCheckout(form), { success: false, message: 'Billing unavailable' })
   form.set('environment', 'live')
   assert.equal((await createXenditCheckout(form)).success, false)
   assert.deepEqual(calls, [])
+})
+
+test('Owner checkout and history derive the account from the verified session', async () => {
+  const ownerId = '00000000-0000-0000-0000-000000000001'
+  const calls = []
+  const modules = {
+    'next/navigation': { redirect: path => { throw new Error(path) } },
+    '@/lib/business-context': { getBusinessContext: async () => ({ user: { id: ownerId }, account: { role: 'owner', status: 'active' } }) },
+    '@/lib/platform-billing/session-service': {
+      createBillingCheckout: async (...args) => { calls.push(args); return { success: true } },
+    },
+    '@/lib/platform-billing/db': {
+      platformBillingDb: () => ({ rpc: async (name, args) => {
+        assert.equal(name, 'platform_billing_owner_detail')
+        calls.push(args)
+        return { data: { owner: { branch_count: 1 } } }
+      } }),
+    },
+  }
+  const actions = billingModules({}, undefined, modules)('app/dashboard/subscription/actions')
+  const form = new FormData()
+  form.set('owner_id', 'other-owner')
+  form.set('environment', 'live')
+  form.set('plan_code', 'yearly')
+  await actions.createOwnerCheckout(form)
+  await actions.getOwnerBillingDetail()
+  assert.deepEqual(calls, [[ownerId, ownerId, 'yearly'], { p_actor: ownerId, p_owner: ownerId, p_environment: 'test' }])
 })

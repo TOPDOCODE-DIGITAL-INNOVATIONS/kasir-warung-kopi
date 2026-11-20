@@ -3,7 +3,7 @@ import { notFound, unstable_rethrow } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { rupiah } from '@/lib/format'
 import { getBillingOwnerDetail } from '../../subscriptions/actions'
-import { billingDate, subscriptionLabels, trialLabels } from '../../subscriptions/display'
+import { billingDate, branchCoverageLabels, subscriptionLabels, trialLabels } from '../../subscriptions/display'
 import { getOwnerDetail } from '../actions'
 
 const dateFormat = new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeZone: 'Asia/Makassar' })
@@ -55,6 +55,7 @@ export default async function OwnerDetailPage({ params, searchParams }: {
   const latestPayment = billing?.cycles.filter(cycle => cycle.status === 'succeeded' && cycle.paid_at)
     .sort((a, b) => (b.paid_at ?? '').localeCompare(a.paid_at ?? ''))[0]
   const billingFacts = billingOwner ? [
+    { label: 'Cakupan cabang', value: branchCoverageLabels[billingOwner.branch_coverage] },
     { label: 'Status langganan', value: subscriptionLabels[billingOwner.subscription_status] },
     { label: 'Paket', value: billingOwner.plan_name || '—' },
     { label: 'Status trial', value: trialLabels[billingOwner.trial_status] },

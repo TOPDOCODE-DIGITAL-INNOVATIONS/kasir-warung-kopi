@@ -23,6 +23,7 @@ export async function getBillingOverview(params: { q?: unknown; status?: unknown
   })
   if (error || !data) throw new Error(billingUnavailableMessage)
   const overview: BillingOverview = data
+  if (typeof overview.summary?.free_branch !== 'number') throw new Error(billingUnavailableMessage)
   return {
     ...overview,
     owners: overview.owners.slice(0, PAGE_SIZE),
@@ -38,6 +39,7 @@ export async function getBillingOwnerDetail(id: string) {
   const { data, error } = await platformBillingDb().rpc('platform_billing_owner_detail', {
     p_actor: user.id, p_environment: platformBillingEnvironment(), p_owner: id,
   })
-  if (error) throw new Error(billingUnavailableMessage)
-  return data as BillingOwnerDetail | null
+  const detail: BillingOwnerDetail | null = data
+  if (error || (detail && typeof detail.owner.branch_count !== 'number')) throw new Error(billingUnavailableMessage)
+  return detail
 }

@@ -6,14 +6,14 @@
 
 ## 1. Tujuan dan cakupan
 
-Fase pertama menyediakan menu **Subscription & Trial** di area `/platform`. Super Admin aktif mengelola trial, paket bulanan dan tahunan dalam IDR, serta memantau checkout, perpanjangan, dan riwayat tagihan. Jika pembayaran diperlukan, Owner menyetujui dan membayar pada halaman checkout Xendit yang dibuat dari area platform.
+Setiap Owner mendapat satu cabang gratis. Super Admin mengelola trial, harga, checkout, dan riwayat pembayaran melalui **Subscription & Trial**. Owner dapat membuat checkout bulanan atau tahunan untuk akunnya melalui **Langganan & Pembayaran** di dashboard Owner.
 
 | Tahap | Pembayar | Yang dibayar | Penerima dana |
 |---|---|---|---|
-| Langganan KasirKu · fase pertama | Owner | Paket langganan KasirKu | Akun Xendit platform KasirKu |
+| Langganan KasirKu · fase pertama | Owner | Paket cabang tambahan KasirKu | Akun Xendit platform KasirKu |
 | Pembayaran di kasir · tahap berikutnya | Pelanggan outlet | Barang atau layanan yang dibeli di kasir | Saldo sub-account merchant di Xendit, lalu rekening merchant melalui payout |
 
-Fase pertama berfokus pada pengelolaan akun dan tagihan dari Super Admin. Implementasi di dashboard Owner (`/dashboard`), aplikasi kasir, dan API sinkronisasi ditunda. Self-service Owner serta pembatasan akses akibat trial atau langganan habis menjadi fase berikutnya. Onboarding merchant, verifikasi bisnis, pembayaran pelanggan di POS, split fee, payout, dan rekonsiliasi penjualan merchant masuk PRD tersendiri.
+Di dashboard Owner, kedua halaman dapat dibuka dari menu akun atau modal saat memulai penambahan cabang kedua dan berikutnya. Tombol **OK** membuka form tambah cabang. Pembatasan operasional akibat trial atau langganan habis menjadi fase berikutnya. Onboarding merchant, verifikasi bisnis, pembayaran pelanggan di POS, split fee, payout, dan rekonsiliasi penjualan merchant masuk PRD tersendiri.
 
 ## 2. Kondisi aplikasi saat ini
 
@@ -27,8 +27,8 @@ Rujukan repo · [Akun platform dan profil kasir](../platform-accounts.md) · [AP
 
 | Topik | Usulan untuk fase pertama | Keputusan |
 |---|---|---|
-| Unit langganan | Satu langganan efektif per akun Owner. | Kuota cabang/perangkat dan penerapan hak akses di kasir dibahas pada fase operasional. |
-| Paket | Bulanan dan tahunan dalam IDR. Setiap periode dibayar melalui checkout satu kali. | Harga, pajak yang berlaku, dan cara menampilkan harga perlu disetujui. |
+| Unit langganan | Cabang pertama gratis. Satu paket cabang tambahan berlaku per akun Owner. | Jumlah cabang diambil dari `businesses.owner_id`. Pembuatan cabang tetap tersedia saat paket belum dibayar. |
+| Paket | Bulanan dan tahunan dalam IDR. Setiap periode dibayar melalui checkout satu kali. | Gunakan harga paket yang dikelola Super Admin. Harga tidak dikalikan jumlah cabang pada fase ini. |
 | Trial | Super Admin memulai trial 14 hari untuk Owner dengan email terverifikasi. Trial dicatat sekali per Owner per lingkungan, tanpa metode bayar. | Durasi 14 hari digunakan untuk uji lokal. Konfirmasi kebijakan sebelum rollout live. |
 | Konversi | Super Admin menyiapkan paket yang dipilih Owner. Jika pembayaran sukses saat trial berjalan, akhir trial dan awal periode berbayar mengikuti kebijakan yang dikomunikasikan saat checkout. | Usulan awal mengenakan biaya saat checkout dan mengakhiri trial saat periode berbayar dimulai. |
 | Pembayaran gagal atau batal | Checkout dapat diperiksa ulang. Owner dapat memakai tautan baru setelah sesi sebelumnya ditutup. Periode berbayar tetap berlaku hingga tanggal akhirnya. | Kebijakan refund dibahas terpisah. |
@@ -40,16 +40,16 @@ Status langganan dan periode berbayar disimpan di modul billing. `account_status
 
 | Bagian | Kebutuhan |
 |---|---|
-| **Daftar Subscription & Trial** | Cari menurut Owner, email, status, atau paket. Tampilkan akhir trial, periode berbayar, tanggal perpanjangan, dan status pembayaran terakhir. |
-| **Detail trial dan langganan** | Tampilkan riwayat trial, siklus tagihan, nominal, status, serta referensi pembayaran. Super Admin dapat memulai trial, menyiapkan pembayaran pertama atau tautan perpanjangan atas permintaan Owner. |
+| **Daftar Subscription & Trial** | Cari menurut Owner, email, atau status. Tampilkan jumlah cabang, cakupan gratis atau paket tambahan, akhir trial, periode berbayar, dan tanggal perpanjangan. |
+| **Detail trial dan langganan** | Tampilkan trial, jumlah cabang, cakupan paket, dan riwayat pembayaran beserta nominal, status, tanggal bayar, periode yang dibayar, dan referensinya. |
 | **Operasi pembayaran** | Salin tautan checkout dari Xendit untuk disampaikan kepada Owner. Sediakan pengecekan ulang status sesi dari platform. Catat pelaku, waktu, dan hasil tindakan. |
 | **Hosted checkout Xendit** | Owner meninjau nominal paket dan menyelesaikan pembayaran satu kali di halaman Xendit. Status pembayaran diverifikasi oleh server. |
 
 ### Alur utama
 
 1. **Trial.** Super Admin memilih Owner yang memenuhi syarat dan memulai trial. Server mencatat awal, akhir, dan penggunaan trial dalam satu mutasi yang aman terhadap klik ulang. Trial berakhir pada waktu yang dicatat dan tidak menimbulkan tagihan otomatis.
-2. **Pembayaran pertama.** Super Admin menyiapkan paket yang diminta Owner. Server membuat satu upaya checkout, lalu UI menampilkan tautan Xendit untuk disampaikan kepada Owner. Periode berbayar dicatat setelah server memverifikasi pembayaran serta kecocokan akun, paket, dan nominal.
-3. **Perpanjangan.** Super Admin membuat checkout baru. Pembayaran yang dilakukan sebelum periode berakhir menambahkan durasi paket setelah akhir periode aktif. Pembayaran setelah periode habis memulai periode baru pada waktu pembayaran.
+2. **Pembayaran pertama.** Owner dapat memilih dan membayar paket cabang tambahan sebelum atau sesudah cabang kedua dibuat. Super Admin juga bisa menyiapkan tautan. Periode berbayar dicatat setelah server memverifikasi pembayaran serta kecocokan akun, paket, dan nominal.
+3. **Perpanjangan.** Owner atau Super Admin membuat checkout baru. Pembayaran sebelum periode berakhir menambahkan durasi paket setelah akhir periode aktif. Pembayaran setelah periode habis memulai periode baru pada waktu pembayaran.
 4. **Pemulihan.** Super Admin memeriksa sesi yang belum terkonfirmasi atau membatalkannya. Checkout kedaluwarsa atau batal dapat diganti dengan tautan baru setelah Xendit mengonfirmasi statusnya.
 
 ### Status yang ditampilkan

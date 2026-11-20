@@ -8,6 +8,8 @@ import { useState, useTransition } from 'react'
 import { addBusiness, updateBusiness, deleteBusiness, regenerateSyncToken } from './actions'
 import { Plus, Edit, Trash2, Copy, Eye, EyeOff, RotateCw, Check, Link2, ExternalLink } from 'lucide-react'
 import { formatDateTime } from '@/lib/format'
+import type { CheckoutContext } from '@/lib/platform-billing/session-service'
+import BranchPlanModal from './BranchPlanModal'
 
 type Business = {
   id: string
@@ -39,15 +41,20 @@ function CopyButton({ text, label }: { text: string; label?: string }) {
 
 export default function BusinessClient({
   initialBusinesses,
+  branchCount,
+  billingPlans,
   syncUrl,
   kasirUrl,
 }: {
   initialBusinesses: Business[]
+  branchCount: number
+  billingPlans: CheckoutContext['plans']
   syncUrl: string
   kasirUrl: string
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [isAdding, setIsAdding] = useState(initialBusinesses.length === 0)
+  const [isAdding, setIsAdding] = useState(branchCount === 0)
+  const [showBranchPlans, setShowBranchPlans] = useState(false)
   const [loading, startTransition] = useTransition()
   const routePending = useDataLoading()
   const [operationKey, setOperationKey] = useState('save')
@@ -55,6 +62,11 @@ export default function BusinessClient({
   const [error, setError] = useState<string | null>(null)
 
   const editing = editingId ? initialBusinesses.find((b) => b.id === editingId) : undefined
+
+  function openAddForm() {
+    setIsAdding(true)
+    setEditingId(null)
+  }
 
   function run(fn: () => Promise<void>, key = 'save') {
     setOperationKey(key)
@@ -84,9 +96,10 @@ export default function BusinessClient({
         <div className="p-4 md:p-6 border-b border-gray-100 flex justify-between items-center">
           <h2 className="font-semibold text-lg text-gray-900">Cabang Aktif</h2>
           <button
+            type="button"
             onClick={() => {
-              setIsAdding(true)
-              setEditingId(null)
+              if (branchCount > 0) setShowBranchPlans(true)
+              else openAddForm()
             }}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center"
           >
@@ -253,6 +266,10 @@ export default function BusinessClient({
           )}
         </ul></DataPanel>
       </div>
+      {showBranchPlans && <BranchPlanModal plans={billingPlans} onClose={() => setShowBranchPlans(false)} onContinue={() => {
+        setShowBranchPlans(false)
+        openAddForm()
+      }} />}
     </div>
   )
 }

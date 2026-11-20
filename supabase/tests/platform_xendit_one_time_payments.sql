@@ -18,6 +18,7 @@ declare
   test_owner constant uuid := 'e8200000-0000-0000-0000-000000000002';
   legacy_id constant uuid := 'e8200000-0000-0000-0000-000000000003';
   payment jsonb;
+  detail jsonb;
   first_checkout jsonb;
   next_checkout jsonb;
   first_period record;
@@ -28,19 +29,26 @@ begin
     'clients cannot reserve a payable checkout'
   );
   perform pg_temp.assert_true(
-    public.platform_begin_payment_checkout(test_owner, test_owner, 'test', 'monthly', 'pay-unauthorized')->>'status' = 'forbidden',
-    'only super admins can create checkouts'
+    public.platform_begin_payment_checkout(test_owner, legacy_id, 'test', 'monthly', 'pay-unauthorized')->>'status' = 'forbidden',
+    'an owner cannot reserve a checkout for another account'
   );
-  first_checkout := public.platform_begin_payment_checkout(admin_id, test_owner, 'test', 'monthly', 'pay-one');
-  perform pg_temp.assert_true(first_checkout->>'status' = 'created', 'checkout reserved');
+  insert into public.businesses (owner_id, name) values (test_owner, 'First free branch');
+  first_checkout := public.platform_begin_payment_checkout(test_owner, test_owner, 'test', 'monthly', 'pay-one');
+  perform pg_temp.assert_true(first_checkout->>'status' = 'created', 'owner can reserve their own checkout');
   perform pg_temp.assert_true(
     public.platform_begin_payment_checkout(admin_id, test_owner, 'test', 'yearly', 'pay-double')
       @> '{"status":"resume","reference_id":"pay-one","plan_code":"monthly"}',
     'retry keeps checkout reference and plan'
   );
   perform pg_temp.assert_true(
-    public.platform_attach_checkout_session(admin_id, 'test', 'pay-one', 'ps-one', 'https://example.invalid/checkout', now() + interval '1 hour') = 'open',
-    'session attached'
+    public.platform_fail_checkout(legacy_id, 'test', 'pay-one', 'failed') = 'not_found'
+    and public.platform_attach_checkout_session(legacy_id, 'test', 'pay-one', 'ps-foreign', 'https://example.invalid/foreign', now() + interval '1 hour') = 'not_found'
+    and public.platform_get_checkout_context(legacy_id, 'test', test_owner) is null,
+    'other owners cannot edit or read the private checkout'
+  );
+  perform pg_temp.assert_true(
+    public.platform_attach_checkout_session(test_owner, 'test', 'pay-one', 'ps-one', 'https://example.invalid/checkout', now() + interval '1 hour') = 'open',
+    'owner can attach their own checkout session'
   );
 
   payment := jsonb_build_object(
@@ -72,7 +80,7 @@ begin
     'completed one-time payment applies'
   );
   perform pg_temp.assert_true(
-    public.platform_reconcile_payment_checkout(admin_id, test_owner, 'test', payment) = 'already_applied'
+    public.platform_reconcile_payment_checkout(test_owner, test_owner, 'test', payment) = 'already_applied'
     and public.platform_ingest_xendit_webhook('test', 'pay-one-redelivered', 'payment_session.completed', 'ps-one', jsonb_build_object('data', payment)) = 'already_applied',
     'reconciliation and redelivery do not add a second term'
   );
@@ -88,6 +96,13 @@ begin
     first_period.period_end = first_period.period_start + interval '1 month'
     and not first_period.renewal_enabled and first_period.next_billing_at is null and first_period.xendit_plan_id is null,
     'one month of access without a recurring plan'
+  );
+  insert into public.businesses (owner_id, name) values (test_owner, 'Additional branch after checkout');
+  detail := public.platform_billing_owner_detail(test_owner, 'test', test_owner);
+  perform pg_temp.assert_true(
+    detail #>> '{owner,branch_coverage}' = 'covered'
+    and (detail #>> '{cycles,0,period_end}')::timestamptz = first_period.period_end,
+    'an upgrade paid before the second branch covers the new branch and exposes its payment period'
   );
 
   next_checkout := public.platform_begin_payment_checkout(admin_id, test_owner, 'test', 'yearly', 'pay-next');

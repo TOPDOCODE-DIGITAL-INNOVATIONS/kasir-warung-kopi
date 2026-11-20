@@ -64,7 +64,7 @@ export default function DashboardShell(props: DashboardShellProps) {
         <div className="ml-auto flex min-w-0 items-center gap-3">
           {props.platform && props.platformMode}
           {!props.platform && <div className="w-40 min-w-0 sm:w-52"><BusinessContextSelect businesses={props.businesses} businessId={props.businessId} /></div>}
-          <UserMenu name={name} email={email} roleLabel={roleLabel} />
+          <UserMenu name={name} email={email} roleLabel={roleLabel} showBilling={!props.platform} />
         </div>
       </header>
       {children}
