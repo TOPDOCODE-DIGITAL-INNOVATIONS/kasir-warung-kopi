@@ -45,6 +45,7 @@ baru. Rancangan role, batas fitur dan prosedur rollout ada di
 | File        | Database | Dipakai oleh                                              |
 |-------------|----------|-----------------------------------------------------------|
 | `.env`      | DEV      | `npm run dev` (dashboard & kasir), `npm run db:status/migrate/test` |
+| `.env.local` | Lokal | Override opsional untuk aplikasi. Isi URL dan key Supabase lokal bersama-sama. |
 | `.env.prod` | PROD     | hanya `npm run db:status:prod` / `npm run db:migrate:prod` |
 
 Alur rilis: `npm run db:migrate` + `npm run db:test` di dev → merge ke `main` →
@@ -97,10 +98,11 @@ perangkat sehingga tidak bentrok. Jika token bocor, tekan **Ganti** di dashboard
 
 ## Pengembangan lokal
 
-Butuh Node.js 20+. Cara paling mirip produksi (semua service sekaligus, satu port):
+Butuh Node.js 20.12+. Siapkan file env di root repo dengan `.env.example` sebagai templat.
+Setelah dependensi kedua aplikasi terpasang, jalankan dari root repo.
 
 ```bash
-npx vercel dev -L    # http://localhost:3000 → /, /dashboard, /kasir/, /api/sync
+npm run dev    # http://localhost:3000 → /, /dashboard, /kasir/, /api/sync
 ```
 
 Atau jalankan per aplikasi:
@@ -108,7 +110,6 @@ Atau jalankan per aplikasi:
 ```bash
 # Dashboard + API (http://localhost:3000)
 cd admin-dashboard
-cp .env.example .env.local   # isi dengan kredensial Supabase
 npm install
 npm run dev
 
