@@ -2,9 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireSuperAdmin } from '@/lib/platform-auth'
-import { reconcilePaymentQueue, successfulReconciliation } from '@/lib/xendit/reconcile'
-import { platformDb } from '../db'
-import { billingEnvironment } from '../subscriptions/actions'
+import { reconcilePaymentQueue, successfulReconciliation } from '@/lib/platform-billing/reconcile'
+import { platformBillingEnvironment } from '@/lib/platform-billing/config'
+import { billingUnavailableMessage, platformBillingDb } from '@/lib/platform-billing/db'
 
 const pageSize = 25
 
@@ -26,17 +26,17 @@ type MonitoringRow = {
   error_code: string | null
 }
 
-export async function getPaymentMonitoring(params: { environment?: string; view?: string; page?: string }) {
+export async function getPaymentMonitoring(params: { view?: string; page?: string }) {
   const { user } = await requireSuperAdmin()
-  const environment = billingEnvironment(params.environment)
+  const environment = platformBillingEnvironment()
   const view = params.view === 'review' ? 'review' : 'pending'
   const requested = Number(params.page)
   const page = Number.isSafeInteger(requested) && requested >= 1 && (requested - 1) * pageSize <= 2_147_483_647 ? requested : 1
-  const { data, error } = await platformDb().rpc('platform_get_payment_monitoring', {
+  const { data, error } = await platformBillingDb().rpc('platform_get_payment_monitoring', {
     p_actor: user.id, p_environment: environment, p_view: view,
     p_offset: (page - 1) * pageSize, p_limit: pageSize + 1,
   })
-  if (error || !data) throw new Error('Data pemantauan belum berhasil dimuat.')
+  if (error || !data) throw new Error(billingUnavailableMessage)
   const rows: MonitoringRow[] = data.rows
   return { rows: rows.slice(0, pageSize), environment, view, page, hasNext: rows.length > pageSize }
 }
@@ -45,14 +45,13 @@ export async function recheckPayment(_previous: { success: boolean; message: str
   const { user } = await requireSuperAdmin()
   const environment = form.get('environment')
   const checkout = form.get('checkout_id')
-  if ((environment !== 'test' && environment !== 'live') || typeof checkout !== 'string'
+  if (environment !== platformBillingEnvironment() || typeof checkout !== 'string'
     || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(checkout)) {
     return { success: false, message: 'Data checkout tidak valid.' }
   }
 
   try {
-    const outcomes = await reconcilePaymentQueue(environment, { checkout, actor: user.id })
-    if (!outcomes) return { success: false, message: 'API key Xendit untuk lingkungan ini belum tersedia.' }
+    const outcomes = await reconcilePaymentQueue({ checkout, actor: user.id })
     const result = outcomes[0]
     if (!result) return { success: false, message: 'Checkout tidak tersedia atau sedang diperiksa.' }
 

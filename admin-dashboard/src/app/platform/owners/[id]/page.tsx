@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { notFound, unstable_rethrow } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { rupiah } from '@/lib/format'
-import { billingEnvironment, getBillingOwnerDetail } from '../../subscriptions/actions'
+import { getBillingOwnerDetail } from '../../subscriptions/actions'
 import { billingDate, subscriptionLabels, trialLabels } from '../../subscriptions/display'
 import { getOwnerDetail } from '../actions'
 
@@ -13,16 +13,15 @@ const paginationLink = 'rounded-lg border border-gray-300 px-3 py-2 font-medium 
 const ownerList = '/platform/owners'
 
 export default async function OwnerDetailPage({ params, searchParams }: {
-  params: Promise<{ id: string }>; searchParams: Promise<{ page?: string | string[]; environment?: string }>
+  params: Promise<{ id: string }>; searchParams: Promise<{ page?: string | string[] }>
 }) {
-  const [{ id }, { page: requestedPage, environment: requestedEnvironment }] = await Promise.all([params, searchParams])
-  const environment = billingEnvironment(requestedEnvironment)
+  const [{ id }, { page: requestedPage }] = await Promise.all([params, searchParams])
   let result
   let billing
   try {
     ;[result, billing] = await Promise.all([
       getOwnerDetail(id, requestedPage),
-      getBillingOwnerDetail(id, environment).catch(error => {
+      getBillingOwnerDetail(id).catch(error => {
         unstable_rethrow(error)
         return null
       }),
@@ -63,7 +62,7 @@ export default async function OwnerDetailPage({ params, searchParams }: {
     { label: 'Akhir periode berbayar', value: billingDate(billingOwner.period_end, true) },
     { label: 'Pembayaran terakhir', value: latestPayment ? `${rupiah(latestPayment.amount)} · ${billingDate(latestPayment.paid_at, true)}` : '—' },
   ] : []
-  const pageHref = (number: number, mode = environment) => `${ownerList}/${owner.id}?page=${number}&environment=${mode}`
+  const pageHref = (number: number) => `${ownerList}/${owner.id}?page=${number}`
 
   return (
     <div className="space-y-6">
@@ -90,19 +89,8 @@ export default async function OwnerDetailPage({ params, searchParams }: {
       <section className={`${panel} p-5`} aria-labelledby="owner-billing">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="owner-billing" className="font-semibold text-gray-900">Subscription &amp; Trial</h2>
-          <div className="flex flex-wrap items-center gap-3">
-            <nav aria-label="Lingkungan billing" className="inline-flex rounded-lg bg-gray-100 p-1 text-sm font-medium">
-              {(['test', 'live'] as const).map(mode => (
-                <Link key={mode} href={pageHref(page, mode)} prefetch={false}
-                  aria-current={mode === environment ? 'page' : undefined}
-                  className={`rounded-md px-3 py-1 ${mode === environment ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
-                  {mode === 'test' ? 'Test' : 'Live'}
-                </Link>
-              ))}
-            </nav>
-            <Link href={`/platform/subscriptions/${owner.id}?environment=${environment}`} prefetch={false}
-              className="text-sm font-medium text-blue-600 hover:underline">Lihat Langganan</Link>
-          </div>
+          <Link href={`/platform/subscriptions/${owner.id}`} prefetch={false}
+            className="text-sm font-medium text-blue-600 hover:underline">Lihat Langganan</Link>
         </div>
         {billingOwner ? (
           <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

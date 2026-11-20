@@ -3,20 +3,20 @@
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { requireSuperAdmin } from '@/lib/platform-auth'
+import { XenditApiError } from '@/lib/xendit/client'
 import {
-  XenditApiError,
   cancelXenditSession,
   createXenditPaymentSession,
   ensureXenditCustomer,
   getXenditSession,
   type XenditSessionDetail,
-} from '@/lib/xendit/client'
-import { platformDb } from '../db'
+} from '@/lib/platform-billing/checkout'
+import { platformBillingEnvironment, platformBillingPublicOrigin, platformXenditAccount } from '@/lib/platform-billing/config'
+import { billingUnavailableMessage, platformBillingDb, requirePlatformBillingSchema } from '@/lib/platform-billing/db'
 import type { BillingEnvironment } from './types'
 
 const route = '/platform/subscriptions'
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
-const PRODUCTION_SITE_URL = 'https://kasir-warung-kopi.vercel.app'
 
 type ActionResult = { success: boolean; message: string; checkoutUrl?: string }
 
@@ -53,8 +53,8 @@ const beginMessages: Record<string, string> = {
 
 function readForm(formData: FormData) {
   const ownerId = String(formData.get('owner_id') ?? '')
-  const environment: BillingEnvironment = formData.get('environment') === 'test' ? 'test' : 'live'
-  return { ownerId, environment, valid: uuidPattern.test(ownerId) }
+  const environment = platformBillingEnvironment()
+  return { ownerId, environment, valid: uuidPattern.test(ownerId) && formData.get('environment') === environment }
 }
 
 function errorMessage(err: unknown, fallback: string) {
@@ -66,24 +66,19 @@ function refresh(ownerId: string) {
   revalidatePath(`${route}/${ownerId}`)
 }
 
-function siteUrl() {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
-  return configured?.startsWith('https://') ? configured : PRODUCTION_SITE_URL
-}
-
-export async function getCheckoutContext(
-  ownerId: string,
-  environment: BillingEnvironment
-): Promise<CheckoutContext | null> {
+export async function getCheckoutContext(ownerId: string): Promise<CheckoutContext | null> {
   const { user } = await requireSuperAdmin()
   if (!uuidPattern.test(ownerId)) return null
 
-  const { data, error } = await platformDb().rpc('platform_get_checkout_context', {
+  const db = platformBillingDb()
+  await requirePlatformBillingSchema(db)
+  const { data, error } = await db.rpc('platform_get_checkout_context', {
     p_actor: user.id,
-    p_environment: environment,
+    p_environment: platformBillingEnvironment(),
     p_owner: ownerId,
   })
-  if (error || !data) return null
+  if (error) throw new Error(billingUnavailableMessage)
+  if (!data) return null
   return data as CheckoutContext
 }
 
@@ -93,8 +88,19 @@ export async function createXenditCheckout(formData: FormData): Promise<ActionRe
   const planCode = formData.get('plan_code') === 'yearly' ? 'yearly' : 'monthly'
   if (!valid) return { success: false, message: 'ID Owner tidak valid.' }
 
-  // 1. Catat percobaan checkout di DB lebih dulu (kunci satu checkout per Owner).
-  const db = platformDb()
+  let db
+  let xenditAccount
+  let returnUrl
+  try {
+    db = platformBillingDb()
+    await requirePlatformBillingSchema(db)
+    xenditAccount = platformXenditAccount()
+    returnUrl = `${platformBillingPublicOrigin()}/billing/thanks`
+  } catch (error) {
+    return { success: false, message: errorMessage(error, billingUnavailableMessage) }
+  }
+
+  // Reserve one checkout per Owner before contacting Xendit.
   const { data, error } = await db.rpc('platform_begin_payment_checkout', {
     p_actor: user.id,
     p_owner: ownerId,
@@ -110,23 +116,21 @@ export async function createXenditCheckout(formData: FormData): Promise<ActionRe
 
   try {
     // 2. Customer Xendit (dicari ulang dengan referensi tetap, disimpan segera).
-    const customerId = await ensureXenditCustomer({
-      environment,
+    const customerId = await ensureXenditCustomer(xenditAccount.secretKey, {
       ownerId,
       email: begin.owner_email,
       name: begin.owner_name,
       existingCustomerId: begin.xendit_customer_id,
     })
     if (!begin.xendit_customer_id) {
-      await db.rpc('platform_save_xendit_customer', {
+      const { data: saved, error: customerError } = await db.rpc('platform_save_xendit_customer', {
         p_actor: user.id, p_owner: ownerId, p_environment: environment, p_customer_id: customerId,
       })
+      if (customerError || saved !== 'saved') throw new Error('Customer Xendit belum berhasil disimpan.')
     }
 
     // 3. Sesi Xendit dengan idempotency key = reference_id (aman dicoba ulang).
-    const returnUrl = `${siteUrl()}/billing/thanks`
-    const session = await createXenditPaymentSession({
-      environment,
+    const session = await createXenditPaymentSession(xenditAccount, {
       referenceId: begin.reference_id,
       customerId,
       amount: Number(begin.amount),
@@ -188,7 +192,7 @@ async function reconcilePayment(
   environment: BillingEnvironment,
   session: XenditSessionDetail,
 ) {
-  const { data, error } = await platformDb().rpc('platform_reconcile_payment_checkout', {
+  const { data, error } = await platformBillingDb().rpc('platform_reconcile_payment_checkout', {
     p_actor: actor,
     p_owner: ownerId,
     p_environment: environment,
@@ -206,13 +210,13 @@ export async function syncXenditStatus(formData: FormData): Promise<ActionResult
     const { ownerId, environment, valid } = readForm(formData)
     if (!valid) return { success: false, message: 'ID Owner tidak valid.' }
 
-    const ctx = await getCheckoutContext(ownerId, environment)
+    const ctx = await getCheckoutContext(ownerId)
     if (!ctx) return { success: false, message: 'Data billing Owner tidak ditemukan.' }
 
     const sessionId = ctx.open_checkout?.xendit_session_id
     if (!sessionId) return { success: false, message: 'Belum ada sesi Xendit yang bisa dicek.' }
 
-    const session = await getXenditSession(environment, sessionId)
+    const session = await getXenditSession(platformXenditAccount(), sessionId)
     await reconcilePayment(user.id, ownerId, environment, session)
     refresh(ownerId)
     return { success: true, message: `Status sesi Xendit diperbarui (${session.status ?? '—'}).` }
@@ -227,7 +231,7 @@ export async function cancelOpenXenditCheckout(formData: FormData): Promise<Acti
     const { ownerId, environment, valid } = readForm(formData)
     if (!valid) return { success: false, message: 'ID Owner tidak valid.' }
 
-    const ctx = await getCheckoutContext(ownerId, environment)
+    const ctx = await getCheckoutContext(ownerId)
     const checkout = ctx?.open_checkout
     if (!checkout) return { success: false, message: 'Tidak ada checkout terbuka untuk dibatalkan.' }
 
@@ -240,12 +244,13 @@ export async function cancelOpenXenditCheckout(formData: FormData): Promise<Acti
     }
 
     let cancellationError: unknown
+    const account = platformXenditAccount()
     try {
-      await cancelXenditSession(environment, checkout.xendit_session_id)
+      await cancelXenditSession(account, checkout.xendit_session_id)
     } catch (error) {
       cancellationError = error
     }
-    const session = await getXenditSession(environment, checkout.xendit_session_id)
+    const session = await getXenditSession(account, checkout.xendit_session_id)
     await reconcilePayment(user.id, ownerId, environment, session)
     refresh(ownerId)
     if (!['CANCELED', 'CANCELLED'].includes(session.status ?? '')) {
@@ -266,9 +271,13 @@ export async function updatePlanPrice(formData: FormData): Promise<ActionResult>
     return { success: false, message: 'Harga harus antara Rp1.000 dan Rp100.000.000.' }
   }
 
-  const { data, error } = await platformDb().rpc('platform_set_plan_price', {
-    p_actor: user.id, p_code: code, p_amount: amount,
-  })
+  let result
+  try {
+    result = await platformBillingDb().rpc('platform_set_plan_price', { p_actor: user.id, p_code: code, p_amount: amount })
+  } catch {
+    return { success: false, message: billingUnavailableMessage }
+  }
+  const { data, error } = result
   if (error || data !== 'updated') {
     return { success: false, message: data === 'forbidden' ? 'Hanya Super Admin aktif yang dapat mengubah harga.' : 'Harga belum berhasil disimpan.' }
   }

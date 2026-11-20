@@ -1,51 +1,65 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
-import path from 'node:path'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import ts from 'typescript'
 
 const require = createRequire(import.meta.url)
-const root = path.resolve(import.meta.dirname, '..')
-const source = fs.readFileSync(path.join(root, 'src/lib/xendit/webhook.ts'), 'utf8')
-const compiled = ts.transpileModule(source, {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
-}).outputText
-const mod = { exports: {} }
-new Function('module', 'exports', 'require', compiled)(mod, mod.exports, require)
-const { resolveWebhookEnvironment, parseXenditWebhook } = mod.exports
 
-test('token picks the environment and rejects anything else', () => {
-  const tokens = { test: 'tok-test', live: 'tok-live' }
-  assert.equal(resolveWebhookEnvironment('tok-test', tokens), 'test')
-  assert.equal(resolveWebhookEnvironment('tok-live', tokens), 'live')
-  assert.equal(resolveWebhookEnvironment('tok-wrong', tokens), null)
-  assert.equal(resolveWebhookEnvironment(null, tokens), null)
-  assert.equal(resolveWebhookEnvironment('', { test: '' }), null)
-  assert.equal(resolveWebhookEnvironment('tok-live', { test: 'tok-test' }), null)
+function load(path, overrides = {}) {
+  const source = readFileSync(new URL('../src/' + path + '.ts', import.meta.url), 'utf8')
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+  }).outputText
+  const mod = { exports: {} }
+  new Function('exports', 'require', compiled)(mod.exports, id => overrides[id] ?? require(id))
+  return mod.exports
+}
+
+const webhook = load('lib/platform-billing/webhook')
+const event = {
+  event: 'payment_session.completed', business_id: 'master-business',
+  data: { session_type: 'PAY', reference_id: 'pay-test-checkout', payment_session_id: 'ps-checkout', status: 'COMPLETED' },
+}
+
+test('platform PAY session parsing ignores recurring events and uses the actual session ID', () => {
+  assert.equal(webhook.parseXenditWebhook(null), null)
+  assert.equal(webhook.parseXenditWebhook({ ...event, event: 'recurring.cycle.succeeded' }), null)
+  assert.equal(webhook.parseXenditWebhook({ ...event, data: { ...event.data, session_type: 'SUBSCRIPTION' } }), null)
+  const parsed = webhook.parseXenditWebhook({ ...event, data: { ...event.data, id: 'other-id' } })
+  assert.equal(parsed.objectId, 'ps-checkout')
+  assert.equal(parsed.businessId, 'master-business')
+  assert.equal(parsed.dedupKey, webhook.parseXenditWebhook({ ...event, created: '2026-11-20T00:05:00Z' }).dedupKey)
 })
 
-test('payload without event or data is not processed', () => {
-  assert.equal(parseXenditWebhook(null), null)
-  assert.equal(parseXenditWebhook({ data: {} }), null)
-  assert.equal(parseXenditWebhook({ event: 'recurring.cycle.succeeded', data: [] }), null)
-})
-
-test('redelivery keeps the dedup key; a new status changes it', () => {
-  const base = {
-    event: 'recurring.cycle.succeeded', business_id: 'biz', created: '2026-11-18T00:00:00Z',
-    data: { id: 'cyc-1', plan_id: 'repl-1', status: 'SUCCEEDED', updated: '2026-11-18T00:00:00Z', attempt_count: 1 },
-  }
-  const first = parseXenditWebhook(base)
-  const retry = parseXenditWebhook({ ...base, created: '2026-11-18T00:05:00Z' })
-  const failed = parseXenditWebhook({ ...base, event: 'recurring.cycle.failed', data: { ...base.data, status: 'FAILED' } })
-  assert.equal(first.objectId, 'cyc-1')
-  assert.equal(first.businessId, 'biz')
-  assert.equal(first.dedupKey, retry.dedupKey)
-  assert.notEqual(first.dedupKey, failed.dedupKey)
-})
-
-test('payment session events use payment_session_id', () => {
-  const parsed = parseXenditWebhook({ event: 'payment_session.completed', data: { payment_session_id: 'ps-1', status: 'COMPLETED' } })
-  assert.equal(parsed.objectId, 'ps-1')
+test('webhook isolates references, account and database readiness before ingest', async () => {
+  const saved = []
+  let ready = true
+  const { POST } = load('app/api/xendit/subscriptions/webhook/route', {
+    'next/server': { NextResponse: Response },
+    '@/lib/platform-billing/config': {
+      platformBillingEnvironment: () => 'test',
+      platformXenditWebhookConfig: () => ({ businessId: 'master-business', token: 'test-token' }),
+    },
+    '@/lib/platform-billing/webhook': webhook,
+    '@/lib/platform-billing/db': {
+      platformBillingDb: () => ({ rpc: (_name, args) => { saved.push(args); return { data: 'applied' } } }),
+      requirePlatformBillingSchema: async () => { if (!ready) throw new Error('Not ready') },
+    },
+  })
+  const post = (body, token = 'test-token') => POST(new Request('https://example.invalid/webhook', {
+    method: 'POST', headers: { 'x-callback-token': token }, body: JSON.stringify(body),
+  }))
+  assert.equal((await post(event, 'live-token')).status, 401)
+  assert.equal((await post({ ...event, business_id: 'sub-account' })).status, 403)
+  assert.equal((await post({ ...event, data: { ...event.data, business_id: 'sub-account' } })).status, 403)
+  assert.equal((await (await post({ ...event, data: { ...event.data, reference_id: 'pos-sale' } })).json()).result, 'ignored')
+  assert.equal((await (await post({ ...event, data: { ...event.data, reference_id: 'pay-live-foreign' } })).json()).result, 'ignored')
+  ready = false
+  assert.equal((await post(event)).status, 500)
+  assert.deepEqual(saved, [])
+  ready = true
+  assert.equal((await post(event)).status, 200)
+  assert.equal(saved[0].p_environment, 'test')
+  assert.equal(saved[0].p_object_id, 'ps-checkout')
 })

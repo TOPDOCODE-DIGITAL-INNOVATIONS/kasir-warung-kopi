@@ -17,13 +17,14 @@ function load(relative, dependencies = {}) {
   }).outputText
   vm.runInNewContext(compiled, {
     module: target, exports: target.exports, FormData, console, Date, TextEncoder, Uint8Array,
-    process: { env: { SUPABASE_SERVICE_ROLE_KEY: 'fixture-key' } },
+    process: { env: { NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321', SUPABASE_SERVICE_ROLE_KEY: 'fixture-key' } },
+    URL,
     require(name) {
       if (name in dependencies) return dependencies[name]
       if (name === 'server-only') return {}
       if (name === 'react') return { cache: callback => callback }
       if (name === 'next/navigation') return { redirect: path => { throw new Error(path) } }
-      if (name === '@/lib/platform-account') return load('src/lib/platform-account.ts', dependencies)
+      if (name.startsWith('@/')) return load(`src/${name.slice(2)}.ts`, dependencies)
       if (name.startsWith('node:')) return require(name)
       if (name.startsWith('.')) return load(path.relative(root, path.resolve(path.dirname(file), name + '.ts')), dependencies)
       throw new Error(`Unexpected dependency ${name}`)
@@ -89,7 +90,7 @@ test('Owner status changes use the server actor and check the previous status', 
   })
   assert.equal((await action.setOwnerStatus(form)).success, true)
   assert.equal((await action.setOwnerStatus(form)).success, false)
-  assert.deepEqual(refreshes, ['/platform/owners', '/platform'])
+  assert.deepEqual(refreshes, ['/platform/owners', `/platform/owners/${id}`, '/platform'])
 })
 
 test('starting a trial uses the verified actor and server duration and refreshes billing pages once', async () => {
@@ -120,6 +121,8 @@ test('starting a trial uses the verified actor and server duration and refreshes
   assert.equal((await action.startTrial(form)).success, true)
   assert.equal((await action.startTrial(form)).success, false)
   form.set('environment', 'unknown')
+  assert.equal((await action.startTrial(form)).success, false)
+  form.set('environment', 'live')
   assert.equal((await action.startTrial(form)).success, false)
   assert.equal(calls, 2)
   assert.deepEqual(refreshes, ['/platform/subscriptions', `/platform/subscriptions/${id}`])

@@ -48,9 +48,10 @@ baru. Rancangan role, batas fitur dan prosedur rollout ada di
 | `.env.local` | Lokal | Override opsional untuk aplikasi. Isi URL dan key Supabase lokal bersama-sama. |
 | `.env.prod` | PROD     | hanya `npm run db:status:prod` / `npm run db:migrate:prod` |
 
-Alur rilis: `npm run db:migrate` + `npm run db:test` di dev → merge ke `main` →
-`npm run db:migrate:prod` (minta konfirmasi ref project) → deploy. SQL tests tidak
-dijalankan di prod. Aplikasi production di Vercel memakai env dari Vercel, bukan file di atas.
+Alur rilis: `npm run db:migrate` + `npm run db:test` di Dev. Terapkan migration Production
+sebelum deployment baru menerima traffic. Jika merge ke `main` langsung deploy, buat
+urutan rilis mengikuti [panduan billing platform](docs/xendit/platform-billing-setup.md).
+SQL tests dijalankan di Dev. Vercel Preview dan Production memakai Environment Variables masing-masing.
 
 ## 2. Deploy ke Vercel
 
@@ -63,7 +64,7 @@ dijalankan di prod. Aplikasi production di Vercel memakai env dari Vercel, bukan
    | Nama                              | Nilai                       |
    |-----------------------------------|-----------------------------|
    | `NEXT_PUBLIC_SUPABASE_URL`        | Project URL                 |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY`   | anon / publishable key      |
+   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | publishable key       |
    | `SUPABASE_SERVICE_ROLE_KEY`       | service_role key (rahasia)  |
 
 5. **Deploy**.
@@ -104,6 +105,9 @@ Setelah dependensi kedua aplikasi terpasang, jalankan dari root repo.
 ```bash
 npm run dev    # http://localhost:3000 → /, /dashboard, /kasir/, /api/sync
 ```
+
+Cloudflare Tunnel bersifat opsional untuk pengujian webhook dan checkout Xendit lokal.
+Lihat [setup billing platform](docs/xendit/platform-billing-setup.md).
 
 Atau jalankan per aplikasi:
 

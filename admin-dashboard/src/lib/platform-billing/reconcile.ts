@@ -1,8 +1,9 @@
 import 'server-only'
 
-import { platformDb } from '@/app/platform/db'
-import type { BillingEnvironment } from '@/app/platform/subscriptions/types'
-import { getXenditSession, hasXenditKey, XenditApiError, type XenditSessionDetail } from './client'
+import { XenditApiError } from '@/lib/xendit/client'
+import { getXenditSession, type XenditSessionDetail } from './checkout'
+import { platformBillingEnvironment, platformXenditAccount } from './config'
+import { platformBillingDb, requirePlatformBillingSchema } from './db'
 
 type Claim = { checkout_id: string; session_id: string; claimed_at: string }
 
@@ -10,10 +11,11 @@ export const successfulReconciliation = new Set([
   'applied', 'already_applied', 'recorded', 'active', 'expired', 'canceled', 'cancelled',
 ])
 
-export async function reconcilePaymentQueue(environment: BillingEnvironment, manual?: { checkout: string; actor: string }) {
-  if (!hasXenditKey(environment)) return null
-
-  const db = platformDb()
+export async function reconcilePaymentQueue(manual?: { checkout: string; actor: string }) {
+  const environment = platformBillingEnvironment()
+  const account = platformXenditAccount()
+  const db = platformBillingDb()
+  await requirePlatformBillingSchema(db)
   const { data, error } = await db.rpc('platform_claim_payment_reconciliation', {
     p_environment: environment,
     p_limit: manual ? 1 : 10,
@@ -27,7 +29,7 @@ export async function reconcilePaymentQueue(environment: BillingEnvironment, man
     let session: XenditSessionDetail | null = null
     let providerError: string | null = null
     try {
-      session = await getXenditSession(environment, claim.session_id)
+      session = await getXenditSession(account, claim.session_id)
     } catch (error) {
       providerError = error instanceof XenditApiError && error.status === 404 ? 'provider_not_found' : 'provider_unavailable'
     }

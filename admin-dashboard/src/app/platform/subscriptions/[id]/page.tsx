@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { notFound, unstable_rethrow } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { rupiah } from '@/lib/format'
-import { billingEnvironment, getBillingOwnerDetail } from '../actions'
+import { platformBillingEnvironment } from '@/lib/platform-billing/config'
+import { billingUnavailableMessage } from '@/lib/platform-billing/db'
+import { getBillingOwnerDetail } from '../actions'
 import { billingDate, subscriptionLabels, trialLabels } from '../display'
 import StartTrialButton from '../StartTrialButton'
 import XenditPaymentPanel from '../XenditPaymentPanel'
@@ -21,18 +23,20 @@ const cycleLabels: Record<string, string> = {
   failed: 'Gagal', succeeded: 'Dibayar', cancelled: 'Dibatalkan',
 }
 
-export default async function BillingDetailPage({ params, searchParams }: {
-  params: Promise<{ id: string }>; searchParams: Promise<{ environment?: string }>
+export default async function BillingDetailPage({ params }: {
+  params: Promise<{ id: string }>
 }) {
-  const [{ id }, search] = await Promise.all([params, searchParams])
-  const environment = billingEnvironment(search.environment)
-  const list = `/platform/subscriptions?environment=${environment}`
+  const { id } = await params
+  const environment = platformBillingEnvironment()
   let detail
   let checkoutContext = null
   try {
     ;[detail, checkoutContext] = await Promise.all([
-      getBillingOwnerDetail(id, environment),
-      getCheckoutContext(id, environment),
+      getBillingOwnerDetail(id),
+      getCheckoutContext(id).catch(error => {
+        unstable_rethrow(error)
+        return null
+      }),
     ])
   } catch (error) {
     unstable_rethrow(error)
@@ -40,14 +44,14 @@ export default async function BillingDetailPage({ params, searchParams }: {
   if (detail === null) notFound()
 
   const back = (
-    <Link href={list} className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline">
+    <Link href="/platform/subscriptions" className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline">
       <ArrowLeft aria-hidden="true" className="h-4 w-4" /> Kembali ke Subscription &amp; Trial
     </Link>
   )
   if (!detail) return (
     <div className="space-y-4">
       {back}
-      <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">Detail billing belum berhasil dimuat. Muat ulang halaman untuk mencoba lagi.</p>
+      <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">{billingUnavailableMessage}</p>
     </div>
   )
 
@@ -90,14 +94,14 @@ export default async function BillingDetailPage({ params, searchParams }: {
               ))}
             </dl>
             {label === 'Free Trial' && <StartTrialButton ownerId={owner.owner_id} name={name} environment={environment} canStart={owner.trial_status === 'none'} />}
-            {label === 'Langganan' && (
+            {label === 'Langganan' && (checkoutContext ? (
               <XenditPaymentPanel
                 ownerId={owner.owner_id}
                 ownerName={name}
                 environment={environment}
                 context={checkoutContext}
               />
-            )}
+            ) : <p role="status" className="mt-4 text-sm text-amber-800">Checkout Xendit belum siap. Periksa konfigurasi server dan migration Supabase.</p>)}
           </section>
         ))}
       </div>

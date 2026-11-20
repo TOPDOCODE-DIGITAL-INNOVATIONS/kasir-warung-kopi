@@ -1,4 +1,4 @@
-export type BillingEnvironment = 'test' | 'live'
+export type { BillingEnvironment } from '@/lib/platform-billing/config'
 
 export const TRIAL_DURATION_DAYS = 14
 

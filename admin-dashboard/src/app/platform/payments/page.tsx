@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { unstable_rethrow } from 'next/navigation'
 import { rupiah } from '@/lib/format'
-import { billingEnvironment } from '../subscriptions/actions'
+import { billingUnavailableMessage } from '@/lib/platform-billing/db'
 import { billingDate } from '../subscriptions/display'
 import { getPaymentMonitoring } from './actions'
 import RecheckPaymentButton from './RecheckPaymentButton'
@@ -16,12 +16,11 @@ const results: Record<string, string> = {
 }
 
 export default async function PlatformPaymentsPage({ searchParams }: {
-  searchParams: Promise<{ view?: string; environment?: string; page?: string }>
+  searchParams: Promise<{ view?: string; page?: string }>
 }) {
   const search = await searchParams
-  const environment = billingEnvironment(search.environment)
   const view = search.view === 'review' ? 'review' : 'pending'
-  const href = (tab = view, mode = environment, page = 1) => `${route}?view=${tab}&environment=${mode}&page=${page}`
+  const href = (tab = view, page = 1) => `${route}?view=${tab}&page=${page}`
   let monitoring
   try {
     monitoring = await getPaymentMonitoring(search)
@@ -45,16 +44,9 @@ export default async function PlatformPaymentsPage({ searchParams }: {
               {tab.label}
             </Link>)}
           </nav>
-          <nav aria-label="Lingkungan billing" className="flex gap-1 rounded-lg bg-gray-100 p-1">
-            {(['test', 'live'] as const).map(mode => <Link key={mode} href={href(view, mode)} prefetch={false}
-              aria-current={mode === environment ? 'page' : undefined}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium ${mode === environment ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
-              {mode === 'test' ? 'Test' : 'Live'}
-            </Link>)}
-          </nav>
         </div>
 
-        {!monitoring ? <p role="alert" className="p-5 text-sm text-red-700">Data pemantauan belum berhasil dimuat.</p> : (
+        {!monitoring ? <p role="alert" className="p-5 text-sm text-red-700">{billingUnavailableMessage}</p> : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-gray-600">
@@ -66,7 +58,7 @@ export default async function PlatformPaymentsPage({ searchParams }: {
                   {monitoring.rows.map(row => <tr key={row.id} className="align-top">
                     <td className="min-w-44 px-4 py-3">
                       {row.owner_id ? <Link className="break-all font-medium text-blue-700 hover:underline" prefetch={false}
-                        href={`/platform/subscriptions/${row.owner_id}?environment=${environment}`}>{row.owner_email || 'Detail langganan'}</Link> : '—'}
+                        href={`/platform/subscriptions/${row.owner_id}`}>{row.owner_email || 'Detail langganan'}</Link> : '—'}
                       {row.plan_name && <p className="mt-0.5 text-xs">{row.plan_name}{row.amount != null ? ` · ${rupiah(row.amount)}` : ''}</p>}
                     </td>
                     <td className="min-w-48 px-4 py-3">
@@ -90,7 +82,7 @@ export default async function PlatformPaymentsPage({ searchParams }: {
                     </td>
                     <td className="min-w-36 px-4 py-3">
                       {row.checkout_id && row.xendit_session_id
-                        ? <RecheckPaymentButton checkoutId={row.checkout_id} environment={environment} />
+                        ? <RecheckPaymentButton checkoutId={row.checkout_id} environment={monitoring.environment} />
                         : <span className="text-xs text-gray-500">{row.checkout_id ? 'Sesi Xendit belum tercatat' : 'Checkout belum terhubung'}</span>}
                     </td>
                   </tr>)}
@@ -102,8 +94,8 @@ export default async function PlatformPaymentsPage({ searchParams }: {
             {(monitoring.page > 1 || monitoring.hasNext) && <nav aria-label="Halaman pemantauan" className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 p-4 text-sm text-gray-600">
               <span>Halaman {monitoring.page}</span>
               <div className="flex gap-2">
-                {monitoring.page > 1 && <Link className={button} prefetch={false} href={href(view, environment, monitoring.page - 1)}>Sebelumnya</Link>}
-                {monitoring.hasNext && <Link className={button} prefetch={false} href={href(view, environment, monitoring.page + 1)}>Berikutnya</Link>}
+                {monitoring.page > 1 && <Link className={button} prefetch={false} href={href(view, monitoring.page - 1)}>Sebelumnya</Link>}
+                {monitoring.hasNext && <Link className={button} prefetch={false} href={href(view, monitoring.page + 1)}>Berikutnya</Link>}
               </div>
             </nav>}
           </>

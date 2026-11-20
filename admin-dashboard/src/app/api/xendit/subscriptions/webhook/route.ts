@@ -1,25 +1,25 @@
 import { NextResponse } from 'next/server'
-import { platformDb } from '@/app/platform/db'
-import { parseXenditWebhook, resolveWebhookEnvironment } from '@/lib/xendit/webhook'
+import { platformBillingEnvironment, platformXenditWebhookConfig } from '@/lib/platform-billing/config'
+import { platformBillingDb, requirePlatformBillingSchema } from '@/lib/platform-billing/db'
+import { parseXenditWebhook, sameSecret } from '@/lib/platform-billing/webhook'
 
 // Sama dengan region database Supabase (Sydney); lihat src/app/layout.tsx.
 export const preferredRegion = 'syd1'
 
 /**
  * Webhook Xendit Payment Sessions untuk pembayaran satu kali.
- * Satu URL dipakai untuk Test dan Live; lingkungan ditentukan dari
- * token `x-callback-token` (XENDIT_TEST_WEBHOOK_TOKEN / XENDIT_LIVE_WEBHOOK_TOKEN).
+ * Deployment menentukan lingkungan. Token dan business ID harus cocok dengan akun platform.
  *
  * Respons 2xx hanya dikirim setelah event tersimpan di billing_webhook_events.
  * Respons 5xx membuat Xendit mengirim ulang (dedup di database mencegah efek ganda).
  */
 export async function POST(request: Request) {
-  const environment = resolveWebhookEnvironment(request.headers.get('x-callback-token'), {
-    test: process.env.XENDIT_TEST_WEBHOOK_TOKEN,
-    live: process.env.XENDIT_LIVE_WEBHOOK_TOKEN,
-  })
-  if (!environment) {
-    console.warn('[xendit-webhook] token tidak valid')
+  const environment = platformBillingEnvironment()
+  const config = platformXenditWebhookConfig()
+  if (!config) return NextResponse.json({ error: 'billing unavailable' }, { status: 503 })
+
+  const token = request.headers.get('x-callback-token')
+  if (!token || !sameSecret(token, config.token)) {
     return NextResponse.json({ error: 'invalid token' }, { status: 401 })
   }
 
@@ -31,32 +31,29 @@ export async function POST(request: Request) {
   }
 
   const parsed = parseXenditWebhook(raw)
-  if (!parsed) {
-    // Abaikan tipe event di luar checkout pembayaran satu kali.
-    console.info(`[xendit-webhook] env=${environment} event di luar pembayaran satu kali, diabaikan`)
+  if (!parsed || !parsed.referenceId.startsWith(`pay-${environment}-`)) {
     return NextResponse.json({ received: true, result: 'ignored' })
   }
 
-  const expectedBusiness = environment === 'live'
-    ? process.env.XENDIT_LIVE_BUSINESS_ID
-    : process.env.XENDIT_TEST_BUSINESS_ID
-  if (expectedBusiness && parsed.businessId !== expectedBusiness) {
-    console.warn(`[xendit-webhook] env=${environment} event=${parsed.event} business_id tidak cocok`)
+  if (parsed.businessId !== config.businessId) {
     return NextResponse.json({ error: 'unexpected business' }, { status: 403 })
   }
 
-  const { data, error } = await platformDb().rpc('platform_ingest_xendit_webhook', {
-    p_environment: environment,
-    p_dedup_key: parsed.dedupKey,
-    p_event_type: parsed.event,
-    p_object_id: parsed.objectId,
-    p_payload: parsed.payload,
-  })
-  if (error) {
-    console.error(`[xendit-webhook] env=${environment} event=${parsed.event} object=${parsed.objectId} gagal disimpan: ${error.code ?? ''} ${error.message}`)
+  try {
+    const db = platformBillingDb()
+    await requirePlatformBillingSchema(db)
+    const { data, error } = await db.rpc('platform_ingest_xendit_webhook', {
+      p_environment: environment,
+      p_dedup_key: parsed.dedupKey,
+      p_event_type: parsed.event,
+      p_object_id: parsed.objectId,
+      p_payload: parsed.payload,
+    })
+    if (error) throw error
+    console.info(`[platform-billing-webhook] env=${environment} event=${parsed.event} object=${parsed.objectId} result=${data}`)
+    return NextResponse.json({ received: true, result: data })
+  } catch {
+    console.error(`[platform-billing-webhook] env=${environment} object=${parsed.objectId} gagal diproses`)
     return NextResponse.json({ error: 'temporarily unavailable' }, { status: 500 })
   }
-
-  console.info(`[xendit-webhook] env=${environment} event=${parsed.event} object=${parsed.objectId} result=${data}`)
-  return NextResponse.json({ received: true, result: data })
 }

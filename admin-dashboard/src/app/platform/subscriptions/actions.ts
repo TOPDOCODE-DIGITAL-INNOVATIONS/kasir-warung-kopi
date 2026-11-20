@@ -1,20 +1,15 @@
 import 'server-only'
 
 import { requireSuperAdmin } from '@/lib/platform-auth'
-import { platformDb } from '../db'
-import { billingFilters, type BillingEnvironment, type BillingFilter, type BillingOverview, type BillingOwnerDetail } from './types'
+import { platformBillingEnvironment } from '@/lib/platform-billing/config'
+import { billingUnavailableMessage, platformBillingDb } from '@/lib/platform-billing/db'
+import { billingFilters, type BillingFilter, type BillingOverview, type BillingOwnerDetail } from './types'
 
 const PAGE_SIZE = 25
 
-export function billingEnvironment(value: unknown): BillingEnvironment {
-  if (value === 'test' || value === 'live') return value
-  const key = process.env.XENDIT_SECRET_KEY || process.env.XENDIT_TEST_SECRET_KEY || ''
-  return key.startsWith('xnd_development_') ? 'test' : 'live'
-}
-
-export async function getBillingOverview(params: { environment?: unknown; q?: unknown; status?: unknown; page?: unknown }) {
+export async function getBillingOverview(params: { q?: unknown; status?: unknown; page?: unknown }) {
   const { user } = await requireSuperAdmin()
-  const environment = billingEnvironment(params.environment)
+  const environment = platformBillingEnvironment()
   const search = typeof params.q === 'string' ? params.q.trim().slice(0, 120) : ''
   const status = typeof params.status === 'string' && Object.hasOwn(billingFilters, params.status)
     ? params.status as BillingFilter : ''
@@ -22,11 +17,11 @@ export async function getBillingOverview(params: { environment?: unknown; q?: un
   const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 && (requestedPage - 1) * PAGE_SIZE <= 2_147_483_647
     ? requestedPage : 1
 
-  const { data, error } = await platformDb().rpc('platform_billing_overview', {
+  const { data, error } = await platformBillingDb().rpc('platform_billing_overview', {
     p_actor: user.id, p_environment: environment, p_search: search, p_filter: status || null,
     p_offset: (page - 1) * PAGE_SIZE, p_limit: PAGE_SIZE + 1,
   })
-  if (error || !data) throw new Error('Data subscription dan trial belum berhasil dimuat.')
+  if (error || !data) throw new Error(billingUnavailableMessage)
   const overview: BillingOverview = data
   return {
     ...overview,
@@ -36,13 +31,13 @@ export async function getBillingOverview(params: { environment?: unknown; q?: un
   }
 }
 
-export async function getBillingOwnerDetail(id: string, environment: BillingEnvironment) {
+export async function getBillingOwnerDetail(id: string) {
   const { user } = await requireSuperAdmin()
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) return null
 
-  const { data, error } = await platformDb().rpc('platform_billing_owner_detail', {
-    p_actor: user.id, p_environment: environment, p_owner: id,
+  const { data, error } = await platformBillingDb().rpc('platform_billing_owner_detail', {
+    p_actor: user.id, p_environment: platformBillingEnvironment(), p_owner: id,
   })
-  if (error) throw new Error('Detail billing Owner belum berhasil dimuat.')
+  if (error) throw new Error(billingUnavailableMessage)
   return data as BillingOwnerDetail | null
 }

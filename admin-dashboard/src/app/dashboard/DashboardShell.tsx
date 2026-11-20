@@ -19,7 +19,7 @@ function Brand({ platform }: { platform: boolean }) {
 
 type DashboardShellProps = {
   name: string; email: string; roleLabel: string; children: ReactNode
-} & ({ platform: true } | { platform?: false; businesses: { id: string; name: string }[]; businessId: string | null })
+} & ({ platform: true; platformMode?: ReactNode } | { platform?: false; businesses: { id: string; name: string }[]; businessId: string | null })
 
 export default function DashboardShell(props: DashboardShellProps) {
   const { name, email, roleLabel, children, platform = false } = props
@@ -62,6 +62,7 @@ export default function DashboardShell(props: DashboardShellProps) {
         </button>
         {platform && <span className="truncate text-sm font-semibold text-gray-900 md:hidden">KasirKu Platform</span>}
         <div className="ml-auto flex min-w-0 items-center gap-3">
+          {props.platform && props.platformMode}
           {!props.platform && <div className="w-40 min-w-0 sm:w-52"><BusinessContextSelect businesses={props.businesses} businessId={props.businessId} /></div>}
           <UserMenu name={name} email={email} roleLabel={roleLabel} />
         </div>

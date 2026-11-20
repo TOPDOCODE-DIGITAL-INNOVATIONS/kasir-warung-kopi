@@ -4,6 +4,7 @@ import { CalendarClock, CircleAlert, CreditCard, UserRound } from 'lucide-react'
 import DataPanel from '@/components/DataPanel'
 import FilterForm, { FilterSubmit } from '@/components/FilterForm'
 import { rupiah } from '@/lib/format'
+import { billingUnavailableMessage } from '@/lib/platform-billing/db'
 import { getBillingOverview } from './actions'
 import { billingDate, subscriptionLabels, trialLabels } from './display'
 import { billingFilters } from './types'
@@ -22,7 +23,7 @@ const cards = [
 ] as const
 
 export default async function SubscriptionsPage({ searchParams }: {
-  searchParams: Promise<{ environment?: string; q?: string; status?: string; page?: string }>
+  searchParams: Promise<{ q?: string; status?: string; page?: string }>
 }) {
   let overview
   try {
@@ -31,8 +32,8 @@ export default async function SubscriptionsPage({ searchParams }: {
     unstable_rethrow(error)
   }
 
-  const paging = (page: number, environment: string, search: string, status: string) =>
-    `${route}?${new URLSearchParams({ page: String(page), environment, q: search, status })}`
+  const paging = (page: number, search: string, status: string) =>
+    `${route}?${new URLSearchParams({ page: String(page), q: search, status })}`
 
   return (
     <div className="space-y-6">
@@ -42,8 +43,8 @@ export default async function SubscriptionsPage({ searchParams }: {
       </div>
       {overview ? (
         <>
-          <FilterForm key={`${overview.environment}:${overview.search}:${overview.status}`} action={route}
-            className="grid items-end gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,12rem)_minmax(0,10rem)_auto]">
+          <FilterForm key={`${overview.search}:${overview.status}`} action={route}
+            className="grid items-end gap-3 rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,12rem)_auto]">
             <label className="text-sm font-medium text-gray-700">
               Cari Owner
               <input name="q" type="search" maxLength={120} defaultValue={overview.search} placeholder="Nama atau email" className={field} />
@@ -53,13 +54,6 @@ export default async function SubscriptionsPage({ searchParams }: {
               <select name="status" defaultValue={overview.status} className={field}>
                 <option value="">Semua status</option>
                 {Object.entries(billingFilters).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-              </select>
-            </label>
-            <label className="text-sm font-medium text-gray-700">
-              Lingkungan
-              <select name="environment" defaultValue={overview.environment} className={field}>
-                <option value="live">Live</option>
-                <option value="test">Test</option>
               </select>
             </label>
             <FilterSubmit className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700">Terapkan</FilterSubmit>
@@ -115,7 +109,7 @@ export default async function SubscriptionsPage({ searchParams }: {
                   {overview.owners.map(owner => (
                     <tr key={owner.owner_id} className="hover:bg-gray-50">
                       <th scope="row" className="min-w-44 px-4 py-3 font-normal">
-                        <Link href={`${route}/${owner.owner_id}?environment=${overview.environment}`} prefetch={false}
+                        <Link href={`${route}/${owner.owner_id}`} prefetch={false}
                           className="font-semibold text-blue-600 hover:underline">
                           {owner.name || owner.email || 'Owner'}
                         </Link>
@@ -145,15 +139,15 @@ export default async function SubscriptionsPage({ searchParams }: {
               <nav aria-label="Halaman subscription" className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 p-4 text-sm text-gray-600">
                 <span>Halaman {overview.page}</span>
                 <div className="flex gap-2">
-                  {overview.page > 1 && <Link prefetch={false} href={paging(overview.page - 1, overview.environment, overview.search, overview.status)} className={pageButton}>Sebelumnya</Link>}
-                  {overview.hasNext && <Link prefetch={false} href={paging(overview.page + 1, overview.environment, overview.search, overview.status)} className={pageButton}>Berikutnya</Link>}
+                  {overview.page > 1 && <Link prefetch={false} href={paging(overview.page - 1, overview.search, overview.status)} className={pageButton}>Sebelumnya</Link>}
+                  {overview.hasNext && <Link prefetch={false} href={paging(overview.page + 1, overview.search, overview.status)} className={pageButton}>Berikutnya</Link>}
                 </div>
               </nav>
             )}
           </DataPanel>
         </>
       ) : <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-        Data subscription dan trial belum berhasil dimuat. Muat ulang halaman untuk mencoba lagi.
+          {billingUnavailableMessage}
       </p>}
     </div>
   )

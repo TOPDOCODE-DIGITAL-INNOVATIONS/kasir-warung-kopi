@@ -78,8 +78,8 @@ Status checkout, pembayaran, dan periode akses dicatat terpisah. URL kembali set
 | Lokasi | Tanggung jawab |
 |---|---|
 | `admin-dashboard/src/app/platform/subscriptions/` | Halaman serta aksi Super Admin untuk trial dan langganan. Aksi memeriksa role dan memanggil modul server. |
-| `admin-dashboard/src/lib/xendit/client.ts` | Klien server-only untuk konfigurasi akun, autentikasi, timeout, dan pemetaan respons Xendit. |
-| `admin-dashboard/src/lib/xendit/webhook.ts` | Verifikasi token dan identitas event. |
+| `admin-dashboard/src/lib/xendit/client.ts` | Transport HTTP server-only untuk autentikasi API, timeout, dan pemetaan error Xendit. |
+| `admin-dashboard/src/lib/platform-billing/` | Konfigurasi deployment dan akun, checkout langganan, parsing webhook, dan rekonsiliasi. |
 | `admin-dashboard/src/app/api/xendit/subscriptions/` | Endpoint Payment Sessions untuk billing KasirKu, termasuk `webhook/route.ts`. Handler meneruskan proses ke modul server di atas. |
 
 Panggilan HTTP ke Xendit dipusatkan di modul integrasi. Aturan trial dan status billing berada di domain billing. Dari log, operator dapat menelusuri satu upaya checkout hingga webhook atau rekonsiliasi lewat ID korelasi, referensi internal, ID sesi/plan/siklus provider, lingkungan test/live, dan kode hasil. Log menyamarkan secret, token, serta data pembayaran sensitif. Integrasi pembayaran pelanggan di masa depan memiliki namespace Xendit tersendiri untuk POS.
@@ -90,8 +90,8 @@ Panggilan HTTP ke Xendit dipusatkan di modul integrasi. Aturan trial dan status 
 2. Terima `payment_session.completed` dan `payment_session.expired` melalui endpoint yang sudah digunakan. Cocokkan lingkungan, referensi, ID sesi, nominal, dan mata uang. Penyelesaian checkout `PAY` dengan ID pembayaran yang terverifikasi menerapkan periode secara atomik. [Payment Session Webhook](https://docs.xendit.co/apidocs/webhook-notification-sent-defined-webhook-url-updates-payment-session)
 3. Pembayaran diterapkan sekali per sesi dan ID pembayaran. Status batal atau kedaluwarsa yang datang setelah pembayaran tidak mengurangi periode.
 4. Pertahankan satu checkout terbuka per Owner dan lingkungan. Percobaan pembuatan ulang memakai referensi checkout yang sama jika statusnya masih belum terkonfirmasi.
-5. **Pemantauan Pembayaran** menampilkan checkout tertunda dan webhook yang perlu ditinjau, dengan pilihan Test dan Live. Super Admin dapat memeriksa ulang checkout yang sudah memiliki ID sesi Xendit. Checkout yang belum memiliki ID sesi dapat dilanjutkan dari detail langganan dengan referensi yang sama.
-6. Supabase Cron meminta rekonsiliasi setiap 15 menit. Server mengambil hingga 10 checkout tertunda per lingkungan yang memiliki key Xendit dan ID sesi. Pembayaran yang dikonfirmasi melalui API Xendit diterapkan melalui fungsi yang sama dengan webhook. Webhook yang sebelumnya perlu ditinjau dapat diselesaikan otomatis jika hasil pemeriksaan mengonfirmasi data yang cocok. Selisih nominal, mata uang, atau identitas pembayaran tetap terlihat untuk ditinjau.
+5. **Pemantauan Pembayaran** menampilkan checkout tertunda dan webhook yang perlu ditinjau sesuai lingkungan deployment di header Super Admin. Super Admin dapat memeriksa ulang checkout yang sudah memiliki ID sesi Xendit. Checkout yang belum memiliki ID sesi dapat dilanjutkan dari detail langganan dengan referensi yang sama.
+6. Supabase Cron meminta rekonsiliasi setiap 15 menit. Server mengambil hingga 10 checkout tertunda dengan ID sesi dari lingkungan deployment. Pembayaran yang dikonfirmasi melalui API Xendit diterapkan melalui fungsi yang sama dengan webhook. Webhook yang sebelumnya perlu ditinjau dapat diselesaikan otomatis jika hasil pemeriksaan mengonfirmasi data yang cocok. Selisih nominal, mata uang, atau identitas pembayaran tetap terlihat untuk ditinjau.
 
 #### Mengaktifkan rekonsiliasi berkala
 
@@ -99,7 +99,7 @@ Panggilan HTTP ke Xendit dipusatkan di modul integrasi. Aturan trial dan status 
 2. Pada Supabase Vault untuk deployment tersebut, simpan URL lengkap `https://<domain-dashboard>/api/xendit/payments/reconcile` dengan nama `kasirku_billing_reconcile_url`, serta nilai yang sama dengan `BILLING_CRON_SECRET` dengan nama `kasirku_billing_reconcile_secret`. URL harus dapat dijangkau dari Supabase dan mengarah ke dashboard yang menggunakan database tersebut. Job mengirim `POST` dengan `Authorization: Bearer …`.
 3. Jalankan [billing-reconciliation.sql](../../supabase/jobs/billing-reconciliation.sql) di SQL Editor. Periksa jadwal di Supabase Cron dan respons HTTP di `net._http_response`. Respons `200` berarti server menerima job. Body memuat jumlah yang diperiksa, diterapkan, dan perlu ditinjau per lingkungan.
 
-[Supabase Cron](https://supabase.com/docs/guides/cron/quickstart) · [Supabase Vault](https://supabase.com/docs/guides/database/vault) · [pg_net](https://supabase.com/docs/guides/database/extensions/pg_net)
+[Checklist lingkungan dan rilis](platform-billing-setup.md) · [Supabase Cron](https://supabase.com/docs/guides/cron/quickstart) · [Supabase Vault](https://supabase.com/docs/guides/database/vault) · [pg_net](https://supabase.com/docs/guides/database/extensions/pg_net)
 
 ## 6. Batas fase pertama dan persiapan fase operasional
 
@@ -110,7 +110,7 @@ Fase operasional berikutnya dapat mencakup self-service di dashboard Owner, pemb
 
 ## 7. Model data dan tampilan tinjauan
 
-Halaman tinjauan tersedia di **Super Admin → Subscription & Trial** (`/platform/subscriptions`). Daftar menampilkan Owner yang sudah terdaftar, status dan akhir trial, status langganan, paket, periode berbayar, serta tanggal perpanjangan. Klik nama Owner untuk melihat waktu mulai/akhir trial, informasi perpanjangan, serta masing-masing 25 riwayat siklus dan checkout terbaru. Filter lingkungan menentukan data `test` atau `live` yang dibaca.
+Halaman tinjauan tersedia di **Super Admin → Subscription & Trial** (`/platform/subscriptions`). Daftar menampilkan Owner yang sudah terdaftar, status dan akhir trial, status langganan, paket, periode berbayar, serta tanggal perpanjangan. Klik nama Owner untuk melihat waktu mulai/akhir trial, informasi perpanjangan, serta masing-masing 25 riwayat siklus dan checkout terbaru. Header Super Admin menunjukkan lingkungan deployment dan menyediakan tautan untuk berpindah deployment bila URL tujuan dikonfigurasi.
 
 Harga paket Bulanan dan Tahunan dikelola oleh Super Admin. Nominal yang sudah tercatat pada checkout tetap berlaku setelah perubahan harga. Owner tanpa data billing tampil sebagai belum mulai. Super Admin dapat memakai **Mulai Trial** di detail Owner. [Migration trial](../../supabase/migrations/20261118150000_platform_start_trial.sql) menyimpan awal, akhir, pelaku, dan audit secara atomik. Pembuatan checkout dan penerimaan webhook mengikuti validasi Xendit Test Mode.
 
