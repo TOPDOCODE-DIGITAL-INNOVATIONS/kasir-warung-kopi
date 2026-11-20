@@ -41,6 +41,7 @@ export function parseXenditWebhook(raw: unknown): ParsedXenditWebhook | null {
   const data = payload.data
   if (!event || !data || typeof data !== 'object' || Array.isArray(data)) return null
   const d = data as Record<string, unknown>
+  if (d.session_type !== 'PAY' || (event !== 'payment_session.completed' && event !== 'payment_session.expired')) return null
 
   const objectId = text(d.id) ?? text(d.payment_session_id)
   // Satu event yang sama (dikirim ulang) menghasilkan kunci yang sama; perubahan status

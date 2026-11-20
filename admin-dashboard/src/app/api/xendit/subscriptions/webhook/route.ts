@@ -6,8 +6,8 @@ import { parseXenditWebhook, resolveWebhookEnvironment } from '@/lib/xendit/webh
 export const preferredRegion = 'syd1'
 
 /**
- * Webhook Xendit Subscriptions (recurring.plan.*, recurring.cycle.*) dan Payment Sessions
- * (payment_session.*). Satu URL dipakai untuk Test dan Live; lingkungan ditentukan dari
+ * Webhook Xendit Payment Sessions untuk pembayaran satu kali.
+ * Satu URL dipakai untuk Test dan Live; lingkungan ditentukan dari
  * token `x-callback-token` (XENDIT_TEST_WEBHOOK_TOKEN / XENDIT_LIVE_WEBHOOK_TOKEN).
  *
  * Respons 2xx hanya dikirim setelah event tersimpan di billing_webhook_events.
@@ -32,8 +32,8 @@ export async function POST(request: Request) {
 
   const parsed = parseXenditWebhook(raw)
   if (!parsed) {
-    // Payload produk lain / tombol "Test" di dashboard: terima agar tidak dikirim ulang.
-    console.info(`[xendit-webhook] env=${environment} payload tanpa event, diabaikan`)
+    // Abaikan tipe event di luar checkout pembayaran satu kali.
+    console.info(`[xendit-webhook] env=${environment} event di luar pembayaran satu kali, diabaikan`)
     return NextResponse.json({ received: true, result: 'ignored' })
   }
 

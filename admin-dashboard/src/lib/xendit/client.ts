@@ -2,7 +2,6 @@ import 'server-only'
 import type { BillingEnvironment } from '@/app/platform/subscriptions/types'
 
 const XENDIT_BASE_URL = 'https://api.xendit.co'
-const SUBSCRIPTIONS_API_VERSION = '2026-01-01'
 const REQUEST_TIMEOUT_MS = 20_000
 
 /** Xendit menjawab dengan error (4xx/5xx). Kegagalan jaringan/timeout TIDAK memakai kelas ini. */
@@ -43,9 +42,6 @@ async function xenditRequest<T = Record<string, unknown>>(
   const headers: Record<string, string> = {
     Authorization: `Basic ${auth}`,
     'Content-Type': 'application/json',
-  }
-  if (path.startsWith('/recurring/')) {
-    headers['api-version'] = SUBSCRIPTIONS_API_VERSION
   }
   if (options.idempotencyKey) {
     headers['Idempotency-key'] = options.idempotencyKey
@@ -130,56 +126,34 @@ export type XenditSessionResponse = {
   status?: string
   expires_at?: string
   customer_id?: string
-  recurring_plan_id?: string
-  subscription?: {
-    recurring_plan_id?: string
-  }
 }
 
-export async function createXenditSubscriptionSession(params: {
+export async function createXenditPaymentSession(params: {
   environment: BillingEnvironment
   referenceId: string
   customerId: string
   amount: number
-  intervalMonths: number
   planName: string
-  ownerName: string
-  ownerEmail: string
   successReturnUrl: string
   cancelReturnUrl: string
-  /** Waktu checkout dicatat di DB; dipakai agar body request identik saat dicoba ulang. */
-  checkoutCreatedAt: Date
 }): Promise<{
   sessionId: string
   checkoutUrl: string
-  recurringPlanId: string | null
   expiresAt: string | null
 }> {
-  // Tagihan pertama langsung saat checkout. Jadwalkan siklus berikutnya satu
-  // periode kemudian agar anchor melewati masa berlaku sesi dan maksimal tanggal 28.
-  const anchor = new Date(params.checkoutCreatedAt)
-  anchor.setUTCMonth(anchor.getUTCMonth() + params.intervalMonths, Math.min(anchor.getUTCDate(), 28))
-
   const res = await xenditRequest<XenditSessionResponse>(params.environment, '/sessions', {
     method: 'POST',
     idempotencyKey: params.referenceId,
     body: {
       reference_id: params.referenceId,
       customer_id: params.customerId,
-      session_type: 'SUBSCRIPTION',
+      session_type: 'PAY',
       mode: 'PAYMENT_LINK',
+      capture_method: 'AUTOMATIC',
       amount: params.amount,
       currency: 'IDR',
       country: 'ID',
-      description: `Langganan KasirKu Paket ${params.planName} (${params.ownerEmail || params.ownerName})`,
-      subscription: {
-        immediate_payment: true,
-        schedule: {
-          interval: 'MONTH',
-          interval_count: params.intervalMonths,
-          anchor_date: anchor.toISOString(),
-        },
-      },
+      description: `Pembayaran KasirKu Paket ${params.planName}`,
       success_return_url: params.successReturnUrl,
       cancel_return_url: params.cancelReturnUrl,
     },
@@ -187,8 +161,6 @@ export async function createXenditSubscriptionSession(params: {
 
   const sessionId = res.payment_session_id
   const checkoutUrl = res.payment_link_url
-  const recurringPlanId = res.subscription?.recurring_plan_id ?? res.recurring_plan_id ?? null
-
   if (!sessionId || !checkoutUrl) {
     throw new Error('Xendit tidak mengembalikan tautan pembayaran (payment_link_url).')
   }
@@ -196,7 +168,6 @@ export async function createXenditSubscriptionSession(params: {
   return {
     sessionId,
     checkoutUrl,
-    recurringPlanId,
     expiresAt: res.expires_at ?? null,
   }
 }
@@ -211,62 +182,5 @@ export async function cancelXenditSession(environment: BillingEnvironment, sessi
   return xenditRequest<XenditSessionResponse>(environment, `/sessions/${encodeURIComponent(sessionId)}/cancel`, {
     method: 'POST',
   })
-}
-
-export type XenditRecurringPlan = {
-  id: string
-  reference_id?: string
-  status: string // 'REQUIRES_ACTION' | 'ACTIVE' | 'INACTIVE' | 'PENDING'
-  amount?: number
-  currency?: string
-}
-
-export async function getXenditRecurringPlan(environment: BillingEnvironment, planId: string) {
-  return xenditRequest<XenditRecurringPlan>(environment, `/recurring/plans/${encodeURIComponent(planId)}`)
-}
-
-export async function deactivateXenditRecurringPlan(environment: BillingEnvironment, planId: string) {
-  return xenditRequest<XenditRecurringPlan>(environment, `/recurring/plans/${encodeURIComponent(planId)}/deactivate`, {
-    method: 'POST',
-  })
-}
-
-export type XenditCycle = {
-  id: string
-  plan_id: string
-  reference_id?: string
-  attempt_details?: unknown[]
-  status: string // 'SCHEDULED' | 'PENDING' | 'RETRYING' | 'FAILED' | 'SUCCEEDED' | 'CANCELLED'
-  scheduled_timestamp?: string
-  amount?: number
-  currency?: string
-  updated?: string
-}
-
-export async function getXenditPlanCycles(environment: BillingEnvironment, planId: string): Promise<XenditCycle[]> {
-  const res = await xenditRequest<{ data?: XenditCycle[] }>(
-    environment,
-    `/recurring/plans/${encodeURIComponent(planId)}/cycles?limit=25`
-  )
-  return Array.isArray(res.data) ? res.data : []
-}
-
-export async function simulateXenditCyclePayment(
-  environment: BillingEnvironment,
-  planId: string,
-  cycleId: string,
-  amount: number
-) {
-  if (environment !== 'test') {
-    throw new Error('Simulasi pembayaran hanya tersedia pada lingkungan Test.')
-  }
-  return xenditRequest(
-    environment,
-    `/recurring/plans/${encodeURIComponent(planId)}/cycles/${encodeURIComponent(cycleId)}/simulate`,
-    {
-      method: 'POST',
-      body: { amount },
-    }
-  )
 }
 

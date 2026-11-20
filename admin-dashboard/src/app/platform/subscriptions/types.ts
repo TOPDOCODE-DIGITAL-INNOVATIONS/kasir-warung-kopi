@@ -26,7 +26,6 @@ export type BillingOwner = {
   period_start: string | null
   period_end: string | null
   next_billing_at: string | null
-  renewal_enabled: boolean | null
 }
 
 export type BillingOverview = {
@@ -36,7 +35,7 @@ export type BillingOverview = {
 }
 
 export type BillingOwnerDetail = {
-  owner: BillingOwner & { reference_plan_id: string | null }
+  owner: BillingOwner
   cycles: {
     id: string; plan_name: string; status: string; amount: number; scheduled_at: string | null
     paid_at: string | null; xendit_payment_id: string | null

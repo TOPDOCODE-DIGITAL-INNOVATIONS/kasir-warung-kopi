@@ -1,15 +1,13 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { Check, Copy, ExternalLink, RefreshCw, CreditCard, Ban, Zap } from 'lucide-react'
+import { Check, Copy, ExternalLink, RefreshCw, CreditCard, Ban } from 'lucide-react'
 import AdminModal from '@/components/AdminModal'
 import SubmitButton from '@/components/SubmitButton'
 import { rupiah } from '@/lib/format'
 import {
   cancelOpenXenditCheckout,
   createXenditCheckout,
-  simulateXenditCycle,
-  stopXenditAutoRenewal,
   syncXenditStatus,
   type CheckoutContext,
 } from './xendit-actions'
@@ -22,7 +20,7 @@ const secondary =
 const danger =
   'inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50'
 
-export default function XenditSubscriptionPanel({
+export default function XenditPaymentPanel({
   ownerId,
   ownerName,
   environment,
@@ -42,7 +40,6 @@ export default function XenditSubscriptionPanel({
 
   const plans = context?.plans ?? []
   const openCheckout = context?.open_checkout ?? null
-  const currentSub = context?.current_subscription ?? null
   const envLabel = environment === 'test' ? 'Test Mode' : 'Live Mode'
 
   async function runAction(name: string, fn: () => Promise<{ success: boolean; message: string; checkoutUrl?: string }>) {
@@ -172,11 +169,11 @@ export default function XenditSubscriptionPanel({
             className={primary}
           >
             <CreditCard className="h-4 w-4" />
-            Buat Checkout Xendit ({envLabel})
+            Buat Link Pembayaran ({envLabel})
           </button>
         )}
 
-        {(openCheckout || currentSub?.xendit_plan_id) && (
+        {openCheckout?.xendit_session_id && (
           <button
             type="button"
             disabled={!!pendingAction}
@@ -185,18 +182,6 @@ export default function XenditSubscriptionPanel({
           >
             <RefreshCw className={`h-4 w-4 ${pendingAction === 'sync' ? 'animate-spin' : ''}`} />
             {pendingAction === 'sync' ? 'Menyinkronkan...' : 'Cek Status Xendit'}
-          </button>
-        )}
-
-        {environment === 'test' && (openCheckout || currentSub?.xendit_plan_id) && currentSub?.status !== 'active' && (
-          <button
-            type="button"
-            disabled={!!pendingAction}
-            onClick={() => runAction('simulate', () => simulateXenditCycle(makeFormData()))}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-          >
-            <Zap className="h-4 w-4" />
-            {pendingAction === 'simulate' ? 'Memproses...' : 'Simulasi Bayar Lunas (Test)'}
           </button>
         )}
 
@@ -212,17 +197,6 @@ export default function XenditSubscriptionPanel({
           </button>
         )}
 
-        {(currentSub?.status === 'active' || currentSub?.status === 'past_due') && currentSub.renewal_enabled && currentSub.xendit_plan_id && (
-          <button
-            type="button"
-            disabled={!!pendingAction}
-            onClick={() => runAction('stop', () => stopXenditAutoRenewal(makeFormData()))}
-            className={danger}
-          >
-            <Ban className="h-4 w-4" />
-            {pendingAction === 'stop' ? 'Menghentikan...' : 'Hentikan Perpanjangan'}
-          </button>
-        )}
       </div>
 
       {notice && (
@@ -238,7 +212,7 @@ export default function XenditSubscriptionPanel({
 
       {modalOpen && (
         <AdminModal
-          title="Buat Checkout Langganan Xendit"
+          title="Buat Pembayaran Langganan"
           description={`${ownerName} · ${envLabel}`}
           pending={pendingAction === 'create'}
           onClose={() => setModalOpen(false)}
@@ -284,8 +258,7 @@ export default function XenditSubscriptionPanel({
             </div>
 
             <p className="text-xs text-gray-500">
-              Server membuat tautan pembayaran langganan Xendit pada {envLabel}. Kirim tautan ke Owner; status lunas
-              tercatat otomatis setelah Xendit melaporkan pembayaran berhasil.
+              Owner membayar satu kali melalui Xendit. Periode langganan bertambah setelah pembayaran terverifikasi.
             </p>
 
             {error && (

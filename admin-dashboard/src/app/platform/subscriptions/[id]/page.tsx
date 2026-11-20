@@ -5,7 +5,7 @@ import { rupiah } from '@/lib/format'
 import { billingEnvironment, getBillingOwnerDetail } from '../actions'
 import { billingDate, subscriptionLabels, trialLabels } from '../display'
 import StartTrialButton from '../StartTrialButton'
-import XenditSubscriptionPanel from '../XenditSubscriptionPanel'
+import XenditPaymentPanel from '../XenditPaymentPanel'
 import { getCheckoutContext } from '../xendit-actions'
 
 const panel = 'overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm'
@@ -62,9 +62,7 @@ export default async function BillingDetailPage({ params, searchParams }: {
     { label: 'Paket', value: owner.plan_name || '—' },
     { label: 'Status langganan', value: subscriptionLabels[owner.subscription_status] },
     { label: 'Periode berbayar', value: owner.period_end ? `${billingDate(owner.period_start)} – ${billingDate(owner.period_end)}` : '—' },
-    { label: 'Tagihan berikutnya', value: billingDate(owner.next_billing_at, true) },
-    { label: 'Perpanjangan otomatis', value: owner.renewal_enabled == null ? '—' : owner.renewal_enabled ? 'Aktif' : 'Nonaktif' },
-    { label: 'ID plan Xendit', value: owner.reference_plan_id || '—' },
+    { label: 'Perpanjang sebelum', value: billingDate(owner.next_billing_at ?? owner.period_end, true) },
   ]
 
   return (
@@ -93,7 +91,7 @@ export default async function BillingDetailPage({ params, searchParams }: {
             </dl>
             {label === 'Free Trial' && <StartTrialButton ownerId={owner.owner_id} name={name} environment={environment} canStart={owner.trial_status === 'none'} />}
             {label === 'Langganan' && (
-              <XenditSubscriptionPanel
+              <XenditPaymentPanel
                 ownerId={owner.owner_id}
                 ownerName={name}
                 environment={environment}
@@ -105,7 +103,7 @@ export default async function BillingDetailPage({ params, searchParams }: {
       </div>
 
       <section className={panel} aria-labelledby="billing-cycles">
-        <h2 id="billing-cycles" className="border-b border-gray-100 px-5 py-4 font-semibold text-gray-900">Siklus tagihan <span className="ml-2 text-xs font-normal text-gray-500">25 terbaru</span></h2>
+        <h2 id="billing-cycles" className="border-b border-gray-100 px-5 py-4 font-semibold text-gray-900">Riwayat tagihan <span className="ml-2 text-xs font-normal text-gray-500">25 terbaru</span></h2>
         <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-xs uppercase text-gray-700">
@@ -120,7 +118,7 @@ export default async function BillingDetailPage({ params, searchParams }: {
                   <td className={tableCell}>{billingDate(cycle.paid_at)}</td>
                   <td className={tableCell}>{cycle.xendit_payment_id || '—'}</td>
                 </tr>)}
-                {!cycles.length && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Belum ada siklus tagihan.</td></tr>}
+                {!cycles.length && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-500">Belum ada riwayat tagihan.</td></tr>}
               </tbody>
             </table>
         </div>

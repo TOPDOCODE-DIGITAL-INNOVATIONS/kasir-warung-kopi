@@ -108,7 +108,7 @@ export default async function SubscriptionsPage({ searchParams }: {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-gray-600">
                 <thead className="bg-gray-50 text-xs uppercase text-gray-700">
-                  <tr>{['Owner', 'Trial', 'Langganan', 'Paket', 'Periode berbayar', 'Tagihan berikutnya'].map(label =>
+                  <tr>{['Owner', 'Trial', 'Langganan', 'Paket', 'Periode berbayar', 'Perpanjang sebelum'].map(label =>
                     <th key={label} scope="col" className="whitespace-nowrap px-4 py-3">{label}</th>)}</tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -134,7 +134,7 @@ export default async function SubscriptionsPage({ searchParams }: {
                       <td className="whitespace-nowrap px-4 py-3">{owner.plan_name || '—'}</td>
                       <td className="whitespace-nowrap px-4 py-3">{owner.period_end
                         ? `${billingDate(owner.period_start)} – ${billingDate(owner.period_end)}` : '—'}</td>
-                      <td className="whitespace-nowrap px-4 py-3">{billingDate(owner.next_billing_at)}</td>
+                      <td className="whitespace-nowrap px-4 py-3">{billingDate(owner.next_billing_at ?? owner.period_end)}</td>
                     </tr>
                   ))}
                   {!overview.owners.length && <tr><td colSpan={6} className="p-8 text-center text-gray-500">Tidak ada Owner pada hasil ini.</td></tr>}
