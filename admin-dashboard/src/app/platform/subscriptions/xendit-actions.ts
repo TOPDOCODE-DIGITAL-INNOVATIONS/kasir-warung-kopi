@@ -172,7 +172,7 @@ export async function createXenditCheckout(formData: FormData): Promise<ActionRe
       ownerEmail: begin.owner_email,
       successReturnUrl: returnUrl,
       cancelReturnUrl: `${returnUrl}?status=cancelled`,
-      anchorDate: new Date(begin.created_at),
+      checkoutCreatedAt: new Date(begin.created_at),
     })
 
     // 4. Simpan tautan.
