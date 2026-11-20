@@ -43,12 +43,23 @@ export async function getOwnerDetail(id: string, requestedPage: unknown) {
   if (!ownerIdPattern.test(id)) return null
 
   const page = pageNumber(requestedPage)
-  const { data, error } = await platformDb().rpc('platform_get_owner_detail', {
+  const db = platformDb()
+  const { data, error } = await db.rpc('platform_get_owner_detail', {
     p_actor: user.id, p_owner: id, p_offset: (page - 1) * pageSize, p_limit: pageSize,
   })
   if (error) throw new Error('Detail Owner belum berhasil dimuat.')
   const owner: OwnerDetail | null = data
-  return owner ? { owner, page, hasNext: page * pageSize < owner.branch_count } : null
+  if (!owner) return null
+
+  const result = { owner, page, hasNext: page * pageSize < owner.branch_count }
+  if (!owner.branches.length) return { ...result, branchDetails: [], branchDetailsUnavailable: false }
+
+  const { data: branchDetails, error: branchError } = await db.from('businesses')
+    .select('id, address, last_synced_at, last_device_code')
+    .eq('owner_id', owner.id)
+    .in('id', owner.branches.map(branch => branch.id))
+
+  return { ...result, branchDetails: branchDetails ?? [], branchDetailsUnavailable: Boolean(branchError) }
 }
 
 export async function setOwnerStatus(formData: FormData) {
@@ -71,6 +82,7 @@ export async function setOwnerStatus(formData: FormData) {
   if (!data) return { success: false, message: 'Akun atau statusnya sudah berubah. Muat ulang daftar sebelum mencoba lagi.' }
 
   revalidatePath(ownerPath)
+  revalidatePath(`${ownerPath}/${id}`)
   revalidatePath('/platform')
   return { success: true, message: status === 'active' ? 'Status Owner berhasil diaktifkan.' : 'Status Owner berhasil dinonaktifkan.' }
 }
