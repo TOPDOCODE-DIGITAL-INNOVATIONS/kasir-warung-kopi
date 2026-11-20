@@ -2,6 +2,7 @@ import 'server-only'
 import type { BillingEnvironment } from '@/app/platform/subscriptions/types'
 
 const XENDIT_BASE_URL = 'https://api.xendit.co'
+const SUBSCRIPTIONS_API_VERSION = '2026-01-01'
 const REQUEST_TIMEOUT_MS = 20_000
 
 /** Xendit menjawab dengan error (4xx/5xx). Kegagalan jaringan/timeout TIDAK memakai kelas ini. */
@@ -42,6 +43,9 @@ async function xenditRequest<T = Record<string, unknown>>(
   const headers: Record<string, string> = {
     Authorization: `Basic ${auth}`,
     'Content-Type': 'application/json',
+  }
+  if (path.startsWith('/recurring/')) {
+    headers['api-version'] = SUBSCRIPTIONS_API_VERSION
   }
   if (options.idempotencyKey) {
     headers['Idempotency-key'] = options.idempotencyKey
@@ -144,18 +148,17 @@ export async function createXenditSubscriptionSession(params: {
   successReturnUrl: string
   cancelReturnUrl: string
   /** Waktu checkout dicatat di DB; dipakai agar body request identik saat dicoba ulang. */
-  anchorDate: Date
+  checkoutCreatedAt: Date
 }): Promise<{
   sessionId: string
   checkoutUrl: string
   recurringPlanId: string | null
   expiresAt: string | null
 }> {
-  // Xendit membatasi anchor bulanan sampai tanggal 28.
-  const anchor = new Date(params.anchorDate)
-  if (anchor.getUTCDate() > 28) {
-    anchor.setUTCDate(28)
-  }
+  // Tagihan pertama langsung saat checkout. Jadwalkan siklus berikutnya satu
+  // periode kemudian agar anchor melewati masa berlaku sesi dan maksimal tanggal 28.
+  const anchor = new Date(params.checkoutCreatedAt)
+  anchor.setUTCMonth(anchor.getUTCMonth() + params.intervalMonths, Math.min(anchor.getUTCDate(), 28))
 
   const res = await xenditRequest<XenditSessionResponse>(params.environment, '/sessions', {
     method: 'POST',
