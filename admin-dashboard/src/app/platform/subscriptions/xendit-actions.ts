@@ -260,3 +260,54 @@ export async function updatePlanPrice(formData: FormData): Promise<ActionResult>
   revalidatePath(route, 'layout')
   return { success: true, message: 'Harga paket diperbarui. Berlaku untuk checkout baru; pelanggan lama tetap di harga lama.' }
 }
+
+function maskToken(t: string | null | undefined): string | null {
+  if (!t || t.length < 8) return null
+  return `${t.slice(0, 4)}••••••••${t.slice(-4)}`
+}
+
+export async function getWebhookSettingsStatus() {
+  await requireSuperAdmin()
+  const { data } = await platformDb().rpc('platform_get_webhook_tokens')
+  const dbTokens = (data ?? {}) as { test?: string | null; live?: string | null }
+  const envTest = process.env.XENDIT_TEST_WEBHOOK_TOKEN || process.env.XENDIT_WEBHOOK_TOKEN || null
+  const envLive = process.env.XENDIT_LIVE_WEBHOOK_TOKEN || null
+
+  return {
+    test: {
+      hasDbToken: !!dbTokens.test,
+      hasEnvToken: !!envTest,
+      maskedToken: maskToken(dbTokens.test ?? envTest),
+    },
+    live: {
+      hasDbToken: !!dbTokens.live,
+      hasEnvToken: !!envLive,
+      maskedToken: maskToken(dbTokens.live ?? envLive),
+    },
+  }
+}
+
+export async function saveWebhookToken(formData: FormData): Promise<ActionResult> {
+  const { user } = await requireSuperAdmin()
+  const env = formData.get('environment') === 'live' ? 'live' : 'test'
+  const token = String(formData.get('callback_token') ?? '').trim()
+  if (token && (token.length < 8 || token.length > 256)) {
+    return { success: false, message: 'Token verifikasi webhook harus antara 8 hingga 256 karakter.' }
+  }
+
+  const { data, error } = await platformDb().rpc('platform_set_webhook_token', {
+    p_actor: user.id,
+    p_environment: env,
+    p_callback_token: token,
+  })
+  if (error || data !== 'updated') {
+    return { success: false, message: 'Token webhook belum berhasil disimpan.' }
+  }
+  revalidatePath(route, 'layout')
+  return {
+    success: true,
+    message: token
+      ? `Token webhook ${env === 'test' ? 'Test Mode' : 'Live Mode'} berhasil disimpan.`
+      : `Token webhook ${env === 'test' ? 'Test Mode' : 'Live Mode'} di dashboard dikosongkan.`,
+  }
+}

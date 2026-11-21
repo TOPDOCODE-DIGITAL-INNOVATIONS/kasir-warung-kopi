@@ -14,10 +14,19 @@ export const preferredRegion = 'syd1'
  * Respons 5xx membuat Xendit mengirim ulang (dedup di database mencegah efek ganda).
  */
 export async function POST(request: Request) {
-  const environment = resolveWebhookEnvironment(request.headers.get('x-callback-token'), {
-    test: process.env.XENDIT_TEST_WEBHOOK_TOKEN,
+  const headerToken = request.headers.get('x-callback-token')
+  let environment = resolveWebhookEnvironment(headerToken, {
+    test: process.env.XENDIT_TEST_WEBHOOK_TOKEN || process.env.XENDIT_WEBHOOK_TOKEN,
     live: process.env.XENDIT_LIVE_WEBHOOK_TOKEN,
   })
+  if (!environment && headerToken) {
+    const { data } = await platformDb().rpc('platform_get_webhook_tokens')
+    const dbTokens = (data ?? {}) as { test?: string | null; live?: string | null }
+    environment = resolveWebhookEnvironment(headerToken, {
+      test: dbTokens.test ?? undefined,
+      live: dbTokens.live ?? undefined,
+    })
+  }
   if (!environment) {
     console.warn('[xendit-webhook] token tidak valid')
     return NextResponse.json({ error: 'invalid token' }, { status: 401 })

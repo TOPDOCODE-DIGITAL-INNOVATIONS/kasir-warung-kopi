@@ -1,5 +1,5 @@
 import { CalendarClock, CheckCircle2, CreditCard, ShieldCheck } from 'lucide-react'
-import { getCurrentOwnerAccess, billingEnvironment } from '@/lib/billing/owner-billing'
+import { getCurrentOwnerAccess, billingEnabled, billingEnvironment, BILLING_DISABLED_MESSAGE } from '@/lib/billing/owner-billing'
 import { accessMessage, GRACE_DAYS, type AccessState } from '../../../../../shared/billing-access'
 import { formatDateTime, rupiah } from '@/lib/format'
 import { BillingActionButton, PlanCheckoutButton } from './BillingButtons'
@@ -29,7 +29,9 @@ export default async function BillingPage() {
     <div className="space-y-6">
       <PageHeader eyebrow="Sistem & Akun" title="Langganan" description="Satu langganan berlaku untuk semua cabang dan perangkat kasir Anda." />
 
-      {!billing ? (
+      {!billingEnabled() ? (
+        <Notice tone="info">{BILLING_DISABLED_MESSAGE}</Notice>
+      ) : !billing ? (
         <Notice tone="warning" role="alert">Status langganan belum dapat dimuat. Muat ulang halaman beberapa saat lagi.</Notice>
       ) : (
         <>

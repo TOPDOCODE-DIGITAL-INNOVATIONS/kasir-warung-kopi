@@ -8,6 +8,9 @@ import { getBillingOverview } from './actions'
 import { billingDate, subscriptionLabels, trialLabels } from './display'
 import { billingFilters } from './types'
 import PlanPriceForm from './PlanPriceForm'
+import WebhookSettingsPanel from './WebhookSettingsPanel'
+import { getWebhookSettingsStatus } from './xendit-actions'
+import { getSiteUrl } from '@/lib/site-url'
 import { Badge, EmptyState, PageHeader, StatCard, ui } from '@/components/ui'
 
 const route = '/platform/subscriptions'
@@ -26,8 +29,13 @@ export default async function SubscriptionsPage({ searchParams }: {
   searchParams: Promise<{ environment?: string; q?: string; status?: string; page?: string }>
 }) {
   let overview
+  let webhookStatus = null
+  const siteUrl = await getSiteUrl()
   try {
-    overview = await getBillingOverview(await searchParams)
+    ;[overview, webhookStatus] = await Promise.all([
+      getBillingOverview(await searchParams),
+      getWebhookSettingsStatus().catch(() => null),
+    ])
   } catch (error) {
     unstable_rethrow(error)
   }
@@ -69,6 +77,14 @@ export default async function SubscriptionsPage({ searchParams }: {
               </ul>
             ) : <p className="px-5 py-4 text-sm text-gray-500">Belum ada paket langganan.</p>}
           </section>
+
+          {webhookStatus && (
+            <WebhookSettingsPanel
+              webhookUrl={`${siteUrl}/api/xendit/subscriptions/webhook`}
+              testStatus={webhookStatus.test}
+              liveStatus={webhookStatus.live}
+            />
+          )}
 
           <DataPanel label="Memuat daftar Owner..." className={panel}>
             <div className="border-b border-gray-100 px-5 py-4 sm:px-6">

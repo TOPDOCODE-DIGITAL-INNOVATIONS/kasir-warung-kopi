@@ -36,6 +36,17 @@ export type OwnerBilling = BillingSnapshot & {
   plans: OwnerBillingPlan[]
 }
 
+/**
+ * Saklar utama langganan. Default MATI: tanpa BILLING_ENABLED=true tidak ada trial yang
+ * dimulai, dashboard tidak pernah hanya-baca, dan kasir tidak pernah dibatasi.
+ * Nyalakan hanya setelah pembayaran (Xendit Live) siap dipakai Owner.
+ */
+export function billingEnabled(): boolean {
+  return process.env.BILLING_ENABLED?.trim().toLowerCase() === 'true'
+}
+
+export const BILLING_DISABLED_MESSAGE = 'Langganan belum diaktifkan. Semua fitur dashboard dan kasir dapat dipakai tanpa batas.'
+
 /** Lingkungan Xendit yang dipakai Owner. Default Test sampai akun Live siap. */
 export function billingEnvironment(): BillingEnvironment {
   return process.env.BILLING_ENVIRONMENT?.trim().toLowerCase() === 'live' ? 'live' : 'test'
@@ -47,7 +58,8 @@ export function billingEnvironment(): BillingEnvironment {
  * membatasi akses berdasarkan kegagalan baca (fail-open untuk operasional usaha).
  */
 export async function readOwnerBilling(ownerId: string): Promise<OwnerBilling | null> {
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) return null
+  // Disabled billing must not even start a trial (owner_billing_status starts one on first call).
+  if (!billingEnabled() || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null
   try {
     const { data, error } = await createAdminClient().rpc('owner_billing_status', {
       p_owner: ownerId, p_environment: billingEnvironment(), p_trial_days: TRIAL_DAYS,

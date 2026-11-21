@@ -92,7 +92,9 @@ perangkat sehingga tidak bentrok. Jika token bocor, tekan **Ganti** di dashboard
 
 ## Langganan, trial, dan login
 
-- **Trial otomatis 14 hari** dimulai saat Owner pertama kali membuka dashboard atau kasirnya sync
+- **Saklar `BILLING_ENABLED`** (default mati). Tanpa `BILLING_ENABLED=true` tidak ada trial, dashboard
+  tidak pernah hanya-baca, dan kasir tidak pernah dibatasi. Nyalakan setelah Xendit Live siap.
+- Saat saklar menyala, **trial otomatis 14 hari** dimulai saat Owner pertama kali membuka dashboard atau kasirnya sync
   (email harus terverifikasi). Owner lama juga otomatis mendapat trial 14 hari sejak rilis ini.
 - Owner berlangganan sendiri di **Dashboard → Langganan** (checkout Xendit; `BILLING_ENVIRONMENT`
   memilih `test`/`live`). Satu langganan untuk semua cabang.

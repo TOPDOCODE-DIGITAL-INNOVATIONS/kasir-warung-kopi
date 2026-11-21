@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getBusinessContext } from '@/lib/business-context'
-import { billingEnvironment, readOwnerBilling } from '@/lib/billing/owner-billing'
+import { BILLING_DISABLED_MESSAGE, billingEnabled, billingEnvironment, readOwnerBilling } from '@/lib/billing/owner-billing'
 import { createCheckout, reconcileXendit, stopRenewal } from '@/lib/billing/checkout-core'
 import { getXenditSession } from '@/lib/xendit/client'
 
@@ -34,6 +34,7 @@ const fail = (message: string): BillingActionState => ({ status: 'error', messag
 
 /** Buat (atau lanjutkan) checkout Xendit lalu arahkan Owner ke halaman pembayaran. */
 export async function startCheckout(_prev: BillingActionState, form: FormData): Promise<BillingActionState> {
+  if (!billingEnabled()) return { status: 'error', message: BILLING_DISABLED_MESSAGE }
   const plan = form.get('plan_code')
   if (plan !== 'monthly' && plan !== 'yearly') return fail('Pilih paket langganan.')
   let url: string | undefined
@@ -54,6 +55,7 @@ export async function startCheckout(_prev: BillingActionState, form: FormData): 
 
 /** Ambil status terbaru dari Xendit (bila webhook belum masuk). */
 export async function checkPaymentStatus(): Promise<BillingActionState> {
+  if (!billingEnabled()) return { status: 'error', message: BILLING_DISABLED_MESSAGE }
   try {
     const id = await owner()
     const environment = billingEnvironment()
@@ -74,6 +76,7 @@ export async function checkPaymentStatus(): Promise<BillingActionState> {
 
 /** Hentikan perpanjangan otomatis. Akses tetap berlaku sampai akhir periode yang sudah dibayar. */
 export async function cancelAutoRenewal(): Promise<BillingActionState> {
+  if (!billingEnabled()) return { status: 'error', message: BILLING_DISABLED_MESSAGE }
   try {
     const id = await owner()
     const billing = await readOwnerBilling(id)
