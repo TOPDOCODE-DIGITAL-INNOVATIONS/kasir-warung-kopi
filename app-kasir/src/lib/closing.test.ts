@@ -90,6 +90,13 @@ describe('closing harian', () => {
     expect(c.hasOpenShift).toBe(false);
   });
 
+  it('modal tidak dobel saat ada 2 shift (perangkat lain / gantian kasir)', () => {
+    const other: Shift = { ...shift, id: 's2', startTime: at(7, 9), status: 'open', endTime: undefined, endingCashActual: undefined };
+    const c = computeDailyClosing(DATE, txs, exps, [other, shift]);
+    expect(c.startingCash).toBe(100000);
+    expect(c.expectedCash).toBe(159000);
+  });
+
   it('menandai selisih kurang dan shift yang masih buka', () => {
     const short = computeDailyClosing(DATE, txs, exps, [{ ...shift, endingCashActual: 154000 }]);
     expect(short.shiftDifference).toBe(-5000);

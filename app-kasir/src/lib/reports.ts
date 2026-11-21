@@ -437,7 +437,9 @@ export function computeDailyClosing(
   const nonCashMethods = CLOSING_METHODS.filter((m) => m !== 'tunai');
   const cashIn = byMethod.tunai.total + overpay + debtCollectedCash;
   const nonCashIn = nonCashMethods.reduce((a, m) => a + byMethod[m].total, 0) + debtCollectedNonCash;
-  const startingCash = dayShifts.reduce((a, s) => a + s.startingCash, 0);
+  // Satu toko = satu laci. Modal shift berikutnya (gantian kasir atau dibuka di perangkat lain)
+  // adalah uang yang sama di laci, jadi jangan dijumlahkan: pakai modal shift pertama hari itu.
+  const startingCash = dayShifts[0]?.startingCash ?? 0;
 
   return {
     date,
