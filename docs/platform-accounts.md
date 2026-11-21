@@ -163,3 +163,24 @@ trigger sebagai supabase_auth_admin, dan isolasi data super admin.
 
 Tes aplikasi mencakup PIN kompatibel POS, kebocoran data PIN, cabang asing, stale
 version, balapan update konfigurasi, validasi form, dan bootstrap hanya metadata.
+
+## Akun penguji, hentikan trial, dan insight platform
+
+Migration `20261121160000_platform_tester_access_and_insights.sql` (aditif):
+
+- **Akun penguji** (`billing_accounts.tester_until/tester_note/tester_granted_*`): Super Admin
+  memberi akses penuh tanpa bayar selama 30/90/180/365 hari dari **Subscription & Trial → detail
+  Owner → Jadikan Akun Penguji**. `shared/billing-access.ts` menghitungnya seperti periode
+  berbayar (state `active`, `access.tester = true`). Memberi akses penguji juga mengakhiri trial
+  yang berjalan/belum dimulai. Cabut akses = berakhir sekarang, lalu berlaku toleransi 3 hari.
+- **Hentikan Trial**: trial berakhir sekarang; bila belum dimulai, trial ditandai terpakai agar
+  `owner_billing_status` tidak memulai trial otomatis lagi.
+- Semua aksi tercatat di `billing_audit_events` (`trial_ended_by_admin`, `tester_granted`,
+  `tester_revoked`) dan tampil di log aktivitas billing.
+- Pengaturan berlaku per lingkungan billing. Aplikasi Owner memakai `BILLING_ENVIRONMENT`
+  (default `test`); halaman detail memberi peringatan bila Super Admin membuka lingkungan lain.
+  Tanpa `BILLING_ENABLED=true` status tercatat, tetapi akses Owner belum dibatasi.
+- **Detail Owner** (`/platform/owners/[id]`) memuat status langganan, KPI 30 hari, chart transaksi &
+  omzet harian, statistik per cabang, dan linimasa aktivitas (`platform_owner_activity`).
+- **Overview Platform** memuat laporan 30 hari / 90 hari / 12 bulan: Owner baru, transaksi, GMV,
+  pendapatan langganan, Owner teraktif, dan aktivitas terbaru (`platform_insights`).

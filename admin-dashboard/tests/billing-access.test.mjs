@@ -97,3 +97,28 @@ test('messages exist for every state', () => {
     assert.ok(accessMessage({ state, daysLeft: 1, paymentIssue: false }).length > 10)
   }
 })
+
+test('tester access counts as active without payment and takes over an ended trial', () => {
+  const a = computeAccess({ trial_ends_at: days(-10), tester_until: days(20), subscription: null }, now)
+  assert.equal(a.state, 'active')
+  assert.equal(a.tester, true)
+  assert.equal(a.readOnly, false)
+  assert.equal(a.daysLeft, 20)
+  assert.equal(a.showReminder, false)
+  assert.match(accessMessage(a), /penguji/)
+})
+
+test('revoked tester access falls back to grace, then read-only', () => {
+  const grace = computeAccess({ trial_ends_at: days(-10), tester_until: days(-1), subscription: null }, now)
+  assert.equal(grace.state, 'grace')
+  const expired = computeAccess({ trial_ends_at: days(-10), tester_until: days(-GRACE_DAYS - 1), subscription: null }, now)
+  assert.equal(expired.state, 'expired')
+  assert.equal(expired.readOnly, true)
+})
+
+test('paid period wins over tester flag', () => {
+  const a = computeAccess({ tester_until: days(5), subscription: { status: 'active', period_end: days(30), renewal_enabled: true } }, now)
+  assert.equal(a.state, 'active')
+  assert.equal(a.tester, undefined)
+  assert.equal(a.showReminder, false)
+})

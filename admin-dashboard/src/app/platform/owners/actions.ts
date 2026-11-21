@@ -3,7 +3,8 @@
 import { revalidatePath } from 'next/cache'
 import { requireSuperAdmin } from '@/lib/platform-auth'
 import { platformDb } from '../db'
-import type { OwnerAccount, OwnerDetail, OwnerFilters } from './types'
+import type { OwnerAccount, OwnerActivity, OwnerDetail, OwnerFilters } from './types'
+import type { BillingEnvironment } from '../subscriptions/types'
 
 const pageSize = 25
 const ownerPath = '/platform/owners'
@@ -73,4 +74,14 @@ export async function setOwnerStatus(formData: FormData) {
   revalidatePath(ownerPath)
   revalidatePath('/platform')
   return { success: true, message: status === 'active' ? 'Status Owner berhasil diaktifkan.' : 'Status Owner berhasil dinonaktifkan.' }
+}
+
+export async function getOwnerActivity(id: string, environment: BillingEnvironment) {
+  const { user } = await requireSuperAdmin()
+  if (!ownerIdPattern.test(id)) return null
+  const { data, error } = await platformDb().rpc('platform_owner_activity', {
+    p_actor: user.id, p_owner: id, p_environment: environment,
+  })
+  if (error) throw new Error('Aktivitas Owner belum berhasil dimuat.')
+  return data as OwnerActivity | null
 }

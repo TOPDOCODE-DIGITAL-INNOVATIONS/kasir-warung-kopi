@@ -213,6 +213,7 @@ export async function test() {
     'platform_xendit_webhook.sql',
     'owner_self_service_billing.sql',
     'hpp_purchase_correction.sql',
+    'platform_tester_access.sql',
   ]
 
   const platformMigration = fs
