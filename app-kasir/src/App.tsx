@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
+  isBranchDataReady,
+  isBranchSetupRequired,
+  isDeviceConnected,
+  isSetupPending,
+  canCreateSales,
+  getDeviceAccess,
+  SALES_BLOCKED_MESSAGE,
   getActiveCashier,
   getActiveShift,
   getStoreSettings,
@@ -11,6 +18,7 @@ import {
 import { can, Permission } from './lib/permissions';
 import { Cashier, Shift, StoreSettings, CartItem } from './types';
 import { Navbar } from './components/Navbar';
+import { ConnectBranchScreen } from './components/ConnectBranchScreen';
 import { POSScreen } from './components/POS/POSScreen';
 import { TransactionsHistory } from './components/TransactionsHistory';
 import { MenuManagement } from './components/MenuManagement';
@@ -37,7 +45,7 @@ const PULL_INTERVAL_MS = 30 * 1000;
 /** Jeda singkat setelah perubahan, agar beberapa perubahan beruntun terkirim sekaligus. */
 const PUSH_DEBOUNCE_MS = 800;
 
-export default function App() {
+function PosApp() {
   const [activeTab, setActiveTab] = useState<AppTab>('pos');
 
   const [activeCashier, setActiveCashierState] = useState<Cashier>(() => getActiveCashier());
@@ -128,6 +136,8 @@ export default function App() {
         cartItemCount={cart.reduce((sum, item) => sum + item.quantity, 0)}
       />
 
+      <SubscriptionBanner />
+
       {/* View Router */}
       <main
         className={
@@ -189,4 +199,47 @@ export default function App() {
       )}
     </div>
   );
+}
+
+/** Pengingat langganan dari status terakhir yang diterima saat sync. */
+function SubscriptionBanner() {
+  const access = getDeviceAccess();
+  if (!access) return null;
+  if (!canCreateSales()) {
+    return (
+      <div role="alert" className="bg-red-600 text-white text-sm px-4 py-2.5 text-center font-medium">
+        {SALES_BLOCKED_MESSAGE}
+      </div>
+    );
+  }
+  if (access.state === 'grace') {
+    const until = access.graceEndsAt
+      ? new Date(access.graceEndsAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+      : '';
+    return (
+      <div role="status" className="bg-amber-500 text-[#2C2420] text-sm px-4 py-2 text-center font-medium">
+        Masa aktif langganan sudah berakhir. Kasir masih bisa dipakai sampai {until}. Minta Owner memperpanjang di dashboard.
+      </div>
+    );
+  }
+  return null;
+}
+
+/** Perangkat wajib terhubung ke cabang sebelum kasir bisa dipakai. */
+function deviceReady(): boolean {
+  return isDeviceConnected() && !isSetupPending() && !isBranchSetupRequired() && isBranchDataReady();
+}
+
+export default function App() {
+  const [ready, setReady] = useState(deviceReady);
+  useEffect(() => {
+    const update = () => setReady(deviceReady());
+    window.addEventListener(POS_UPDATE_EVENT, update);
+    window.addEventListener('storage', update);
+    return () => {
+      window.removeEventListener(POS_UPDATE_EVENT, update);
+      window.removeEventListener('storage', update);
+    };
+  }, []);
+  return ready ? <PosApp /> : <ConnectBranchScreen />;
 }

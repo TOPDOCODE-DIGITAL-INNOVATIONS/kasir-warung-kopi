@@ -17,9 +17,11 @@ import {
   INITIAL_CASHIERS,
   INITIAL_STORE_SETTINGS,
 } from '../data/initialData';
-import { migrateCashierPins } from './security';
+import { hashPin, isValidPin, migrateCashierPins, verifyPin } from './security';
 import { getExpectedDrawerCash, toLocalDateKey } from './reports';
 import { isExpenseQuantity, type ExpensePurchaseCatalog } from '../../../shared/expense-products';
+import { deviceCanSell, type DeviceAccess } from '../../../shared/billing-access';
+import { NEW_BRANCH_CATEGORIES as SHARED_NEW_BRANCH_CATEGORIES, newBranchSettings } from '../../../shared/branch-defaults';
 
 const STORAGE_KEYS = {
   PRODUCTS: 'warkop_pos_products',
@@ -47,6 +49,16 @@ const STORAGE_KEYS = {
   SHIFT_DIRTY_AT: 'warkop_pos_shift_dirty_at',
   /** Cursor tarik data per jenis: { tx, exp, shift, del } */
   PULL_CURSORS: 'warkop_pos_pull_cursors',
+  /** Status langganan terakhir dari server (dipakai juga saat offline) */
+  DEVICE_ACCESS: 'warkop_pos_device_access',
+  /** Cabang yang terhubung ke perangkat ini: { id, name } */
+  BRANCH: 'warkop_pos_branch',
+  /** Perangkat baru dari Link Kasir: token sudah diisi, penyiapan cabang belum selesai */
+  PENDING_SETUP: 'warkop_pos_pending_setup',
+  /** Owner mengizinkan perangkat ini mengirim data master pertama untuk cabang yang masih kosong */
+  CONFIG_SEED_OK: 'warkop_pos_config_seed_ok',
+  /** Server tidak punya data master cabang: kasir berhenti & meminta Owner menyiapkan cabang */
+  BRANCH_SETUP_REQUIRED: 'warkop_pos_branch_setup_required',
   PULL_INIT_DONE: 'warkop_pos_pull_init_done',
   /** Shift dari perangkat lain (untuk rekap closing harian) */
   REMOTE_SHIFTS: 'warkop_pos_remote_shifts',
@@ -484,7 +496,46 @@ function writeTransactions(txs: Transaction[]): void {
  * Simpan transaksi baru. Melempar Error jika tidak ada shift terbuka atau stok tidak cukup,
  * supaya tidak ada penjualan yang lolos dari rekap shift.
  */
+export const SALES_BLOCKED_MESSAGE =
+  'Langganan KasirKu untuk toko ini sudah berakhir. Transaksi baru tidak dapat dibuat. ' +
+  'Minta Owner memperpanjang langganan di dashboard, lalu lakukan sinkronisasi. Data yang sudah ada tetap aman.';
+
+const ACCESS_STATES = ['trial', 'active', 'grace', 'expired', 'none'];
+
+/** Status langganan terakhir yang diterima perangkat ini (null = belum pernah tersambung). */
+export function getDeviceAccess(): DeviceAccess | null {
+  const value = readJSON<DeviceAccess | null>(STORAGE_KEYS.DEVICE_ACCESS, null);
+  return value && ACCESS_STATES.includes(value.state) ? value : null;
+}
+
+/**
+ * Simpan status langganan dari respons sync. Nilai tidak valid/null diabaikan
+ * (server gagal membaca billing) agar status terakhir yang diketahui tetap berlaku.
+ */
+export function recordDeviceAccess(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  const v = value as Record<string, unknown>;
+  if (typeof v.state !== 'string' || !ACCESS_STATES.includes(v.state)) return;
+  if (v.graceEndsAt !== null && typeof v.graceEndsAt !== 'string') return;
+  if (typeof v.checkedAt !== 'string' || Number.isNaN(Date.parse(v.checkedAt))) return;
+  const next: DeviceAccess = { state: v.state as DeviceAccess['state'], graceEndsAt: v.graceEndsAt as string | null, checkedAt: v.checkedAt };
+  const prev = localStorage.getItem(STORAGE_KEYS.DEVICE_ACCESS);
+  const serialized = JSON.stringify(next);
+  if (prev === serialized) return;
+  localStorage.setItem(STORAGE_KEYS.DEVICE_ACCESS, serialized);
+  const prevState = prev ? (JSON.parse(prev) as DeviceAccess).state : null;
+  if (prevState !== next.state) notifyUpdate();
+}
+
+/** Apakah perangkat boleh membuat transaksi baru sekarang. */
+export function canCreateSales(now: Date = new Date()): boolean {
+  return deviceCanSell(getDeviceAccess(), now);
+}
+
 export function saveTransaction(tx: Transaction): Transaction {
+  if (!canCreateSales()) {
+    throw new Error(SALES_BLOCKED_MESSAGE);
+  }
   const shift = getActiveShift();
   if (!shift) {
     throw new Error('Belum ada shift yang dibuka. Buka shift terlebih dahulu sebelum bertransaksi.');
@@ -1497,13 +1548,6 @@ async function doCloudSync(): Promise<SyncResult> {
     recordSyncError(pull.message);
     return { success: false, message: pull.message, syncedCount: push?.syncedCount ?? 0 };
   }
-  if (pull.needConfigPush) {
-    // Server belum punya data master: perangkat yang sudah dipakai ini jadi sumber pertamanya.
-    markConfigDirty();
-    const extra = await pushToCloud(syncUrl, apiKey);
-    if (!extra.success) return extra;
-    push = push ?? extra;
-  }
 
   const pendingPurchaseMessage = getUnsyncedExpenses().some(expense => expense.pendingPurchase)
     ? 'Masih ada pembelian produk yang belum tersinkron. Periksa catatan di Pengeluaran.'
@@ -1529,7 +1573,10 @@ async function doCloudSync(): Promise<SyncResult> {
 async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult & { sent?: string }> {
   const settings = getStoreSettings();
   const shiftDirtyAt = localStorage.getItem(STORAGE_KEYS.SHIFT_DIRTY_AT);
-  const configDirtyAt = localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+  // Data master hanya boleh dikirim bila perangkat sudah memegang versi data dari server, atau
+  // Owner secara eksplisit menyiapkan cabang kosong dari perangkat ini. Perangkat tidak pernah
+  // mengisi cabang kosong dengan data lokalnya secara otomatis.
+  const configDirtyAt = canSendConfig() ? localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT) : null;
 
   // Kirim bertahap agar request tidak melebihi batas ukuran body server (Vercel: 4,5 MB).
   let sentTx = 0;
@@ -1572,7 +1619,11 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
               shifts: getRecentShifts(),
               drafts: draftBatch,
               deletedDraftIds: draftDelBatch,
-              ...(configDirtyAt ? { config: getSharedConfig(), configEditedAt: configDirtyAt } : {}),
+              ...(configDirtyAt ? {
+                config: getSharedConfig(),
+                configEditedAt: configDirtyAt,
+                ...(localStorage.getItem(STORAGE_KEYS.CONFIG_SEED_OK) ? { configSeed: true } : {}),
+              } : {}),
             }
           : {}),
       };
@@ -1618,6 +1669,8 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
       }
 
       const body = await res.json().catch(() => null);
+      recordDeviceAccess(body?.access);
+      recordConnectedBranch(body?.branch);
       const data = body?.data;
       if (Array.isArray(data?.deletedExpenseIds) && data.deletedExpenseIds.length) {
         applyPulledData({ deletedExpenseIds: data.deletedExpenseIds });
@@ -1634,6 +1687,7 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
             localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
             if (typeof data.configUpdatedAt === 'string') {
               localStorage.setItem(STORAGE_KEYS.CONFIG_VERSION, data.configUpdatedAt);
+              localStorage.removeItem(STORAGE_KEYS.CONFIG_SEED_OK);
             }
           }
         }
@@ -1705,6 +1759,10 @@ function withProgress(message: string, tx: number, exp: number): string {
 type PullCursors = { tx: string; exp: string; shift: string; del: string; draft?: string };
 
 export interface PullResponse {
+  /** Status langganan Owner cabang ini (lihat shared/billing-access.ts) */
+  access?: unknown;
+  /** Cabang pemilik token { id, name } */
+  branch?: unknown;
   configUpdatedAt?: string | null;
   config?: SharedConfig | null;
   transactions?: Transaction[];
@@ -2048,15 +2106,25 @@ async function pullFromCloud(
           needConfigPush: false,
         };
       }
+      recordDeviceAccess(data.access);
+      recordConnectedBranch(data.branch);
 
-      if (
-        page === 0 &&
-        !data.configUpdatedAt &&
-        !version &&
-        !localStorage.getItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE) &&
-        !localStorage.getItem(STORAGE_KEYS.CONFIG_DIRTY_AT)
-      ) {
-        needConfigPush = true;
+      if (page === 0) {
+        if (data.configUpdatedAt && !canSendConfig()) {
+          // Perangkat belum pernah memegang data cabang dari server: perubahan lokalnya tidak
+          // boleh menang. Data master server yang dipakai.
+          localStorage.removeItem(STORAGE_KEYS.CONFIG_DIRTY_AT);
+        }
+        if (data.configUpdatedAt) {
+          if (localStorage.getItem(STORAGE_KEYS.BRANCH_SETUP_REQUIRED)) {
+            localStorage.removeItem(STORAGE_KEYS.BRANCH_SETUP_REQUIRED);
+            notifyUpdate();
+          }
+        } else if (!localStorage.getItem(STORAGE_KEYS.CONFIG_SEED_OK) && !localStorage.getItem(STORAGE_KEYS.BRANCH_SETUP_REQUIRED)) {
+          // Cabang belum punya data master di server: jangan pakai data lokal perangkat.
+          localStorage.setItem(STORAGE_KEYS.BRANCH_SETUP_REQUIRED, '1');
+          notifyUpdate();
+        }
       }
 
       received += applyPulledData(data);
@@ -2103,20 +2171,282 @@ export function consumeSyncLinkFromUrl(): boolean {
   const settings = getStoreSettings();
   const current = settings.syncApiKey?.trim();
   if (current === token) return false;
-  if (
-    current &&
-    getUnsyncedCount() > 0 &&
-    !window.confirm(
-      'Perangkat ini masih punya data yang belum terkirim ke cabang lama. Tetap ganti ke cabang dari link ini?'
-    )
-  ) {
+  if (current) {
+    // Pindah cabang hanya lewat "Keluar dari Cabang" agar data cabang lama tidak tercampur/terkirim
+    // ke cabang lain. Link diabaikan dan pengguna diberi tahu.
+    window.alert?.('Perangkat ini masih terhubung ke cabang lain. Buka Pengaturan → Keluar dari Cabang, lalu buka Link Kasir lagi.');
     return false;
   }
 
   writeJSON(STORAGE_KEYS.SETTINGS, { ...settings, syncApiKey: token, autoSyncOnline: true, lastSyncError: undefined });
   onSyncTokenChanged(true);
+  // Layar "Hubungkan ke Cabang" memeriksa token & menyiapkan data cabang (data lokal tidak dikirim).
+  localStorage.setItem(STORAGE_KEYS.PENDING_SETUP, '1');
+  localStorage.removeItem(STORAGE_KEYS.BRANCH);
   notifyUpdate();
   return true;
+}
+
+// -------------------------------------------------------------
+// HUBUNGKAN / KELUAR DARI CABANG
+// -------------------------------------------------------------
+
+export interface ConnectedBranch {
+  id: string;
+  name: string | null;
+}
+
+export interface BranchConnection {
+  token: string;
+  branch: ConnectedBranch;
+  /** Server sudah punya menu/kasir/pengaturan untuk cabang ini */
+  hasConfig: boolean;
+}
+
+/** Kategori awal untuk cabang baru (menu tetap kosong). */
+export const NEW_BRANCH_CATEGORIES: Category[] = SHARED_NEW_BRANCH_CATEGORIES;
+
+/** Perangkat sudah memegang token cabang. */
+export function isDeviceConnected(): boolean {
+  return !!getStoreSettings().syncApiKey?.trim();
+}
+
+/** Token sudah ada (mis. dari Link Kasir) tetapi data cabang belum disiapkan. */
+export function isSetupPending(): boolean {
+  return isDeviceConnected() && localStorage.getItem(STORAGE_KEYS.PENDING_SETUP) === '1';
+}
+
+export function getConnectedBranch(): ConnectedBranch | null {
+  const b = readJSON<ConnectedBranch | null>(STORAGE_KEYS.BRANCH, null);
+  return b && typeof b.id === 'string' ? b : null;
+}
+
+/** Catat cabang dari respons server (sync / connect). Nilai tidak valid diabaikan. */
+export function recordConnectedBranch(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  const v = value as Record<string, unknown>;
+  if (typeof v.id !== 'string' || !v.id) return;
+  const next: ConnectedBranch = { id: v.id, name: typeof v.name === 'string' ? v.name : null };
+  const prev = localStorage.getItem(STORAGE_KEYS.BRANCH);
+  const serialized = JSON.stringify(next);
+  if (prev === serialized) return;
+  localStorage.setItem(STORAGE_KEYS.BRANCH, serialized);
+  notifyUpdate();
+}
+
+export interface LocalLeftoverData {
+  transactions: number;
+  expenses: number;
+  drafts: number;
+  openShift: boolean;
+}
+
+/**
+ * Data catatan yang tertinggal di perangkat yang belum terhubung ke cabang (mis. dipakai tanpa
+ * token). Data ini TIDAK pernah dikirim ke cabang yang dipilih; pengguna harus menghapusnya
+ * (setelah boleh mengunduh backup) sebelum menghubungkan.
+ */
+export function getLocalLeftoverData(): LocalLeftoverData | null {
+  if (isDeviceConnected() && !isSetupPending()) return null;
+  const summary = {
+    transactions: readJSON<Transaction[]>(STORAGE_KEYS.TRANSACTIONS, []).length,
+    expenses: readJSON<Expense[]>(STORAGE_KEYS.EXPENSES, []).length,
+    drafts: readJSON<DraftOrder[]>(STORAGE_KEYS.DRAFTS, []).length,
+    openShift: !!localStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT),
+  };
+  return summary.transactions || summary.expenses || summary.drafts || summary.openShift ? summary : null;
+}
+
+/** Hapus data contoh/cabang di perangkat. Kode perangkat & urutan nota dipertahankan agar nomor nota tidak bentrok. */
+function clearBranchData(): void {
+  const settings = getStoreSettings();
+  const keepDevice: Partial<StoreSettings> = {};
+  (['printerMethod', 'printerPaperWidth', 'autoPrintAfterPayment', 'printerFeedLines', 'receiptCompact'] as const).forEach((k) => {
+    if (settings[k] !== undefined) (keepDevice as any)[k] = settings[k];
+  });
+  const keep = new Set<string>([STORAGE_KEYS.DEVICE_CODE, STORAGE_KEYS.RECEIPT_SEQ]);
+  Object.values(STORAGE_KEYS).forEach((k) => {
+    if (!keep.has(k)) localStorage.removeItem(k);
+  });
+  writeJSON(STORAGE_KEYS.PRODUCTS, []);
+  writeJSON(STORAGE_KEYS.CATEGORIES, []);
+  writeJSON(STORAGE_KEYS.CASHIERS, []);
+  writeJSON(STORAGE_KEYS.TRANSACTIONS, []);
+  writeJSON(STORAGE_KEYS.SETTINGS, {
+    ...EMPTY_STORE_SETTINGS,
+    ...keepDevice,
+  });
+}
+
+const EMPTY_STORE_SETTINGS: StoreSettings = newBranchSettings('');
+
+export interface ConnectOptions {
+  /** Wajib untuk cabang baru tanpa data: nama & PIN profil Owner pertama */
+  ownerName?: string;
+  ownerPin?: string;
+  /** URL sync khusus (mis. dev di port berbeda); kosong = domain yang sama */
+  syncApiUrl?: string;
+  /** Pengguna setuju menghapus transaksi/pengeluaran lama yang masih ada di perangkat */
+  discardLocalData?: boolean;
+}
+
+/** Cabang baru tanpa data di server: perangkat membuat profil Owner pertama. */
+export function connectionNeedsOwnerPin(connection: Pick<BranchConnection, 'hasConfig'>): boolean {
+  return !connection.hasConfig;
+}
+
+export type ConnectResult = { ok: boolean; message: string; leftover?: LocalLeftoverData };
+
+/**
+ * Hubungkan perangkat ke cabang. Data cabang SELALU berasal dari server: menu, kasir, dan
+ * pengaturan lokal (data contoh atau cabang lain) dihapus dan tidak pernah dikirim ke cabang ini.
+ * Cabang baru tanpa data dimulai dengan menu kosong + profil Owner.
+ * Bila ada transaksi/pengeluaran lama di perangkat, ditolak dengan `leftover` sampai pemanggil
+ * mengirim `discardLocalData: true` (setelah pengguna setuju / mengunduh backup).
+ * Pemanggil lalu menjalankan performCloudSync() untuk menarik/mengirim data cabang.
+ */
+export function connectDevice(connection: BranchConnection, options: ConnectOptions = {}): ConnectResult {
+  const token = connection.token.trim();
+  if (!token) return { ok: false, message: 'Token cabang kosong.' };
+  const needsOwner = connectionNeedsOwnerPin(connection);
+  const ownerName = options.ownerName?.trim() ?? '';
+  if (needsOwner) {
+    if (!ownerName || ownerName.length > 100) return { ok: false, message: 'Isi nama Owner (maksimal 100 karakter).' };
+    if (!options.ownerPin || !isValidPin(options.ownerPin)) return { ok: false, message: 'PIN Owner wajib 4–6 digit angka.' };
+  }
+  const leftover = getLocalLeftoverData();
+  if (leftover && !options.discardLocalData) {
+    return { ok: false, message: 'Perangkat masih menyimpan data lama yang bukan milik cabang ini.', leftover };
+  }
+
+  const keepUrl = options.syncApiUrl?.trim() || getStoreSettings().syncApiUrl;
+  clearBranchData();
+  writeJSON(STORAGE_KEYS.SETTINGS, {
+    ...getStoreSettings(),
+    ...(needsOwner ? { storeName: connection.branch.name ?? '' } : {}),
+    syncApiKey: token,
+    syncApiUrl: keepUrl,
+    autoSyncOnline: true,
+    lastSyncError: undefined,
+  });
+
+  if (needsOwner) {
+    const owner: Cashier = { id: `c-${Date.now().toString(36)}`, name: ownerName, role: 'Owner', avatarColor: 'bg-amber-600 text-white', isActive: true, ...hashPin(options.ownerPin!) };
+    writeJSON(STORAGE_KEYS.CASHIERS, [owner]);
+    writeJSON(STORAGE_KEYS.CATEGORIES, NEW_BRANCH_CATEGORIES);
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_CASHIER_ID, owner.id);
+    // Data master pertama cabang = profil Owner + menu kosong (bukan data lama perangkat).
+    localStorage.setItem(STORAGE_KEYS.CONFIG_SEED_OK, '1');
+    markConfigDirty();
+  } else {
+    // Tunggu menu/kasir dari server; jangan kirim apa pun dari perangkat.
+    localStorage.setItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE, '1');
+  }
+  localStorage.setItem(STORAGE_KEYS.BRANCH, JSON.stringify(connection.branch));
+  notifyUpdate();
+  return { ok: true, message: `Terhubung ke ${connection.branch.name ?? 'cabang'}.` };
+}
+
+function canSendConfig(): boolean {
+  return !!localStorage.getItem(STORAGE_KEYS.CONFIG_VERSION) || !!localStorage.getItem(STORAGE_KEYS.CONFIG_SEED_OK);
+}
+
+/** Server tidak punya data master cabang ini; kasir menunggu Owner menyiapkan cabang. */
+export function isBranchSetupRequired(): boolean {
+  return isDeviceConnected() && localStorage.getItem(STORAGE_KEYS.BRANCH_SETUP_REQUIRED) === '1';
+}
+
+/** Ringkasan data perangkat yang belum terkirim (untuk peringatan sebelum "Mulai kosong"). */
+export function getUnsentLocalData(): LocalLeftoverData | null {
+  const summary = {
+    transactions: getUnsyncedTransactions().length,
+    expenses: getUnsyncedExpenses().length,
+    drafts: getUnsyncedDrafts().length,
+    openShift: !!localStorage.getItem(STORAGE_KEYS.ACTIVE_SHIFT),
+  };
+  return summary.transactions || summary.expenses || summary.drafts || summary.openShift ? summary : null;
+}
+
+/** Perangkat punya profil Owner lokal yang bisa diverifikasi dengan PIN (untuk opsi kirim data). */
+export function hasLocalOwnerProfile(): boolean {
+  return readJSON<Cashier[]>(STORAGE_KEYS.CASHIERS, []).some((c) => c.role === 'Owner');
+}
+
+/**
+ * Siapkan cabang yang kosong di server.
+ * - 'empty' (disarankan): menu kosong + profil Owner baru; semua data lama perangkat dihapus.
+ * - 'device': kirim menu, kasir, dan pengaturan perangkat ini sebagai data cabang. Hanya Owner
+ *   perangkat ini (verifikasi PIN) dan hanya bila Owner yakin datanya milik cabang ini.
+ */
+export function setupEmptyBranch(
+  mode: 'empty' | 'device',
+  input: { ownerName?: string; ownerPin: string; discardLocalData?: boolean }
+): ConnectResult {
+  if (!isBranchSetupRequired()) return { ok: false, message: 'Cabang ini sudah memiliki data di server.' };
+  if (mode === 'device') {
+    const owner = readJSON<Cashier[]>(STORAGE_KEYS.CASHIERS, []).find((c) => c.role === 'Owner' && verifyPin(c, input.ownerPin));
+    if (!owner) return { ok: false, message: 'PIN Owner perangkat ini salah.' };
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_CASHIER_ID, owner.id);
+  } else {
+    const name = input.ownerName?.trim() ?? '';
+    if (!name || name.length > 100) return { ok: false, message: 'Isi nama Owner (maksimal 100 karakter).' };
+    if (!isValidPin(input.ownerPin)) return { ok: false, message: 'PIN Owner wajib 4–6 digit angka.' };
+    const unsent = getUnsentLocalData();
+    if (unsent && !input.discardLocalData) {
+      return { ok: false, message: 'Perangkat masih menyimpan data yang belum terkirim.', leftover: unsent };
+    }
+    const settings = getStoreSettings();
+    const branch = getConnectedBranch();
+    clearBranchData();
+    const owner: Cashier = { id: `c-${Date.now().toString(36)}`, name, role: 'Owner', avatarColor: 'bg-amber-600 text-white', isActive: true, ...hashPin(input.ownerPin) };
+    writeJSON(STORAGE_KEYS.SETTINGS, {
+      ...getStoreSettings(),
+      storeName: branch?.name ?? '',
+      syncApiKey: settings.syncApiKey,
+      syncApiUrl: settings.syncApiUrl,
+      autoSyncOnline: true,
+    });
+    writeJSON(STORAGE_KEYS.CASHIERS, [owner]);
+    writeJSON(STORAGE_KEYS.CATEGORIES, NEW_BRANCH_CATEGORIES);
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_CASHIER_ID, owner.id);
+    if (branch) localStorage.setItem(STORAGE_KEYS.BRANCH, JSON.stringify(branch));
+  }
+  localStorage.removeItem(STORAGE_KEYS.BRANCH_SETUP_REQUIRED);
+  localStorage.removeItem(STORAGE_KEYS.CONFIG_WAIT_REMOTE);
+  localStorage.setItem(STORAGE_KEYS.CONFIG_SEED_OK, '1');
+  markConfigDirty();
+  notifyUpdate();
+  return { ok: true, message: 'Cabang disiapkan. Data dikirim ke server.' };
+}
+
+/** Data cabang sudah siap dipakai (minimal ada satu profil kasir). */
+export function isBranchDataReady(): boolean {
+  return readJSON<Cashier[]>(STORAGE_KEYS.CASHIERS, []).length > 0;
+}
+
+/** Alasan perangkat belum boleh keluar dari cabang, atau null bila aman. */
+export function disconnectBlocker(): string | null {
+  if (!isDeviceConnected()) return 'Perangkat belum terhubung ke cabang.';
+  if (getActiveShift()) return 'Tutup shift yang masih berjalan sebelum keluar dari cabang.';
+  if (hasPendingPush() || getUnsyncedCount() > 0) {
+    return 'Masih ada data yang belum terkirim ke server. Sambungkan internet lalu tekan Sync sebelum keluar.';
+  }
+  return null;
+}
+
+/**
+ * Keluar dari cabang (Owner + PIN). Ditolak bila masih ada data belum terkirim atau shift terbuka,
+ * agar tidak ada transaksi yang hilang. Setelah berhasil, perangkat kembali ke layar Hubungkan.
+ */
+export function disconnectDevice(ownerPin: string): { ok: boolean; message: string } {
+  const cashier = getActiveCashier();
+  if (!cashier || cashier.role !== 'Owner') return { ok: false, message: 'Hanya Owner yang dapat mengeluarkan perangkat dari cabang.' };
+  if (!verifyPin(cashier, ownerPin)) return { ok: false, message: 'PIN Owner salah.' };
+  const blocker = disconnectBlocker();
+  if (blocker) return { ok: false, message: blocker };
+  clearBranchData();
+  notifyUpdate();
+  return { ok: true, message: 'Perangkat sudah keluar dari cabang.' };
 }
 
 /**

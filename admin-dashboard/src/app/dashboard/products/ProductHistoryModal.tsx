@@ -10,9 +10,9 @@ import { defaultHistoryRange, HISTORY_PAGE_SIZE, visiblePurchases } from './hist
 import type { ActionResult, HistoryData, HistoryRequest, ProductRow } from './types'
 import Modal from './ProductDialog'
 
-const input = 'w-full rounded-lg border border-gray-300 bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50'
-const secondary = 'rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50'
-const primary = 'rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50'
+const input = 'rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full disabled:opacity-50'
+const secondary = 'rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50'
+const primary = 'rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors'
 const quantity = (n: number) => n.toLocaleString('id-ID', { maximumFractionDigits: 6 })
 const dateOnly = (date: string) => new Intl.DateTimeFormat('id-ID', { timeZone: TZ, dateStyle: 'medium' }).format(new Date(date))
 const kinds = { purchase: 'Pembelian', adjustment: 'Penyesuaian', initial: 'Stok awal', tracking: 'Pengaturan stok', edit: 'Edit produk', archive: 'Hapus produk' }
@@ -92,9 +92,9 @@ export default function ProductHistoryModal({ product, onClose, onRefresh }: { p
         <p className="text-xs text-gray-500">Default 1 bulan terakhir, maksimal 3 bulan. Filter berlaku pada isi tab; ringkasan di atas tetap seluruh riwayat.</p>
         {filterError && <p role="alert" className="text-xs text-red-600">{filterError}</p>}
       </form>
-      {actionError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{actionError}</p>}
-      {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</p>}
-      {product.pendingOperation && <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800"><p>Ada pembelian yang perlu diselesaikan.</p><button type="button" disabled={pending} onClick={() => run(completeProductPurchase, product.pendingOperation!)} className={secondary}>{operation === product.pendingOperation && <LoadingSpinner className="mr-2" />}Selesaikan Pembelian</button></div>}
+      {actionError && <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">{actionError}</p>}
+      {message && <p role="status" className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p>}
+      {product.pendingOperation && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200/70 bg-amber-50 p-3 text-sm text-amber-800"><p>Ada pembelian yang perlu diselesaikan.</p><button type="button" disabled={pending} onClick={() => run(completeProductPurchase, product.pendingOperation!)} className={secondary}>{operation === product.pendingOperation && <LoadingSpinner className="mr-2" />}Selesaikan Pembelian</button></div>}
       <div role="tablist" aria-label="Jenis riwayat produk" className="flex gap-1 overflow-x-auto border-b border-gray-200">
         {tabs.map((t, index) => <button key={t.id} type="button" role="tab" id={`history-tab-${t.id}`} aria-controls="history-panel" aria-selected={tab === t.id} tabIndex={tab === t.id ? 0 : -1} disabled={pending}
           onClick={() => setTab(t.id)} onKeyDown={event => {
@@ -116,8 +116,8 @@ export default function ProductHistoryModal({ product, onClose, onRefresh }: { p
               {p.note && <p className="whitespace-pre-wrap break-words text-gray-600">{p.note}</p>}
               <p className="text-xs text-gray-400">{p.source === 'expense' ? 'Pengeluaran produk' : p.number || 'Dokumen pembelian'} · Tercatat</p>
             </li>)}
-            {tab === 'adjustments' && data?.adjustments.slice(0, count).map(item => <li key={item.id} className="space-y-1 p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><span className="font-medium">{{ count: 'Stok opname', usage: 'Pemakaian', damage: 'Rusak / terbuang', addition: 'Penambahan lainnya' }[item.mode] ?? item.mode}</span><time className="text-xs text-gray-500">{formatDateTime(item.date)}</time></div><p>{quantity(item.before)} → {quantity(item.after)} {unit} · selisih {item.delta > 0 ? '+' : ''}{quantity(item.delta)}</p><p className="text-gray-500">{item.reason} · {item.by}</p></li>)}
-            {tab === 'events' && data?.events.slice(0, count).map(e => <li key={e.id} className="space-y-1 p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><span className="font-medium">{kinds[e.kind] ?? 'Aktivitas produk'}</span><time className="text-xs text-gray-500">{formatDateTime(e.at)}</time></div><p className="text-gray-600">{e.reason}</p><p className="text-xs text-gray-500">Stok: {e.before === -1 ? '∞' : quantity(e.before)} → {e.after === -1 ? '∞' : quantity(e.after)}</p>{e.status === 'pending' && <button type="button" disabled={pending} onClick={() => run(completeProductPurchase, e.id)} className={secondary}>{operation === e.id && <LoadingSpinner className="mr-2" />}Selesaikan Pembelian</button>}</li>)}
+            {tab === 'adjustments' && data?.adjustments.slice(0, count).map(item => <li key={item.id} className="space-y-1 p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><span className="font-medium">{{ count: 'Stok opname', usage: 'Pemakaian', damage: 'Rusak / terbuang', addition: 'Penambahan lainnya', correction: 'Koreksi pembelian' }[item.mode] ?? item.mode}</span><time className="text-xs text-gray-500">{formatDateTime(item.date)}</time></div><p>{quantity(item.before)} → {quantity(item.after)} {unit} · selisih {item.delta > 0 ? '+' : ''}{quantity(item.delta)}</p><p className="text-gray-500">{item.reason} · {item.by}</p></li>)}
+            {tab === 'events' && data?.events.slice(0, count).map(e => <li key={e.id} className="space-y-1 p-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><span className="font-medium">{kinds[e.kind] ?? 'Aktivitas produk'}</span><time className="text-xs text-gray-500">{formatDateTime(e.at)}</time></div><p className="text-gray-600">{e.reason}</p><p className="text-xs text-gray-500">Stok: {e.before === -1 ? 'tidak dihitung' : quantity(e.before)} → {e.after === -1 ? 'tidak dihitung' : quantity(e.after)}</p>{e.status === 'pending' && <button type="button" disabled={pending} onClick={() => run(completeProductPurchase, e.id)} className={secondary}>{operation === e.id && <LoadingSpinner className="mr-2" />}Selesaikan Pembelian</button>}</li>)}
           </ul>}
           {data && total > count && <div className="border-t border-gray-100 p-3 text-center"><button type="button" disabled={pending} className={secondary} onClick={() => setPage({ key: pageKey, count: count + HISTORY_PAGE_SIZE })}>Muat Lebih Banyak</button></div>}
         </div>

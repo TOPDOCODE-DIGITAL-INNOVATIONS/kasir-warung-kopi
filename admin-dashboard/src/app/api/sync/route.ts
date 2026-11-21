@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/utils/supabase/admin'
 import { financialChange, sameExpense, validateExpense } from '@/app/dashboard/expenses/edit-domain'
+import { readOwnerBilling } from '@/lib/billing/owner-billing'
+import { computeAccess, toDeviceAccess, type DeviceAccess } from '../../../../../shared/billing-access'
 import { expenseNoteSuggestions, isExpenseQuantity, type ExpensePurchaseCatalog } from '../../../../../shared/expense-products'
 
 // Sama dengan region database Supabase (Sydney); lihat src/app/layout.tsx.
@@ -58,7 +60,7 @@ export function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
 }
 
-type Business = { id: string; owner_id: string; pos_config: Row | null; pos_config_updated_at: string | null }
+type Business = { id: string; name?: string | null; owner_id: string; pos_config: Row | null; pos_config_updated_at: string | null }
 
 async function authenticate(
   request: Request
@@ -78,7 +80,7 @@ async function authenticate(
 
   const { data: business, error } = await supabase
     .from('businesses')
-    .select('id, owner_id, pos_config, pos_config_updated_at')
+    .select('id, name, owner_id, pos_config, pos_config_updated_at')
     .eq('sync_token', token)
     .maybeSingle()
   if (error) {
@@ -87,6 +89,16 @@ async function authenticate(
   }
   if (!business) return { error: json({ success: false, error: 'Token sync tidak valid' }, 401) }
   return { supabase, business: business as Business }
+}
+
+/**
+ * Status langganan untuk perangkat kasir. Kegagalan baca billing -> null (kasir tidak dibatasi).
+ * Transaksi yang dikirim kasir SELALU diterima agar data offline tidak hilang; pembatasan
+ * hanya mencegah transaksi baru dibuat di perangkat.
+ */
+async function deviceAccess(ownerId: string): Promise<DeviceAccess | null> {
+  const billing = await readOwnerBilling(ownerId)
+  return billing ? toDeviceAccess(computeAccess(billing)) : null
 }
 
 async function purchaseFormOptions(supabase: SupabaseClient, business: Business) {
@@ -152,7 +164,7 @@ async function reconcileProductConfig(supabase: SupabaseClient, businessId: stri
   const existing = new Map<string, Row>()
   for (let start = 0; start < incoming.length; start += 500) {
     const { data, error } = await supabase.from('products')
-      .select('id,name,price,cost_price,stock,category_id,description,is_available,is_active,can_sell,pos_sync_enabled,image_url')
+      .select('id,name,price,cost_price,cost_verified_at,stock,category_id,description,is_available,is_active,can_sell,pos_sync_enabled,image_url')
       .eq('business_id', businessId).in('id', incoming.slice(start, start + 500).map(p => String(p.id)))
     if (error) throw error
     for (const p of data ?? []) existing.set(String(p.id), p)
@@ -168,9 +180,11 @@ async function reconcileProductConfig(supabase: SupabaseClient, businessId: stri
       p.stock = num(stored.stock)
       if (typeof stored.image_url === 'string' && stored.image_url) p.imageUrl = stored.image_url
       else delete p.imageUrl
-    }
+      // An HPP edited on the cashier device has not been checked by the Owner.
+      if (optNum(p.costPrice) !== (stored.cost_price === null ? null : num(stored.cost_price))) p.costVerified = false
+    } else p.costVerified = false
     products.set(String(p.id), stored?.pos_sync_enabled === false ? {
-      ...p, name: stored.name, price: num(stored.price), costPrice: stored.cost_price === null ? undefined : num(stored.cost_price),
+      ...p, name: stored.name, price: num(stored.price), costPrice: stored.cost_price === null ? undefined : num(stored.cost_price), costVerified: typeof stored.cost_verified_at === 'string',
       stock: num(stored.stock), categoryId: stored.category_id || 'uncategorized',
       description: stored.description || '', isAvailable: stored.is_available !== false,
     } : p)
@@ -366,6 +380,7 @@ export async function POST(request: Request) {
   const auth = await authenticate(request)
   if ('error' in auth) return auth.error
   const { supabase, business } = auth
+  const accessPromise = deviceAccess(business.owner_id)
 
   let body: Row
   try {
@@ -400,6 +415,10 @@ export async function POST(request: Request) {
     ? body.deletedDraftIds.filter((x): x is string => typeof x === 'string')
     : []
   let config = parseConfig(body.config)
+  // Data master cabang bersumber dari server. Cabang yang belum punya data hanya boleh diisi
+  // perangkat bila Owner menyiapkannya secara eksplisit (configSeed), bukan otomatis dari data
+  // lokal perangkat (mencegah menu/karyawan cabang lain atau data contoh masuk ke cabang ini).
+  if (config && !business.pos_config && body.configSeed !== true) config = null
   // Jam perangkat bisa lebih cepat; jangan biarkan versi data master melampaui jam server.
   const editedAt = ts(body.configEditedAt)
   const configEditedAt = editedAt && editedAt > now ? now : editedAt
@@ -633,6 +652,8 @@ export async function POST(request: Request) {
         configAccepted,
         configUpdatedAt: configUpdatedAt ? new Date(configUpdatedAt).toISOString() : null,
       },
+      access: await accessPromise,
+      branch: { id: business.id, name: business.name ?? null },
     })
   } catch (error) {
     console.error('sync error', error)
@@ -738,6 +759,7 @@ export async function GET(request: Request) {
   const businessId = business.id
 
   const params = new URL(request.url).searchParams
+  const accessPromise = params.has('expenseSearch') ? null : deviceAccess(business.owner_id)
   if (params.has('expenseSearch')) {
     const term = params.get('expenseSearch')?.trim() ?? ''
     if (term.length > 150) return json({ success: false, error: 'Pencarian maksimal 150 karakter.' }, 400)
@@ -795,6 +817,8 @@ export async function GET(request: Request) {
 
     return json({
       success: true,
+      access: await accessPromise,
+      branch: { id: business.id, name: business.name ?? null },
       serverTime,
       configUpdatedAt,
       config: sendConfig ? business.pos_config : null,

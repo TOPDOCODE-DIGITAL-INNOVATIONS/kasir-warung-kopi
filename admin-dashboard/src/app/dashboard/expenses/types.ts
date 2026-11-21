@@ -13,4 +13,6 @@ export type EditableExpense = {
   category: string; amount: number; note: string; version: string
   financialLock: string | null
   purchaseLinked: boolean; fromDrawer: boolean
+  /** Product lines of the same purchase document, cancelled together by a correction. */
+  purchaseLineId: string | null; purchaseItems: { name: string; amount: number }[]
 }

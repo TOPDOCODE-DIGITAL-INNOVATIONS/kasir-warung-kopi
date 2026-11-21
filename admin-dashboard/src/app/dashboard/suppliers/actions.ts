@@ -1,5 +1,7 @@
 'use server'
 
+import { assertWritable } from '@/lib/billing/owner-billing'
+
 import { revalidatePath } from 'next/cache'
 import { unstable_rethrow } from 'next/navigation'
 import { getBusinessContext } from '@/lib/business-context'
@@ -44,6 +46,7 @@ function refreshSuppliers() {
 
 export async function saveSupplier(form: FormData) {
   try {
+    await assertWritable()
     const { supabase, user } = await getBusinessContext()
     const id = String(form.get('id') ?? '')
     if (id && !uuid(id)) throw new Error('Supplier tidak valid.')
@@ -78,6 +81,7 @@ export async function saveSupplier(form: FormData) {
 
 export async function setSupplierStatus(form: FormData) {
   try {
+    await assertWritable()
     const { supabase, user } = await getBusinessContext()
     const id = String(form.get('id') ?? ''), status = form.get('status')
     if (!uuid(id) || (status !== 'active' && status !== 'inactive')) throw new Error('Status supplier tidak valid.')
@@ -102,7 +106,7 @@ export async function getSupplierHistory(id: string, cursor: HistoryCursor = { p
     const supplier = await supabase.from('suppliers').select('id').eq('owner_id', user.id).eq('id', id).maybeSingle()
     if (supplier.error || !supplier.data) throw new Error('Supplier tidak tersedia.')
     const [purchases, expenses] = await Promise.all([
-      supabase.from('purchases').select('id,business_id,purchased_at,document_number,grand_total,currency_code')
+      supabase.from('purchases').select('id,business_id,purchased_at,document_number,grand_total,currency_code,purchase_lines(product_name,quantity,unit_code,sort_order)')
         .eq('owner_id', user.id).eq('supplier_id', id).eq('status', 'posted')
         .order('purchased_at', { ascending: false }).order('id').range(cursor.purchases, cursor.purchases + historyPageSize),
       supabase.from('expenses').select('id,business_id,date,scope,category,product_name,note,amount,businesses!expenses_business_id_fkey!inner(owner_id)')
@@ -115,8 +119,11 @@ export async function getSupplierHistory(id: string, cursor: HistoryCursor = { p
     const transactions: SupplierTransaction[] = [
       ...purchases.data.map(purchase => ({
         id: `purchase:${purchase.id}`, kind: 'purchase' as const, date: dayKey(purchase.purchased_at), monthly: false,
-        business: branchNames.get(purchase.business_id) ?? 'Cabang', label: 'Dokumen pembelian',
-        reference: purchase.document_number, amount: Number(purchase.grand_total), currency: purchase.currency_code,
+        business: branchNames.get(purchase.business_id) ?? 'Cabang',
+        label: [...(purchase.purchase_lines ?? [])].sort((a, b) => a.sort_order - b.sort_order)
+          .map(line => `${line.product_name} ${Number(line.quantity).toLocaleString('id-ID', { maximumFractionDigits: 6 })} ${line.unit_code === 'l' ? 'L' : line.unit_code}`).join(', ') || 'Pembelian produk',
+        // Auto-generated numbers (EXP-<uuid>) mean nothing to the owner; show only real document numbers.
+        reference: purchase.document_number?.startsWith('EXP-') ? null : purchase.document_number, amount: Number(purchase.grand_total), currency: purchase.currency_code,
       })),
       // The corresponding expenses for posted purchases are already represented by the document.
       ...expenses.data.map(expense => ({

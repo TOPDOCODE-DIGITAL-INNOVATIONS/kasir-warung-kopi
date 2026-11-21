@@ -33,4 +33,6 @@ export type CashierConfiguration = {
   businessName: string
   configVersion: string | null
   ready: boolean
+  /** Cabang belum punya data kasir di server; user pertama (Owner) akan menyiapkannya. */
+  empty: boolean
 }

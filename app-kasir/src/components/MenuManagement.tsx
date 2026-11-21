@@ -115,6 +115,8 @@ export const MenuManagement: React.FC = () => {
               categoryId: formData.categoryId,
               price: Number(formData.price),
               costPrice: Number(formData.costPrice),
+              // A cost changed on this device must be checked again by the Owner.
+              costVerified: Number(formData.costPrice) === (p.costPrice ?? 0) ? p.costVerified : false,
               stock: finalStock,
               isAvailable: formData.isAvailable,
               description: formData.description.trim() || undefined,

@@ -23,7 +23,7 @@ export default function ProductImageInput({ initialUrl, file, removed, onChange,
         <h3 id={`${id}-title`} className="text-sm font-medium text-gray-700">Foto produk (opsional)</h3>
         <p className="text-xs text-gray-500">Pilih JPG, PNG, atau WebP maksimal 10 MiB. Foto otomatis dikompres menjadi WebP di bawah 200 KiB. Tanpa foto, kasir memakai ikon kategori.</p>
         <div className="flex flex-wrap items-center gap-3">
-          <label htmlFor={id} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"><ImagePlus className="h-4 w-4" />{source ? 'Ganti foto' : 'Pilih foto'}</label>
+          <label htmlFor={id} className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"><ImagePlus className="h-4 w-4" />{source ? 'Ganti foto' : 'Pilih foto'}</label>
           <input ref={ref} id={id} type="file" accept="image/jpeg,image/png,image/webp" disabled={processing} className="sr-only" onChange={async event => {
             const node = event.currentTarget, selected = node.files?.[0]
             if (!selected) return

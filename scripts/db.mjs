@@ -211,6 +211,8 @@ export async function test() {
     'admin_inventory.sql',
     'platform_account_roles.sql',
     'platform_xendit_webhook.sql',
+    'owner_self_service_billing.sql',
+    'hpp_purchase_correction.sql',
   ]
 
   const platformMigration = fs

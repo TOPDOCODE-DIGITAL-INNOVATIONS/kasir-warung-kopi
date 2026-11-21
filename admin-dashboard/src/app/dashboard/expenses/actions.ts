@@ -1,5 +1,7 @@
 'use server'
 
+import { assertWritable } from '@/lib/billing/owner-billing'
+
 import { revalidatePath } from 'next/cache'
 import { unstable_rethrow } from 'next/navigation'
 import { requireBusinessContext } from '@/lib/business-context'
@@ -18,6 +20,7 @@ async function expenseWriter({ supabase, user, businessId }: Awaited<ReturnType<
 
 export async function deleteExpense(form: FormData) {
   try {
+    await assertWritable()
     const business = String(form.get('business_id') ?? ''), id = String(form.get('id') ?? '')
     const context = await requireBusinessContext(business)
     if (!id || id.length > 200) throw new Error('Pengeluaran tidak valid.')
@@ -47,6 +50,7 @@ export async function deleteExpense(form: FormData) {
 
 export async function updateExpense(form: FormData) {
   try {
+    await assertWritable()
     const business = String(form.get('business_id') ?? ''), id = String(form.get('id') ?? '')
     const context = await requireBusinessContext(business), { supabase } = context
     if (!id || id.length > 200) throw new Error('Pengeluaran tidak valid.')
@@ -69,6 +73,27 @@ export async function updateExpense(form: FormData) {
   } catch (error) {
     unstable_rethrow(error)
     return { success: false, message: error instanceof Error ? error.message : 'Pengeluaran belum berhasil diperbarui.' }
+  }
+}
+
+/** Correction for a wrong stock purchase: cancel the whole purchase document, then record it again. */
+export async function cancelExpensePurchase(form: FormData) {
+  try {
+    await assertWritable()
+    const business = String(form.get('business_id') ?? ''), line = String(form.get('purchase_line_id') ?? ''), reason = String(form.get('reason') ?? '').trim()
+    const { supabase } = await requireBusinessContext(business)
+    if (!reason || reason.length > 300) throw new Error('Alasan koreksi wajib diisi, maksimal 300 karakter.')
+    const { data: purchaseLine, error: readError } = await supabase.from('purchase_lines').select('purchase_id')
+      .eq('business_id', business).eq('id', line).maybeSingle()
+    if (readError) throw new Error('Dokumen pembelian belum dapat dimuat. Coba kembali.')
+    if (!purchaseLine) throw new Error('Pembelian tidak ditemukan atau sudah dikoreksi. Muat ulang halaman.')
+    const { error } = await supabase.rpc('admin_cancel_purchase', { p_business: business, p_purchase: purchaseLine.purchase_id, p_reason: reason })
+    if (error) throw new Error(error.message)
+    for (const path of ['/dashboard/expenses', '/dashboard/products', '/dashboard/suppliers', '/dashboard/recap', '/dashboard']) revalidatePath(path)
+    return { success: true, message: 'Pembelian dibatalkan sebagai koreksi. Stok dan HPP sudah disesuaikan; silakan catat ulang pembelian yang benar.' }
+  } catch (error) {
+    unstable_rethrow(error)
+    return { success: false, message: error instanceof Error ? error.message : 'Koreksi pembelian belum berhasil.' }
   }
 }
 
@@ -121,6 +146,7 @@ export async function searchExpenseProducts(expectedBusiness: string, search: st
 
 export async function saveExpenseBatch(form: FormData) {
   try {
+    await assertWritable()
     const businessId = String(form.get('business_id') ?? '')
     const { supabase } = await requireBusinessContext(businessId)
     const { error } = await supabase.rpc('admin_record_expenses', {

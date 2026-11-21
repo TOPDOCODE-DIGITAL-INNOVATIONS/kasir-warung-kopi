@@ -19,7 +19,25 @@ for (const file of [`.env.${mode}.local`, '.env.local', `.env.${mode}`, '.env'])
 
 // Aplikasi kasir (/kasir/) adalah service Vercel terpisah; lihat ../vercel.json.
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ['127.0.0.1'],
+  allowedDevOrigins: ['127.0.0.1', 'localhost'],
+  experimental: {
+    serverActions: {
+      allowedOrigins: ['localhost:3000', 'localhost:3001', '127.0.0.1:3000', '127.0.0.1:3001'],
+    },
+  },
+  async rewrites() {
+    if (process.env.NODE_ENV === 'production') return []
+    return [
+      {
+        source: '/kasir',
+        destination: 'http://localhost:3001/kasir/',
+      },
+      {
+        source: '/kasir/:path*',
+        destination: 'http://localhost:3001/kasir/:path*',
+      },
+    ]
+  },
 }
 
 export default nextConfig

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
 import { requireBusinessContext } from '@/lib/business-context'
+import { getCurrentOwnerAccess, READ_ONLY_MESSAGE } from '@/lib/billing/owner-billing'
 import { uuid } from '@/app/dashboard/products/domain'
 import { imageMatchesType, productImageError, PRODUCT_IMAGE_BUCKET, MAX_PRODUCT_IMAGE_BYTES } from '@/app/dashboard/products/image'
 
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
     const businessId = String(form.get('business_id') ?? ''), productId = String(form.get('product_id') ?? '')
     if (!uuid(businessId) || !uuid(productId) || !(file instanceof File)) return NextResponse.json({ error: 'Data foto tidak valid.' }, { status: 400 })
     await requireBusinessContext(businessId)
+    if ((await getCurrentOwnerAccess()).access.readOnly) return NextResponse.json({ error: READ_ONLY_MESSAGE }, { status: 403 })
     const invalid = productImageError(file.size, file.type)
     if (invalid) return NextResponse.json({ error: invalid }, { status: 400 })
     const bytes = new Uint8Array(await file.arrayBuffer())

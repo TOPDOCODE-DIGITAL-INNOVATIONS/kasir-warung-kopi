@@ -6,7 +6,7 @@ export type ProductRow = {
   id: string; inventoryId: string; businessId: string; businessName: string
   name: string; sku: string; description: string; categoryId: string
   baseUnitId: string; unitCode: string; canBuy: boolean; canSell: boolean
-  price: number; cost: number | null; stock: number; minStock: number; available: boolean
+  price: number; cost: number | null; costVerified: boolean; stock: number; minStock: number; available: boolean
   version: string; soldQuantity: number; soldAmount: number; boughtQuantity: number; boughtAmount: number
   stockUpdatedAt: string | null
   imageUrl: string | null

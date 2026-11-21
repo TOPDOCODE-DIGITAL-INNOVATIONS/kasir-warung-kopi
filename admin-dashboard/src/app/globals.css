@@ -1,5 +1,72 @@
 @import "tailwindcss";
 
-body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+/*
+ * Design system KasirKu — "espresso & champagne".
+ * Palet `blue` dipetakan ke aksen champagne-bronze dan `gray` ke netral hangat (stone),
+ * sehingga seluruh halaman yang sudah memakai kelas blue/gray ikut tampil konsisten.
+ */
+@theme {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, "Times New Roman", serif;
+
+  --color-blue-50: #fbf8f1;
+  --color-blue-100: #f4ecda;
+  --color-blue-200: #e8d8b3;
+  --color-blue-300: #d9bf88;
+  --color-blue-400: #c7a25f;
+  --color-blue-500: #b0883f;
+  --color-blue-600: #8a6a30;
+  --color-blue-700: #715627;
+  --color-blue-800: #5a4421;
+  --color-blue-900: #46351c;
+  --color-blue-950: #271d0f;
+
+  --color-gray-50: #faf9f7;
+  --color-gray-100: #f4f2ee;
+  --color-gray-200: #e8e4dd;
+  --color-gray-300: #d7d1c8;
+  --color-gray-400: #a8a096;
+  --color-gray-500: #7a7268;
+  --color-gray-600: #5a534b;
+  --color-gray-700: #443e37;
+  --color-gray-800: #2b2621;
+  --color-gray-900: #1c1814;
+  --color-gray-950: #110e0b;
+
+  --color-canvas: #f6f3ee;
+  --color-espresso-700: #2a231c;
+  --color-espresso-800: #1f1a15;
+  --color-espresso-900: #16120e;
+  --color-champagne: #d9bf88;
+
+  --shadow-sm: 0 1px 2px rgb(28 24 20 / 0.04), 0 6px 20px -12px rgb(28 24 20 / 0.10);
+  --shadow-md: 0 2px 4px rgb(28 24 20 / 0.04), 0 12px 32px -16px rgb(28 24 20 / 0.16);
+  --shadow-lg: 0 4px 8px rgb(28 24 20 / 0.05), 0 24px 48px -20px rgb(28 24 20 / 0.22);
+  --shadow-xl: 0 8px 16px rgb(28 24 20 / 0.06), 0 32px 64px -24px rgb(28 24 20 / 0.28);
+
+  --animate-tooltip-in: tooltip-in 140ms ease-out;
+  @keyframes tooltip-in {
+    from { opacity: 0; scale: 0.96; }
+    to { opacity: 1; scale: 1; }
+  }
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+  }
+  /* Judul halaman memakai huruf display bergaya serif agar terasa premium. */
+  main h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    font-variation-settings: "opsz" 72;
+  }
+  ::selection { background: var(--color-blue-200); color: var(--color-gray-900); }
+  dialog::backdrop { backdrop-filter: blur(2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }

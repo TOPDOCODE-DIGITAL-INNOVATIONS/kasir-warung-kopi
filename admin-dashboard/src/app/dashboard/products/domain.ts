@@ -65,6 +65,7 @@ export function productForPos(product: Row, previous: unknown): Row {
   return {
     ...publicFields, id: product.id, name: product.name, price: number(product.price), imageUrl: typeof product.image_url === 'string' && product.image_url ? product.image_url : undefined,
     costPrice: product.cost_price === null ? undefined : number(product.cost_price),
+    costVerified: typeof product.cost_verified_at === 'string',
     stock: number(product.stock), categoryId: product.category_id || 'uncategorized',
     description: product.description || '', isAvailable: product.is_available !== false,
   }

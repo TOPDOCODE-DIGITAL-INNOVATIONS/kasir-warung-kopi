@@ -3,23 +3,18 @@
 import { revalidatePath } from 'next/cache'
 import { requireSuperAdmin } from '@/lib/platform-auth'
 import {
-  XenditApiError,
   cancelXenditSession,
-  createXenditSubscriptionSession,
-  deactivateXenditRecurringPlan,
-  ensureXenditCustomer,
   getXenditPlanCycles,
-  getXenditRecurringPlan,
   getXenditSession,
   simulateXenditCyclePayment,
   type XenditSessionDetail,
 } from '@/lib/xendit/client'
+import { createCheckout, reconcileXendit, stopRenewal } from '@/lib/billing/checkout-core'
 import { platformDb } from '../db'
 import type { BillingEnvironment } from './types'
 
 const route = '/platform/subscriptions'
 const uuidPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i
-const PRODUCTION_SITE_URL = 'https://kasir-warung-kopi.vercel.app'
 
 type ActionResult = { success: boolean; message: string; checkoutUrl?: string }
 
@@ -64,17 +59,6 @@ export type CheckoutContext = {
   } | null
 }
 
-type BeginCheckout = {
-  status: string
-  reference_id: string
-  created_at: string
-  amount: number
-  plan_name: string
-  interval_months: number
-  owner_email: string
-  owner_name: string
-  xendit_customer_id: string | null
-}
 
 const beginMessages: Record<string, string> = {
   forbidden: 'Hanya Super Admin aktif yang dapat membuat checkout.',
@@ -102,10 +86,6 @@ function refresh(ownerId: string) {
   revalidatePath(`${route}/${ownerId}`)
 }
 
-function siteUrl() {
-  const configured = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, '')
-  return configured?.startsWith('https://') ? configured : PRODUCTION_SITE_URL
-}
 
 export async function getCheckoutContext(
   ownerId: string,
@@ -128,119 +108,19 @@ export async function createXenditCheckout(formData: FormData): Promise<ActionRe
   const { ownerId, environment, valid } = readForm(formData)
   const planCode = formData.get('plan_code') === 'yearly' ? 'yearly' : 'monthly'
   if (!valid) return { success: false, message: 'ID Owner tidak valid.' }
-
-  // 1. Catat percobaan checkout di DB lebih dulu (kunci satu checkout per Owner).
-  const db = platformDb()
-  const { data, error } = await db.rpc('platform_begin_checkout', {
-    p_actor: user.id,
-    p_owner: ownerId,
-    p_environment: environment,
-    p_plan_code: planCode,
-    p_reference_id: `sub-${environment}-${ownerId.slice(0, 8)}-${Date.now()}`,
-  })
-  if (error || !data) return { success: false, message: 'Checkout belum berhasil disiapkan. Silakan coba kembali.' }
-  const begin = data as BeginCheckout
-  if (begin.status !== 'created' && begin.status !== 'resume') {
-    return { success: false, message: beginMessages[begin.status] ?? 'Checkout belum berhasil disiapkan.' }
-  }
-
-  try {
-    // 2. Customer Xendit (dicari ulang dengan referensi tetap, disimpan segera).
-    const customerId = await ensureXenditCustomer({
-      environment,
-      ownerId,
-      email: begin.owner_email,
-      name: begin.owner_name,
-      existingCustomerId: begin.xendit_customer_id,
-    })
-    if (!begin.xendit_customer_id) {
-      await db.rpc('platform_save_xendit_customer', {
-        p_actor: user.id, p_owner: ownerId, p_environment: environment, p_customer_id: customerId,
-      })
-    }
-
-    // 3. Sesi Xendit dengan idempotency key = reference_id (aman dicoba ulang).
-    const returnUrl = `${siteUrl()}/billing/thanks`
-    const session = await createXenditSubscriptionSession({
-      environment,
-      referenceId: begin.reference_id,
-      customerId,
-      amount: Number(begin.amount),
-      intervalMonths: Number(begin.interval_months),
-      planName: begin.plan_name,
-      ownerName: begin.owner_name,
-      ownerEmail: begin.owner_email,
-      successReturnUrl: returnUrl,
-      cancelReturnUrl: `${returnUrl}?status=cancelled`,
-      checkoutCreatedAt: new Date(begin.created_at),
-    })
-
-    // 4. Simpan tautan.
-    const { data: attached, error: attachError } = await db.rpc('platform_attach_checkout_session', {
-      p_actor: user.id,
-      p_environment: environment,
-      p_reference_id: begin.reference_id,
-      p_xendit_session_id: session.sessionId,
-      p_xendit_plan_id: session.recurringPlanId,
-      p_checkout_url: session.checkoutUrl,
-      p_expires_at: session.expiresAt,
-    })
-    if (attachError || attached !== 'open') {
-      console.error(`[xendit-checkout] ref=${begin.reference_id} session=${session.sessionId} gagal disimpan: ${attachError?.message ?? attached}`)
-      return {
-        success: false,
-        message: `Sesi Xendit ${session.sessionId} sudah dibuat tetapi gagal disimpan. Klik "Buat Checkout" lagi untuk melanjutkan referensi yang sama.`,
-      }
-    }
-
-    refresh(ownerId)
-    return {
-      success: true,
-      message: `Checkout ${begin.plan_name} berhasil dibuat di Xendit (${environment === 'test' ? 'Test Mode' : 'Live'}).`,
-      checkoutUrl: session.checkoutUrl,
-    }
-  } catch (err) {
-    if (err instanceof XenditApiError && err.status >= 400 && err.status < 500) {
-      // Xendit menolak permintaan: sesi pasti tidak dibuat, percobaan ini ditutup.
-      await db.rpc('platform_fail_checkout', {
-        p_actor: user.id, p_environment: environment, p_reference_id: begin.reference_id, p_status: 'failed',
-      })
-      refresh(ownerId)
-      return { success: false, message: `Xendit menolak checkout: ${err.message}` }
-    }
-    // Timeout / gangguan jaringan / 5xx: sesi mungkin sudah dibuat. Biarkan 'creating'
-    // agar percobaan berikutnya memakai idempotency key yang sama.
-    refresh(ownerId)
-    return {
-      success: false,
-      message: `${errorMessage(err, 'Xendit belum merespons.')} Klik "Buat Checkout" lagi untuk melanjutkan referensi ${begin.reference_id} tanpa membuat tagihan ganda.`,
-    }
-  }
+  const result = await createCheckout(user.id, ownerId, environment, planCode, beginMessages)
+  refresh(ownerId)
+  return { success: result.success, message: result.message, checkoutUrl: result.checkoutUrl }
 }
 
-async function reconcile(
+function reconcile(
   actor: string,
   ownerId: string,
   environment: BillingEnvironment,
   session: XenditSessionDetail | null,
   planId: string | null
 ) {
-  const [plan, cycles] = planId
-    ? await Promise.all([getXenditRecurringPlan(environment, planId), getXenditPlanCycles(environment, planId)])
-    : [null, []]
-
-  const { data, error } = await platformDb().rpc('platform_reconcile_xendit', {
-    p_actor: actor,
-    p_owner: ownerId,
-    p_environment: environment,
-    p_session: session,
-    p_plan: plan,
-    p_cycles: cycles,
-  })
-  if (error) throw new Error('Status Xendit gagal disimpan ke database.')
-  const status = (data as { status?: string } | null)?.status
-  if (status !== 'ok') throw new Error(status === 'owner_mismatch' ? 'Data Xendit tidak cocok dengan Owner ini.' : 'Status Xendit gagal diterapkan.')
-  return { planStatus: plan?.status ?? null, cycles }
+  return reconcileXendit(actor, ownerId, environment, session, planId)
 }
 
 export async function syncXenditStatus(formData: FormData): Promise<ActionResult> {
@@ -320,8 +200,7 @@ export async function stopXenditAutoRenewal(formData: FormData): Promise<ActionR
     const planId = ctx?.current_subscription?.xendit_plan_id
     if (!planId) return { success: false, message: 'ID plan Xendit belum tersedia.' }
 
-    await deactivateXenditRecurringPlan(environment, planId)
-    const { planStatus } = await reconcile(user.id, ownerId, environment, null, planId)
+    const { planStatus } = await stopRenewal(user.id, ownerId, environment, planId)
     refresh(ownerId)
     if (planStatus?.toUpperCase() !== 'INACTIVE') {
       return { success: false, message: `Permintaan terkirim, tetapi Xendit masih melaporkan plan ${planStatus ?? '-'}. Cek ulang beberapa saat lagi.` }

@@ -5,16 +5,17 @@ import { usePendingRefresh } from '@/hooks/usePendingRefresh'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { Plus, Trash2 } from 'lucide-react'
 import AdminModal from '@/components/AdminModal'
+import { Notice, PageHeader, ui } from '@/components/ui'
 import { dayKey, rupiah } from '@/lib/format'
 import MoneyInput from '../products/MoneyInput'
 import { getExpenseOptions, saveExpenseBatch } from './actions'
 import type { ExpenseOptions, ExpenseProduct } from './types'
 import ExpenseProductSearch from './ExpenseProductSearch'
-import { EXPENSE_CATEGORIES } from '../../../../../shared/expense-categories'
+import { EXPENSE_CATEGORIES, PRODUCT_EXPENSE_CATEGORY } from '../../../../../shared/expense-categories'
 import { expenseNoteSuggestions } from '../../../../../shared/expense-products'
 
-const input = 'w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
-const primary = 'rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50'
+const input = 'rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full'
+const primary = 'rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors'
 type Line = { id: string; product: ExpenseProduct | null; quantity: string; unit: string; category: string; note: string }
 type Scope = keyof typeof EXPENSE_CATEGORIES
 const line = (): Line => ({ id: crypto.randomUUID(), product: null, quantity: '', unit: '', category: 'Lain-lain', note: '' })
@@ -38,7 +39,7 @@ function ExpenseModal({ businessId, recentNotes, onClose, onSaved }: {
     setScope(next)
     setDate(current => next === 'monthly' ? current.slice(0, 7) : `${current.slice(0, 7)}-01`)
     setRows(current => current.map(row => EXPENSE_CATEGORIES[next].includes(row.category)
-      ? row : { ...row, category: row.product ? EXPENSE_CATEGORIES[next][0] : 'Lain-lain' }))
+      ? row : { ...row, category: row.product ? PRODUCT_EXPENSE_CATEGORY : 'Lain-lain' }))
   }
   async function submit(form: FormData) {
     if (!options) return
@@ -73,7 +74,7 @@ function ExpenseModal({ businessId, recentNotes, onClose, onSaved }: {
                   const note = row.note || fallbackName || ''
                   if (selected?.id === row.product?.id) change(row.id, { product: selected, note })
                   else change(row.id, { product: selected, quantity: '', unit: '', note,
-                    category: selected && row.category === 'Lain-lain' ? EXPENSE_CATEGORIES[scope][0] : row.category })
+                    category: selected && row.category === 'Lain-lain' ? PRODUCT_EXPENSE_CATEGORY : row.category })
                 }} />
               <label className="space-y-2 text-sm text-gray-700"><span>Kategori</span>
                 <select value={row.category} onChange={event => change(row.id, { category: event.target.value })} className={input}>
@@ -94,36 +95,37 @@ function ExpenseModal({ businessId, recentNotes, onClose, onSaved }: {
                 {expenseNoteSuggestions(recentNotes, row.note).map(note => <option key={note} value={note} />)}
               </datalist>}
             </div>
-            {product && <p className="text-xs text-gray-500">{tracked ? 'Jumlah pembelian menambah stok tercatat.' : 'Stok tidak dilacak. Nominal tetap dicatat; jumlah pembelian boleh dikosongkan.'}</p>}
+            {product && Number(row.quantity) > 0 && Number(amounts[row.id]) > 0 && (() => {
+              const unit = units.find(u => u.id === row.unit), label = unit ? unit.label : product.unitCode
+              return <p className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">Harga per satuan: <strong>{rupiah(Number(amounts[row.id]) / Number(row.quantity))} / {label === 'l' ? 'L' : label}</strong>. HPP produk ini akan diperbarui dari harga beli ini.</p>
+            })()}
+            {product && <p className="text-xs text-gray-500">{tracked ? 'Jumlah pembelian menambah stok tercatat.' : 'Stok tidak dihitung. Nominal tetap dicatat; isi jumlah jika HPP ingin ikut diperbarui.'}</p>}
           </section>
         })}</div>
         <button type="button" disabled={rows.length >= 100} onClick={() => setRows(current => [...current, line()])} className="inline-flex items-center gap-2 text-sm font-medium text-blue-600"><Plus className="h-4 w-4" />Tambah Item</button>
         <p className="text-xs text-gray-500">Pengeluaran admin dicatat di luar laci shift kasir.</p>
       </fieldset>
-      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4"><p className="text-sm text-gray-700">Total: <strong>{rupiah(total)}</strong></p><div className="flex gap-3"><button type="button" disabled={pending} onClick={onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">Batal</button><button type="submit" disabled={pending || !options} className={primary}>{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : 'Simpan Pengeluaran'}</button></div></div>
+      {error && <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4"><p className="text-sm text-gray-700">Total: <strong>{rupiah(total)}</strong></p><div className="flex gap-3"><button type="button" disabled={pending} onClick={onClose} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-700">Batal</button><button type="submit" disabled={pending || !options} className={primary}>{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : 'Simpan Pengeluaran'}</button></div></div>
     </form>
   </AdminModal>
 }
 
-export default function ExpenseEntry({ businessId, recentNotes, heading, children }: {
+export default function ExpenseEntry({ businessId, recentNotes, description, children }: {
   businessId: string | null
   recentNotes: string[]
-  heading: ReactNode
+  description: ReactNode
   children: ReactNode
 }) {
   const { refreshing, refresh } = usePendingRefresh(), [open, setOpen] = useState(false), [message, setMessage] = useState('')
   return <>
-    <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-      {heading}
-      <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={!businessId || refreshing} onClick={() => { setMessage(''); setOpen(true) }} className={`${primary} inline-flex items-center gap-2`}>
-          <Plus aria-hidden="true" className="h-4 w-4" />Tambah Pengeluaran
-        </button>
-        {children}
-      </div>
-    </div>
-    {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</p>}
+    <PageHeader eyebrow="Penjualan & Keuangan" title="Pengeluaran" description={description} actions={<>
+      {children}
+      <button type="button" disabled={!businessId || refreshing} onClick={() => { setMessage(''); setOpen(true) }} className={ui.btnPrimary}>
+        <Plus aria-hidden="true" className="h-4 w-4" />Tambah Pengeluaran
+      </button>
+    </>} />
+    {message && <Notice tone="success" role="status">{message}</Notice>}
     {open && businessId && <ExpenseModal businessId={businessId} recentNotes={recentNotes} onClose={() => setOpen(false)} onSaved={text => { setOpen(false); setMessage(text); refresh() }} />}
   </>
 }

@@ -22,7 +22,7 @@ export default function BusinessSelect({ businesses }: { businesses: { id: strin
         const qs = next.toString()
         startTransition(() => router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false }))
       }}
-      className="w-full bg-white border border-gray-300 text-gray-900 text-sm rounded-lg block p-2.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+      className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full block"
     >
       <option value="all">Semua Cabang</option>
       {businesses.map((b) => (

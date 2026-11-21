@@ -6,6 +6,7 @@ import { useActionState } from 'react'
 import Link from 'next/link'
 import { Coffee } from 'lucide-react'
 import { register, type RegisterState } from './actions'
+import { GoogleSignIn } from '@/components/AuthCard'
 
 const initialState: RegisterState = { status: 'idle', message: '' }
 const inputClassName = 'w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-all'
@@ -25,7 +26,7 @@ export default function RegisterPage() {
           </div>
           <h1 className="text-2xl font-bold text-center text-gray-900 dark:text-white mb-2">Buat Akun Owner</h1>
           <p className="text-center text-gray-500 dark:text-gray-400 mb-8">
-            Daftar untuk mulai mengelola kasir warung kopi Anda
+            Gratis 14 hari, tanpa kartu kredit
           </p>
 
           {state.status === 'success' ? (
@@ -33,6 +34,8 @@ export default function RegisterPage() {
               {state.message}
             </p>
           ) : (
+            <>
+            <GoogleSignIn />
             <form action={formAction} className="space-y-6" aria-busy={pending}>
               <div>
                 <label htmlFor="name" className={labelClassName}>Nama lengkap</label>
@@ -66,6 +69,10 @@ export default function RegisterPage() {
                 {pending && <LoadingSpinner className="mr-2" />}{pending ? 'Mendaftarkan akun...' : 'Daftar Akun'}
               </button>
             </form>
+            <p className="mt-4 text-center text-xs text-gray-400">
+              Dengan mendaftar, Anda menyetujui <Link href="/terms" className="underline">Syarat &amp; Ketentuan</Link> dan <Link href="/privacy" className="underline">Kebijakan Privasi</Link>.
+            </p>
+            </>
           )}
 
           <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">

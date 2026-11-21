@@ -18,7 +18,7 @@ export default function TopProductsModal({ products, range, onClose }: {
     <dialog ref={dialogRef} aria-labelledby="top-products-title" aria-describedby="top-products-description"
       onCancel={event => { event.preventDefault(); onClose() }}
       onClick={event => { if (event.target === event.currentTarget) onClose() }}
-      className="m-auto w-[calc(100%_-_2rem)] max-w-2xl max-h-[85dvh] overflow-hidden rounded-xl border border-gray-100 bg-white p-0 text-gray-900 shadow-xl backdrop:bg-black/40">
+      className="m-auto w-[calc(100%_-_2rem)] max-w-2xl max-h-[85dvh] overflow-hidden rounded-2xl border border-gray-200/70 bg-white p-0 text-gray-900 shadow-xl backdrop:bg-black/40">
       <div className="flex max-h-[85dvh] flex-col">
         <div className="flex shrink-0 items-start justify-between gap-4 border-b border-gray-100 p-5">
           <div>
@@ -29,7 +29,7 @@ export default function TopProductsModal({ products, range, onClose }: {
         </div>
         <div tabIndex={0} aria-label="Daftar peringkat produk" className="min-h-0 overflow-auto">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 bg-gray-50 text-xs uppercase text-gray-500">
+            <thead className="sticky top-0 bg-gray-50 text-[11px] uppercase text-gray-500 tracking-[0.08em] border-b border-gray-100">
               <tr><th scope="col" className="px-5 py-3 w-16">No.</th><th scope="col" className="px-5 py-3">Produk</th><th scope="col" className="px-5 py-3 text-right">Jumlah terjual</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-100">

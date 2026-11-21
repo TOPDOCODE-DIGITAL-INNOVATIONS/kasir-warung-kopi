@@ -1,5 +1,7 @@
 'use server'
 
+import { assertWritable } from '@/lib/billing/owner-billing'
+
 import { createHash } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { unstable_rethrow } from 'next/navigation'
@@ -9,11 +11,12 @@ import { amount, events, isRow, metadata, number, productForPos, summarizeSales,
 import type { ActionResult, HistoryData, HistoryRequest, ProductPageData, StockEvent } from './types'
 import { productImagePath, PRODUCT_IMAGE_BUCKET } from './image'
 import { initialPurchase, initialUnitCost } from './initial-purchase'
+import { EXPENSE_CATEGORIES } from '../../../../../shared/expense-categories'
 import { defaultHistoryRange, HISTORY_LIMIT, historyBounds, historyExpenseFilter, validateHistoryRequest } from './history-domain'
 
 type DB = Awaited<ReturnType<typeof createClient>>
 const PAGE = 500
-const productColumns = 'id,inventory_id,owner_id,business_id,name,sku,description,category_id,base_unit_id,can_buy,can_sell,price,cost_price,stock,min_stock,is_available,is_active,updated_at,stock_updated_at,image_url,pending:raw->_inventory->pending,initial_purchase_status:raw->_inventory->initialPurchase->>status'
+const productColumns = 'id,inventory_id,owner_id,business_id,name,sku,description,category_id,base_unit_id,can_buy,can_sell,price,cost_price,stock,min_stock,is_available,is_active,updated_at,stock_updated_at,image_url,cost_verified_at,pending:raw->_inventory->pending,initial_purchase_status:raw->_inventory->initialPurchase->>status'
 
 async function rows(query: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<Row[]> {
   const result: Row[] = []
@@ -112,7 +115,7 @@ export async function getProductsPage(requestedBusinessId: string | null): Promi
       id: String(p.id), inventoryId: String(p.inventory_id), businessId: String(p.business_id), businessName: branches.find(b => b.id === p.business_id)?.name ?? '-',
       name: String(p.name), sku: String(p.sku ?? ''), description: String(p.description ?? ''), categoryId: String(p.category_id ?? ''),
       baseUnitId: String(p.base_unit_id), unitCode: result.units.find(u => u.id === p.base_unit_id)?.code ?? 'pcs',
-      canBuy: p.can_buy === true, canSell: p.can_sell === true, price: number(p.price), cost: p.cost_price === null ? null : number(p.cost_price),
+      canBuy: p.can_buy === true, canSell: p.can_sell === true, price: number(p.price), cost: p.cost_price === null ? null : number(p.cost_price), costVerified: typeof p.cost_verified_at === 'string',
       stock: number(p.stock), minStock: number(p.min_stock), available: p.is_available === true, version: String(p.updated_at), stockUpdatedAt: typeof p.stock_updated_at === 'string' ? p.stock_updated_at : null,
       imageUrl: typeof p.image_url === 'string' ? p.image_url : null,
       soldQuantity: sales?.quantity ?? 0, soldAmount: sales?.amount ?? 0, boughtQuantity: purchase?.quantity ?? 0, boughtAmount: purchase?.amount ?? 0,
@@ -224,6 +227,7 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
   let committed = false
   let requestedPurchase = false
   try {
+    await assertWritable()
     const { db, owner } = await session()
     const id = text(form, 'inventory_id', 40), operation = text(form, 'operation_id', 40)
     if (!uuid(operation)) throw new Error('Identitas perubahan tidak valid. Buka ulang dialog.')
@@ -242,7 +246,8 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
       if (error || !supplier) throw new Error('Supplier tidak tersedia untuk akun ini.')
     }
     const price = amount(form.get('price') || '0', 'Harga jual'), costText = text(form, 'cost_price', 40)
-    const cost = purchase ? amount(initialUnitCost(purchase), 'Harga beli per satuan') : costText ? amount(costText, 'Modal acuan') : null
+    const cost = purchase ? amount(initialUnitCost(purchase), 'HPP per satuan') : costText ? amount(costText, 'HPP') : null
+    if (canSell && cost === null) throw new Error('HPP wajib diisi untuk produk yang dijual.')
     const categoryId = text(form, 'category_id', 100)
     const config = isRow(b.pos_config) ? b.pos_config : {}
     const categories = Array.isArray(config.categories) ? config.categories.filter(isRow) : []
@@ -273,6 +278,10 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
         return saved(db, owner, id, 'Perubahan sudah tersimpan.')
       }
       requireVersion(p, form)
+      // Owner-entered or re-confirmed HPP becomes verified; an untouched HPP keeps its state.
+      const costChanged = (p.cost_price === null ? null : number(p.cost_price)) !== (cost === null ? null : number(cost))
+      if (canSell && !costChanged && !p.cost_verified_at && !checked(form, 'cost_verified')) throw new Error('Centang konfirmasi bahwa HPP sudah dicek.')
+      if (costChanged || (cost !== null && !p.cost_verified_at && checked(form, 'cost_verified'))) fields.cost_verified_at = new Date().toISOString()
       const initQty = track && number(p.stock) === -1 ? number(amount(form.get('initial_quantity') || '0', 'Stok awal')) : 0
       const stock = track ? (number(p.stock) === -1 ? initQty : number(p.stock)) : -1
       const event: StockEvent = { id: operation, kind: stock !== number(p.stock) ? 'tracking' : 'edit', at: new Date().toISOString(), quantity: initQty,
@@ -295,9 +304,9 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
       } else {
         const event: StockEvent = { id: operation, kind: purchase ? 'purchase' : 'initial', at: new Date().toISOString(), quantity: purchase ? number(purchase.quantity) : number(quantity), before: 0, after: stock, reason: purchase ? purchase.note : text(form, 'reason') || 'Stok awal produk baru', status: purchase ? 'pending' : 'complete', ...(purchase ? { purchaseId: operation } : {}) }
         const request = purchase ? { p_business: businessId, p_operation: operation, p_date: purchase.date, p_scope: 'daily', p_supplier: purchase.supplier,
-          p_lines: [{ id: operation, product_id: operation, quantity: purchase.quantity, item_unit_id: null, amount: purchase.total, category: 'Pembelian Barang', note: purchase.note }] } : null
+          p_lines: [{ id: operation, product_id: operation, quantity: purchase.quantity, item_unit_id: null, amount: purchase.total, category: EXPENSE_CATEGORIES.daily[0], note: purchase.note }] } : null
         const raw = { _inventory: { version: 1, creationSignature: signature, events: [event], ...(request ? { initialPurchase: { status: 'pending', request } } : {}) } }
-        const { data, error: insertError } = await db.from('products').insert({ ...fields, inventory_id: operation, business_id: businessId, owner_id: owner,
+        const { data, error: insertError } = await db.from('products').insert({ ...fields, cost_verified_at: cost === null ? null : new Date().toISOString(), inventory_id: operation, business_id: businessId, owner_id: owner,
           id: `p-admin-${operation}`, base_unit_id: baseUnit, stock, stock_mode: track ? 'self' : 'none', pos_managed: canSell, raw }).select('*').single()
         if (insertError?.code === '23505') throw new Error('SKU tersebut sudah dipakai di cabang ini.')
         if (insertError || !data) throw new Error('Produk baru belum berhasil disimpan.')
@@ -317,6 +326,7 @@ export async function saveProduct(form: FormData): Promise<ActionResult> {
 
 export async function recordStockCount(form: FormData): Promise<ActionResult> {
   try {
+    await assertWritable()
     const businessId = text(form, 'business_id', 40)
     const { supabase } = await requireBusinessContext(businessId)
     const operation = text(form, 'operation_id', 40)
@@ -330,6 +340,7 @@ export async function recordStockCount(form: FormData): Promise<ActionResult> {
 }
 export async function completeProductPurchase(form: FormData): Promise<ActionResult> {
   try {
+    await assertWritable()
     const { db, owner } = await session()
     const id = text(form, 'inventory_id', 40), operation = text(form, 'operation_id', 40)
     const p = await product(db, owner, id)
@@ -339,6 +350,7 @@ export async function completeProductPurchase(form: FormData): Promise<ActionRes
 }
 export async function deleteProduct(form: FormData): Promise<ActionResult> {
   try {
+    await assertWritable()
     const { db, owner } = await session(), id = text(form, 'inventory_id', 40)
     const p = await product(db, owner, id)
     if (!p.is_active) return saved(db, owner, id, 'Produk sudah dihapus dari daftar aktif.')
@@ -350,6 +362,7 @@ export async function deleteProduct(form: FormData): Promise<ActionResult> {
 }
 export async function syncProductToPos(form: FormData): Promise<ActionResult> {
   try {
+    await assertWritable()
     const { db, owner } = await session()
     const ok = await publish(db, owner, text(form, 'inventory_id', 40))
     invalidate()

@@ -95,6 +95,16 @@ function request(fixture, businessId = 'a') {
       if (name === '@/lib/business-context') return { getBusinessContext: getContext, requireBusinessContext: async expected => { if (!businessId || (expected !== undefined && expected !== businessId)) throw new Error('Cabang aktif sudah berubah.'); return getContext() }, EMPTY_BUSINESS_ID: '00000000-0000-0000-0000-000000000000' }
       if (name === 'next/cache') return { revalidatePath() {} }
       if (name === 'next/navigation') return { unstable_rethrow() {} }
+      if (name === '@/lib/billing/owner-billing') {
+        const READ_ONLY_MESSAGE = 'Langganan berakhir (hanya-baca).'
+        const access = () => ({ readOnly: !!fixture.readOnly })
+        return {
+          READ_ONLY_MESSAGE,
+          readOwnerBilling: async () => fixture.billing ?? null,
+          getCurrentOwnerAccess: async () => ({ billing: null, access: access() }),
+          assertWritable: async () => { if (access().readOnly) throw new Error(READ_ONLY_MESSAGE) },
+        }
+      }
       if (name === '@/utils/supabase/admin') return { createAdminClient: () => fixture.db }
       if (name === '@/utils/supabase/server') return { createClient: async () => fixture.db }
       if (name === 'next/link') return { __esModule: true, default: 'a' }
@@ -158,6 +168,23 @@ test('linked purchases and drawer entries keep financial fields; invalid dates, 
     assert.ok(!fixture.queries.some(q => q.op === 'update'))
   }
 })
+
+test('read-only subscription refuses admin expense edits but the POS can still sync and receives its access state', async () => {
+  const fixture = database(), row = expense(); fixture.tables.expenses.push(row)
+  fixture.readOnly = true
+  fixture.billing = { status: 'ok', trial_ends_at: '2020-01-01T00:00:00Z', subscription: null }
+  const result = await request(fixture)('app/dashboard/expenses/actions.ts').updateExpense(expenseForm(row, { amount: 1 }))
+  assert.equal(result.success, false)
+  assert.match(result.message, /hanya-baca/)
+  assert.equal(row.amount, expense().amount)
+  assert.ok(!fixture.queries.some(q => q.table === 'expenses' && q.op === 'update'))
+  const response = await request(fixture)('app/api/sync/route.ts').POST(post({ expenses: [] }))
+  assert.equal(response.status, 200)
+  const body = await response.json()
+  assert.equal(body.success, true)
+  assert.equal(body.access.state, 'expired')
+})
+
 
 test('expense sync accepts explicit corrections and retries, preserves purchase metadata, and rejects stale edits', async () => {
   const fixture = database(), row = { ...expense(), product_name: 'Transport', product_id: 'product-a' }; fixture.tables.expenses.push(row)
@@ -243,7 +270,7 @@ test('a database without the sales-stock migration keeps saved corrections when 
 
 test('merged sync accepts config, drafts and edit history while preserving inventory data', async () => {
   const fixture = database(), load = request(fixture)
-  const response = await load('app/api/sync/route.ts').POST(post({ config, configEditedAt: new Date().toISOString(), transactions: [{ id: 'tx-a', grandTotal: 23000, editHistory: [{ reason: 'Correction' }] }], drafts: [{ id: 'draft-a', items: [], updatedAt: new Date().toISOString() }] }))
+  const response = await load('app/api/sync/route.ts').POST(post({ config, configSeed: true, configEditedAt: new Date().toISOString(), transactions: [{ id: 'tx-a', grandTotal: 23000, editHistory: [{ reason: 'Correction' }] }], drafts: [{ id: 'draft-a', items: [], updatedAt: new Date().toISOString() }] }))
   assert.equal(response.status, 200)
   assert.equal((await response.json()).data.draftsAccepted, true)
   const saved = fixture.tables.businesses[0].pos_config
@@ -267,13 +294,30 @@ test('a database missing edit_history cannot acknowledge and silently discard a 
   assert.equal(fixture.tables.transactions.length, 0)
 })
 
+test('an empty branch never adopts a device config without explicit owner seeding; filled branches accept edits', async () => {
+  const fixture = database(), load = request(fixture)
+  const sync = load('app/api/sync/route.ts').POST
+  const first = await (await sync(post({ config, configEditedAt: new Date().toISOString() }))).json()
+  assert.equal(first.success, true)
+  assert.equal(first.data.configAccepted, false)
+  assert.equal(fixture.tables.businesses[0].pos_config, null, 'other-branch/demo menu must not land in an empty branch')
+  assert.ok(!fixture.queries.some(q => q.table === 'businesses' && q.op === 'update' && q.values?.pos_config))
+  const seeded = await (await sync(post({ config, configSeed: true, configEditedAt: new Date(Date.now() - 5000).toISOString() }))).json()
+  assert.equal(seeded.data.configAccepted, true)
+  assert.ok(fixture.tables.businesses[0].pos_config)
+  const edit = { ...config, cashiers: [...config.cashiers, { id: 'c-new', name: 'Baru', role: 'Kasir' }] }
+  const edited = await (await sync(post({ config: edit, configEditedAt: new Date(Date.now() - 1000).toISOString() }))).json()
+  assert.equal(edited.data.configAccepted, true, 'normal edits on a branch that already has data still sync')
+  assert.equal(edited.branch.name, 'Cabang A')
+})
+
 test('stale POS configs cannot replace or restore a photo managed in admin', async () => {
   for (const imageUrl of ['https://images.test/admin.webp', null]) {
     const fixture = database()
     fixture.tables.products[0].image_url = imageUrl
     fixture.tables.products[0].pos_sync_enabled = true
     const stale = { ...config, products: [{ ...config.products[0], imageUrl: 'https://images.test/stale.webp' }] }
-    const response = await request(fixture)('app/api/sync/route.ts').POST(post({ config: stale, configEditedAt: new Date().toISOString() }))
+    const response = await request(fixture)('app/api/sync/route.ts').POST(post({ config: stale, configSeed: true, configEditedAt: new Date().toISOString() }))
     assert.equal(response.status, 200)
     assert.equal(fixture.tables.businesses[0].pos_config.products[0].imageUrl, imageUrl || undefined)
     assert.equal(fixture.tables.products[0].image_url, imageUrl)
@@ -329,7 +373,7 @@ function productEditFixture(stock = -1) {
   const form = (overrides = {}) => {
     const data = new FormData()
     for (const [key, value] of Object.entries({ inventory_id: inventoryId, business_id: businessId, operation_id: 'ea400000-0000-0000-0000-000000000001',
-      version: '2026-11-17T00:00:00Z', name: 'Latte', can_sell: 'on', track_stock: 'on', price: '23000', initial_quantity: '25.125', reason: 'Hasil hitung awal', ...overrides })) data.set(key, value)
+      version: '2026-11-17T00:00:00Z', name: 'Latte', can_sell: 'on', track_stock: 'on', price: '23000', cost_price: '10000', cost_verified: 'on', initial_quantity: '25.125', reason: 'Hasil hitung awal', ...overrides })) data.set(key, value)
     return data
   }
   return { ...fixture, actions, form }
@@ -372,6 +416,25 @@ test('initial stock is ignored for already tracked products and tracking can sti
   assert.equal((await f.actions.saveProduct(off)).success, true)
   assert.equal(f.tables.products[0].stock, -1)
   assert.equal(f.tables.products[0].stock_mode, 'none')
+})
+
+test('sold products require HPP, and an unchecked HPP must be confirmed before it counts', async () => {
+  const missing = productEditFixture(7), noCost = missing.form(); noCost.delete('cost_price')
+  const rejected = await missing.actions.saveProduct(noCost)
+  assert.equal(rejected.success, false)
+  assert.match(rejected.message, /HPP wajib/)
+  const unconfirmed = productEditFixture(7), form = unconfirmed.form(); form.delete('cost_verified')
+  const blocked = await unconfirmed.actions.saveProduct(form)
+  assert.equal(blocked.success, false)
+  assert.match(blocked.message, /HPP sudah dicek/)
+  assert.equal(unconfirmed.tables.products[0].cost_verified_at, undefined)
+  const confirmed = productEditFixture(7)
+  assert.equal((await confirmed.actions.saveProduct(confirmed.form())).success, true)
+  assert.match(confirmed.tables.products[0].cost_verified_at, /^\d{4}-/)
+  // Entering a new HPP is itself a check by the Owner; no checkbox needed.
+  const changed = productEditFixture(7), edit = changed.form({ cost_price: '9000' }); edit.delete('cost_verified')
+  assert.equal((await changed.actions.saveProduct(edit)).success, true)
+  assert.match(changed.tables.products[0].cost_verified_at, /^\d{4}-/)
 })
 
 test('invalid initial stock and stale product versions never write stock or history', async () => {

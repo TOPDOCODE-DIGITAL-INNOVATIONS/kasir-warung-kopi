@@ -5,8 +5,8 @@ import { getOwnerDetail } from '../actions'
 
 const dateFormat = new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeZone: 'Asia/Makassar' })
 const dateTimeFormat = new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Makassar' })
-const panel = 'overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm'
-const paginationLink = 'rounded-lg border border-gray-300 px-3 py-2 font-medium text-gray-700 hover:bg-gray-50'
+const panel = 'overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-sm'
+const paginationLink = 'rounded-xl border border-gray-200 px-3 py-2 font-semibold text-gray-700 hover:bg-gray-50'
 const ownerList = '/platform/owners'
 
 export default async function OwnerDetailPage({ params, searchParams }: {
@@ -44,19 +44,20 @@ export default async function OwnerDetailPage({ params, searchParams }: {
   return (
     <div className="space-y-6">
       <div>
-        <Link href={ownerList} className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline">
+        <Link href={ownerList} className="mb-4 inline-flex items-center gap-2 rounded-lg px-2 py-1 -ml-2 text-sm font-semibold text-gray-600 transition-colors hover:bg-white hover:text-gray-900">
           <ArrowLeft aria-hidden="true" className="h-4 w-4" /> Kembali ke Kelola Owner
         </Link>
-        <h1 className="break-words text-2xl font-bold text-gray-900">{title}</h1>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Pelanggan</p>
+          <h1 className="mt-1 break-words text-[28px] leading-tight text-gray-900 sm:text-3xl">{title}</h1>
         <p className="mt-1 text-sm text-gray-500">Detail akun Owner dan cabang yang terdaftar.</p>
       </div>
 
-      <section className={`${panel} p-5`} aria-labelledby="owner-account">
-        <h2 id="owner-account" className="font-semibold text-gray-900">Informasi akun</h2>
+      <section className={`${panel} p-5 sm:p-6`} aria-labelledby="owner-account">
+        <h2 id="owner-account" className="text-[15px] font-semibold text-gray-900">Informasi akun</h2>
         <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {facts.map(({ label, value }) => (
             <div key={label} className="min-w-0">
-              <dt className="text-sm text-gray-500">{label}</dt>
+              <dt className="text-xs font-medium text-gray-500">{label}</dt>
               <dd className="mt-1 break-words text-sm font-medium text-gray-900">{value}</dd>
             </div>
           ))}
@@ -71,7 +72,7 @@ export default async function OwnerDetailPage({ params, searchParams }: {
         {owner.branches.length ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm text-gray-600">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-700">
+              <thead className="bg-gray-50/70 text-[11px] uppercase text-gray-500 tracking-[0.08em] border-b border-gray-100">
                 <tr>
                   <th scope="col" className="px-5 py-3">Nama cabang</th>
                   <th scope="col" className="whitespace-nowrap px-5 py-3">Tanggal dibuat</th>

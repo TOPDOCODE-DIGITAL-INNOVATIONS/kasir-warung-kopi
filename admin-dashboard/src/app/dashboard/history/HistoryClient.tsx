@@ -49,7 +49,7 @@ function MoneyInput({ name, defaultValue }: { name: string; defaultValue?: numbe
           const n = parseMoney(value)
           setValue(value && Number.isFinite(n) ? formatMoney(n) : '')
         }}
-        className="w-full border-gray-300 rounded-lg p-2.5 pl-10 border bg-white text-right"
+        className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full pl-10 text-right"
       />
     </div>
   )
@@ -107,7 +107,7 @@ export default function HistoryClient({
 
   if (businesses.length === 0) {
     return (
-      <p className="text-sm text-gray-600 bg-white border border-gray-100 rounded-xl p-6">
+      <p className="text-sm text-gray-600 bg-white border border-gray-200/70 rounded-2xl p-6">
         Buat cabang dulu di menu Cabang & Token sebelum memasukkan data lama.
       </p>
     )
@@ -115,8 +115,8 @@ export default function HistoryClient({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-      <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 self-start">
-        <h2 className="font-semibold text-lg text-gray-900 mb-4">{editing ? 'Ubah Data Lama' : 'Tambah Data Lama'}</h2>
+      <div className="lg:col-span-2 self-start rounded-2xl border border-gray-200/70 bg-white p-5 shadow-sm sm:p-6 lg:sticky lg:top-4">
+        <h2 className="font-semibold text-[15px] text-gray-900 mb-4">{editing ? 'Ubah Data Lama' : 'Tambah Data Lama'}</h2>
 
         <form
           key={editing?.id ?? `new-${activePeriod}-${formKey}`}
@@ -133,7 +133,7 @@ export default function HistoryClient({
         >
           <input type="hidden" name="period" value={activePeriod} />
 
-          <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-lg">
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1">
             {(['month', 'day'] as const).map((p) => (
               <button
                 key={p}
@@ -144,7 +144,7 @@ export default function HistoryClient({
                   setPickedDate('')
                 }}
                 className={
-                  'py-2 text-sm rounded-md font-medium transition-colors disabled:cursor-not-allowed ' +
+                  'py-2 text-sm rounded-lg font-medium transition-colors disabled:cursor-not-allowed ' +
                   (activePeriod === p ? 'bg-white shadow-sm text-blue-700' : 'text-gray-600')
                 }
               >
@@ -162,7 +162,7 @@ export default function HistoryClient({
                   defaultValue={editing?.business_id ?? defaultBusinessId}
                   onChange={(e) => setPickedBusiness(e.target.value)}
                   disabled={!!editing}
-                  className="w-full border-gray-300 rounded-lg p-2.5 border bg-white"
+                  className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full"
                 >
                   {businesses.map((b) => (
                     <option key={b.id} value={b.id}>
@@ -186,7 +186,7 @@ export default function HistoryClient({
                 readOnly={!!editing}
                 defaultValue={editing?.date}
                 onChange={(e) => setPickedDate(e.target.value)}
-                className="w-full border-gray-300 rounded-lg p-2.5 border bg-white"
+                className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full"
               />
               <PeriodPreview
                 rules={rules}
@@ -216,7 +216,7 @@ export default function HistoryClient({
               name="note"
               defaultValue={editing?.note ?? ''}
               placeholder="mis. dari buku kas"
-              className="w-full border-gray-300 rounded-lg p-2.5 border bg-white"
+              className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full"
             />
           </div>
 
@@ -225,15 +225,15 @@ export default function HistoryClient({
             sebelumnya, bukan menambah. Jangan isi bulan yang juga sudah diisi per hari agar tidak terhitung dua kali.
           </p>
 
-          {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</p>}
-          {saved && <p className="text-sm text-green-700 bg-green-50 p-3 rounded-lg">{saved}</p>}
+          {error && <p className="text-sm text-red-700 bg-red-50 p-3 rounded-xl border border-red-100">{error}</p>}
+          {saved && <p className="text-sm text-emerald-800 bg-emerald-50 p-3 rounded-xl border border-emerald-100">{saved}</p>}
 
           <div className="flex justify-end gap-3">
             {editing && (
               <button
                 type="button"
                 onClick={() => setEditing(null)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg"
+                className="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl"
               >
                 Batal
               </button>
@@ -241,7 +241,7 @@ export default function HistoryClient({
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+              className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 transition-colors"
             >
               {loading && operationKey === 'save' && <LoadingSpinner className="mr-2" />}{loading && operationKey === 'save' ? 'Menyimpan...' : 'Simpan'}
             </button>
@@ -249,18 +249,18 @@ export default function HistoryClient({
         </form>
       </div>
 
-      <div className="lg:col-span-3 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 md:p-6 border-b border-gray-100">
-          <h2 className="font-semibold text-lg text-gray-900">Data Lama Tersimpan</h2>
+      <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-gray-200/70 overflow-hidden">
+        <div className="px-5 py-4 sm:px-6 border-b border-gray-100">
+          <h2 className="font-semibold text-[15px] text-gray-900">Data Lama Tersimpan</h2>
         </div>
         <DataPanel loading={loading || routePending} label="Memuat data lama..."><div className="overflow-x-auto max-h-[32rem]">
           <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 text-xs uppercase text-gray-700 sticky top-0">
+            <thead className="bg-gray-50 text-[11px] uppercase text-gray-500 sticky top-0 tracking-[0.08em] border-b border-gray-100">
               <tr>
-                <th className="px-4 py-3 font-medium">Periode</th>
-                {businesses.length > 1 && <th className="px-4 py-3 font-medium">Cabang</th>}
-                <th className="px-4 py-3 font-medium text-right">Penjualan</th>
-                <th className="px-4 py-3 font-medium text-right">Pengeluaran</th>
+                <th className="px-5 py-3 font-semibold">Periode</th>
+                {businesses.length > 1 && <th className="px-5 py-3 font-semibold">Cabang</th>}
+                <th className="px-5 py-3 font-semibold text-right">Penjualan</th>
+                <th className="px-5 py-3 font-semibold text-right">Pengeluaran</th>
                 <th className="px-4 py-3" />
               </tr>
             </thead>
@@ -293,7 +293,7 @@ export default function HistoryClient({
                           setSaved(null)
                           setError(null)
                         }}
-                        className="p-2 rounded hover:bg-blue-50 text-blue-600"
+                        className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-700"
                       >
                         <Edit className="w-4 h-4" />
                       </button>
@@ -303,7 +303,7 @@ export default function HistoryClient({
                         onClick={() => {
                           if (confirm(`Hapus data ${formatPeriod(e)}?`)) run(() => deleteSummary(e.id), e.id)
                         }}
-                        className="p-2 rounded hover:bg-red-50 text-red-600"
+                        className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

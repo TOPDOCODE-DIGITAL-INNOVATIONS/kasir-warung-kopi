@@ -1,4 +1,6 @@
-import DataPanel from '@/components/DataPanel'
+import { Ban, Calculator, HandCoins, Search, TrendingUp } from 'lucide-react'
+import { PageHeader, Panel, StatCard, Notice, filterBar, ui } from '@/components/ui'
+import { formatRange } from '@/lib/book-period'
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import Link from '@/components/LoadingLink'
 import FilterForm, { FilterSubmit } from '@/components/FilterForm'
@@ -72,14 +74,7 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
     params.set('to', t)
     const active = f === from && t === to && !status && !pay && !q
     return (
-      <Link
-        key={label}
-        href={`/dashboard/transactions?${params}`}
-        className={
-          'px-3 py-1.5 text-sm rounded-lg border ' +
-          (active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50')
-        }
-      >
+      <Link key={label} href={`/dashboard/transactions?${params}`} aria-current={active ? 'true' : undefined} className={ui.chip(active)}>
         {label}
       </Link>
     )
@@ -89,104 +84,81 @@ export default async function TransactionsPage({ searchParams }: { searchParams:
     d.setUTCDate(d.getUTCDate() + days)
     return d.toISOString().slice(0, 10)
   }
+  const average = done.length ? sales / done.length : 0
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Transaksi</h1>
-          <p className="text-gray-500 text-sm mt-1">Klik salah satu transaksi untuk melihat detail pesanannya.</p>
+    <div className="space-y-6">
+      <PageHeader eyebrow="Penjualan & Keuangan" title="Transaksi"
+        description={<>Periode <span className="font-medium text-gray-700">{formatRange(from, to)}</span> · klik transaksi untuk melihat detail pesanan.</>} />
+
+      <section aria-label="Filter transaksi" className={filterBar}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-xs font-medium text-gray-500">Cepat:</span>
+          {quick('Hari ini', today, today)}
+          {quick('Kemarin', shift(-1), shift(-1))}
+          {quick('7 hari', shift(-6), today)}
+          {quick('30 hari', shift(-29), today)}
         </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {quick('Hari ini', today, today)}
-        {quick('Kemarin', shift(-1), shift(-1))}
-        {quick('7 hari', shift(-6), today)}
-        {quick('30 hari', shift(-29), today)}
-      </div>
-
-      <FilterForm action="/dashboard/transactions" className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
-        <label className="text-xs text-gray-500 space-y-1">
-          <span>Dari</span>
-          <input type="date" name="from" defaultValue={from} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900" />
-        </label>
-        <label className="text-xs text-gray-500 space-y-1">
-          <span>Sampai</span>
-          <input type="date" name="to" defaultValue={to} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900" />
-        </label>
-        <label className="text-xs text-gray-500 space-y-1">
-          <span>Status</span>
-          <select name="status" defaultValue={status} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900 bg-white">
-            <option value="">Semua</option>
-            <option value="completed">Selesai</option>
-            <option value="cancelled">Batal</option>
-            <option value="unpaid">Bon belum lunas</option>
-          </select>
-        </label>
-        <label className="text-xs text-gray-500 space-y-1">
-          <span>Pembayaran</span>
-          <select name="pay" defaultValue={pay} className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900 bg-white">
-            <option value="">Semua</option>
-            {Object.entries(PAYMENT_LABELS).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs text-gray-500 space-y-1 col-span-2 md:col-span-1">
-          <span>Cari</span>
-          <input
-            type="search"
-            name="q"
-            defaultValue={q}
-            placeholder="No. nota, pelanggan, kasir"
-            className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900"
-          />
-        </label>
-        <FilterSubmit className="col-span-2 md:col-span-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg py-2">
-          Terapkan
-        </FilterSubmit>
-      </FilterForm>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Total Penjualan" value={rupiah(sales)} hint={`${done.length} transaksi selesai`} />
-        <Stat label="Rata-rata / Transaksi" value={rupiah(done.length ? sales / done.length : 0)} hint="Tidak termasuk batal" />
-        <Stat label="Bon Belum Lunas" value={rupiah(unpaid)} hint="Pada rentang ini" tone="text-amber-600" />
-        <Stat label="Dibatalkan" value={String(cancelledCount)} hint="transaksi" tone="text-red-600" />
-      </div>
-
-      {byPayment.length > 0 && (
-        <div className="flex flex-wrap gap-2 text-xs">
-          {byPayment.map(([k, v]) => (
-            <span key={k} className="bg-white border border-gray-200 rounded-full px-3 py-1 text-gray-600">
-              {PAYMENT_LABELS[k] ?? k}: <span className="font-semibold text-gray-900">{rupiah(v)}</span>
+        <FilterForm action="/dashboard/transactions" className="mt-4 grid grid-cols-2 items-end gap-3 border-t border-gray-100 pt-4 md:grid-cols-3 xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,1.5fr)_auto]">
+          <label className={ui.label}>Dari
+            <input type="date" name="from" defaultValue={from} className={ui.input} />
+          </label>
+          <label className={ui.label}>Sampai
+            <input type="date" name="to" defaultValue={to} className={ui.input} />
+          </label>
+          <label className={ui.label}>Status
+            <select name="status" defaultValue={status} className={ui.input}>
+              <option value="">Semua status</option>
+              <option value="completed">Selesai</option>
+              <option value="cancelled">Batal</option>
+              <option value="unpaid">Bon belum lunas</option>
+            </select>
+          </label>
+          <label className={ui.label}>Pembayaran
+            <select name="pay" defaultValue={pay} className={ui.input}>
+              <option value="">Semua metode</option>
+              {Object.entries(PAYMENT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </label>
+          <label className={`${ui.label} col-span-2 md:col-span-1`}>Cari
+            <span className="relative block">
+              <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 mt-0.75 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input type="search" name="q" defaultValue={q} placeholder="No. nota, pelanggan, kasir" className={`${ui.input} pl-9`} />
             </span>
-          ))}
-        </div>
-      )}
+          </label>
+          <FilterSubmit className={`${ui.btnPrimary} col-span-2 md:col-span-1`}>Terapkan</FilterSubmit>
+        </FilterForm>
+      </section>
 
-      {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error.message}</p>}
-      {transactions.length >= LIMIT && (
-        <p className="text-xs text-amber-700 bg-amber-50 p-3 rounded-lg">
-          Menampilkan {LIMIT} transaksi terbaru saja. Persempit rentang tanggal agar ringkasan akurat.
-        </p>
-      )}
-
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <TransactionList transactions={transactions} showBusiness={false} />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard icon={TrendingUp} label="Total Penjualan" value={rupiah(sales)} hint={`${done.length.toLocaleString('id-ID')} transaksi selesai`}
+          info="Jumlah grand total transaksi yang tidak dibatalkan pada hasil filter ini." />
+        <StatCard icon={Calculator} tone="sky" label="Rata-rata / Transaksi" value={rupiah(average)} hint="Tidak termasuk batal"
+          info="Total penjualan dibagi jumlah transaksi selesai." />
+        <StatCard icon={HandCoins} tone="amber" label="Bon Belum Lunas" value={rupiah(unpaid)} hint="Pada rentang ini" valueClassName="text-amber-700"
+          info="Total transaksi bon (hutang) yang belum dilunasi pelanggan." />
+        <StatCard icon={Ban} tone="red" label="Dibatalkan" value={cancelledCount.toLocaleString('id-ID')} hint="transaksi" valueClassName="text-red-600"
+          info="Jumlah transaksi yang dibatalkan kasir pada rentang ini." />
       </div>
-    </div>
-  )
-}
 
-function Stat({ label, value, hint, tone = 'text-gray-900' }: { label: string; value: string; hint: string; tone?: string }) {
-  return (
-    <DataPanel compact className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
-      <p className="text-xs font-medium text-gray-500">{label}</p>
-      <p className={`text-lg font-bold truncate ${tone}`}>{value}</p>
-      <p className="text-xs text-gray-400">{hint}</p>
-    </DataPanel>
+      {error && <Notice tone="error">{error.message}</Notice>}
+      {transactions.length >= LIMIT && (
+        <Notice tone="warning">Menampilkan {LIMIT} transaksi terbaru saja. Persempit rentang tanggal agar ringkasan akurat.</Notice>
+      )}
+
+      <Panel title="Daftar Transaksi" bodyClassName=""
+        description={`${transactions.length.toLocaleString('id-ID')} transaksi ditemukan`}
+        actions={byPayment.length > 0 && (
+          <ul aria-label="Total per metode pembayaran" className="flex flex-wrap gap-1.5">
+            {byPayment.map(([k, v]) => (
+              <li key={k} className="rounded-full bg-gray-50 px-3 py-1 text-xs text-gray-600 ring-1 ring-gray-100">
+                {PAYMENT_LABELS[k] ?? k} <span className="ml-1 font-semibold tabular-nums text-gray-900">{rupiah(v)}</span>
+              </li>
+            ))}
+          </ul>
+        )}>
+        <TransactionList transactions={transactions} showBusiness={false} />
+      </Panel>
+    </div>
   )
 }

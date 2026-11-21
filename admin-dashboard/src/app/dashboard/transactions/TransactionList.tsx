@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { X, ChevronRight, User, Store, Clock, ShoppingBag, StickyNote, History } from 'lucide-react'
+import { X, ChevronRight, User, Store, Clock, ShoppingBag, StickyNote, History, ReceiptText } from 'lucide-react'
 import { formatDateTime, rupiah, PAYMENT_LABELS } from '@/lib/format'
 import type { TxRow, TxItem } from './types'
 import DataPanel from '@/components/DataPanel'
+import { EmptyState } from '@/components/ui'
 
 const num = (v: number | string | null | undefined) => Number(v) || 0
 
@@ -18,20 +19,20 @@ function itemSummary(tx: TxRow) {
 
 export function StatusBadge({ tx }: { tx: TxRow }) {
   if (tx.status === 'cancelled')
-    return <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-semibold rounded-full">Batal</span>
+    return <span className="inline-flex rounded-full bg-red-50 px-2.5 py-0.5 text-[11px] font-semibold text-red-700 ring-1 ring-inset ring-red-100">Batal</span>
   if (tx.payment_type === 'hutang')
     return (
       <span
         className={
-          'px-2 py-0.5 text-xs font-semibold rounded-full ' +
-          (tx.debt_status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')
+          'inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset ' +
+          (tx.debt_status === 'paid' ? 'bg-emerald-50 text-emerald-700 ring-emerald-100' : 'bg-amber-50 text-amber-700 ring-amber-100')
         }
       >
         Bon {tx.debt_status === 'paid' ? 'Lunas' : 'Belum Lunas'}
       </span>
     )
   return (
-    <span className="px-2 py-0.5 bg-gray-100 text-gray-700 text-xs font-semibold rounded-full">
+    <span className="inline-flex rounded-full bg-gray-50 px-2.5 py-0.5 text-[11px] font-semibold text-gray-700 ring-1 ring-inset ring-gray-200">
       {PAYMENT_LABELS[tx.payment_type ?? ''] ?? tx.payment_type ?? '-'}
       {tx.payment_detail ? ` · ${tx.payment_detail}` : ''}
     </span>
@@ -50,7 +51,7 @@ export default function TransactionList({
   const [selected, setSelected] = useState<TxRow | null>(null)
 
   if (transactions.length === 0) {
-    return <DataPanel label="Memuat transaksi..."><p className="px-4 py-10 text-center text-sm text-gray-500">Belum ada transaksi.</p></DataPanel>
+    return <DataPanel label="Memuat transaksi..."><EmptyState icon={ReceiptText} title="Belum ada transaksi" description="Transaksi kasir yang sudah tersinkron akan tampil di sini." /></DataPanel>
   }
 
   return (
@@ -58,15 +59,15 @@ export default function TransactionList({
       {/* Desktop: tabel */}
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-left text-sm text-gray-600">
-          <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+          <thead className="border-b border-gray-100 bg-gray-50/70 text-[11px] uppercase tracking-[0.08em] text-gray-500">
             <tr>
-              <th className="px-4 py-3 font-medium">Waktu</th>
-              <th className="px-4 py-3 font-medium">No. Nota</th>
-              {showBusiness && <th className="px-4 py-3 font-medium">Cabang</th>}
-              <th className="px-4 py-3 font-medium">Pelanggan / Kasir</th>
-              {!compact && <th className="px-4 py-3 font-medium">Pesanan</th>}
-              <th className="px-4 py-3 font-medium">Bayar</th>
-              <th className="px-4 py-3 font-medium text-right">Total</th>
+              <th className="px-5 py-3 font-semibold">Waktu</th>
+              <th className="px-5 py-3 font-semibold">No. Nota</th>
+              {showBusiness && <th className="px-5 py-3 font-semibold">Cabang</th>}
+              <th className="px-5 py-3 font-semibold">Pelanggan / Kasir</th>
+              {!compact && <th className="px-5 py-3 font-semibold">Pesanan</th>}
+              <th className="px-5 py-3 font-semibold">Bayar</th>
+              <th className="px-5 py-3 font-semibold text-right">Total</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -77,28 +78,28 @@ export default function TransactionList({
                 <tr
                   key={tx.id + (tx.businesses?.name ?? '')}
                   onClick={() => setSelected(tx)}
-                  className={'cursor-pointer ' + (cancelled ? 'bg-red-50/40 text-gray-400 hover:bg-red-50' : 'hover:bg-blue-50/40')}
+                  className={'group cursor-pointer transition-colors ' + (cancelled ? 'bg-red-50/30 text-gray-400 hover:bg-red-50/60' : 'hover:bg-blue-50/40')}
                 >
-                  <td className="px-4 py-3 whitespace-nowrap text-gray-900">{formatDateTime(tx.created_at)}</td>
-                  <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">{tx.id}</td>
-                  {showBusiness && <td className="px-4 py-3">{tx.businesses?.name ?? '-'}</td>}
-                  <td className="px-4 py-3">
+                  <td className="px-5 py-3.5 whitespace-nowrap text-gray-900">{formatDateTime(tx.created_at)}</td>
+                  <td className="px-5 py-3.5 whitespace-nowrap font-mono text-xs">{tx.id}</td>
+                  {showBusiness && <td className="px-5 py-3.5">{tx.businesses?.name ?? '-'}</td>}
+                  <td className="px-5 py-3.5">
                     <p className="text-gray-900">{tx.customer_name || tx.order_type || '-'}</p>
                     <p className="text-xs text-gray-400">{tx.cashier_name ?? '-'}</p>
                   </td>
                   {!compact && (
-                    <td className="px-4 py-3 text-xs max-w-xs">
+                    <td className="px-5 py-3.5 text-xs max-w-xs">
                       <p className="truncate">{itemSummary(tx)}</p>
                       <p className="text-gray-400">{itemCount(tx)} item</p>
                     </td>
                   )}
-                  <td className="px-4 py-3 whitespace-nowrap">
+                  <td className="px-5 py-3.5 whitespace-nowrap">
                     <StatusBadge tx={tx} />
                   </td>
                   <td className={'px-4 py-3 text-right font-semibold whitespace-nowrap ' + (cancelled ? 'line-through' : 'text-gray-900')}>
                     {rupiah(tx.grand_total)}
                   </td>
-                  <td className="pr-3 text-gray-300">
+                  <td className="pr-4 text-gray-300 transition-colors group-hover:text-blue-600">
                     <ChevronRight className="w-4 h-4" />
                   </td>
                 </tr>
@@ -215,22 +216,23 @@ function TransactionDetail({ tx, onClose }: { tx: TxRow; onClose: () => void }) 
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full max-w-md h-full bg-white shadow-xl flex flex-col">
-        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
+      <div className="absolute inset-0 bg-espresso-900/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative flex h-full w-full max-w-md flex-col bg-white shadow-xl sm:rounded-l-3xl sm:overflow-hidden">
+        <div className="flex items-start justify-between gap-3 bg-espresso-900 px-6 py-5 text-white">
           <div className="min-w-0">
-            <p className="text-xs text-gray-400">Detail Pesanan</p>
-            <h2 className="font-mono text-sm font-semibold text-gray-900 break-all">{tx.id}</h2>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-champagne">Detail Pesanan</p>
+            <h2 className="mt-1 break-all font-mono text-sm font-semibold text-white">{tx.id}</h2>
+            <p className={'mt-2 font-display text-3xl font-semibold tabular-nums ' + (cancelled ? 'text-gray-400 line-through' : '')}>{rupiah(tx.grand_total)}</p>
             <div className="mt-1.5">
               <StatusBadge tx={tx} />
             </div>
           </div>
-          <button onClick={onClose} className="p-2 -mr-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="Tutup">
+          <button onClick={onClose} className="-mr-2 rounded-lg p-2 text-gray-400 hover:bg-white/10 hover:text-white" aria-label="Tutup">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
           {cancelled && (
             <div className="bg-red-50 text-red-700 text-sm rounded-lg p-3">
               <p className="font-semibold">Transaksi dibatalkan</p>
@@ -242,7 +244,7 @@ function TransactionDetail({ tx, onClose }: { tx: TxRow; onClose: () => void }) 
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4 rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100">
             <Meta icon={Clock} label="Waktu" value={formatDateTime(tx.created_at)} />
             <Meta icon={ShoppingBag} label="Tipe Pesanan" value={tx.order_type ?? '-'} />
             <Meta icon={User} label="Pelanggan" value={[tx.customer_name, tx.customer_phone].filter(Boolean).join(' · ') || '-'} />
@@ -273,7 +275,7 @@ function TransactionDetail({ tx, onClose }: { tx: TxRow; onClose: () => void }) 
             <Row label="Total" value={rupiah(tx.grand_total)} strong />
           </div>
 
-          <div className="space-y-1.5 bg-gray-50 rounded-lg p-3">
+          <div className="space-y-1.5 rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100">
             <Row
               label="Metode"
               value={`${PAYMENT_LABELS[tx.payment_type ?? ''] ?? tx.payment_type ?? '-'}${tx.payment_detail ? ` · ${tx.payment_detail}` : ''}`}

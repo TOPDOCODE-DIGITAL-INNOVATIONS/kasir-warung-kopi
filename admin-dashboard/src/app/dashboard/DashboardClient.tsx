@@ -1,10 +1,11 @@
 'use client'
 
 import DataPanel from '@/components/DataPanel'
+import InfoTip from '@/components/InfoTip'
 
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { useState } from 'react'
-import { TrendingUp, Receipt, Wallet, HandCoins, BookOpen, Expand } from 'lucide-react'
+import { TrendingUp, Receipt, Wallet, HandCoins, BookOpen, Expand, ArrowUpRight, Trophy } from 'lucide-react'
 import { rupiah } from '@/lib/format'
 import Link from 'next/link'
 import TransactionList from './transactions/TransactionList'
@@ -19,25 +20,22 @@ type Props = {
   showBusiness: boolean
 }
 
-function Card({ label, value, hint, icon: Icon, tone }: {
-  label: string
-  value: string
-  hint: string
-  icon: typeof TrendingUp
-  tone: string
+const panel = 'rounded-2xl border border-gray-200/70 bg-white shadow-sm'
+
+function Metric({ label, value, hint, info, icon: Icon, tone }: {
+  label: string; value: string; hint: string; info: string; icon: typeof TrendingUp; tone: string
 }) {
   return (
-    <DataPanel compact className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-500 mb-1">{label}</p>
-          <h3 className="text-xl font-bold text-gray-900 truncate" title={value}>{value}</h3>
-        </div>
-        <div className={`w-11 h-11 shrink-0 rounded-lg flex items-center justify-center ${tone}`}>
-          <Icon className="w-5 h-5" />
-        </div>
+    <DataPanel compact className={`${panel} group p-5 transition-shadow hover:shadow-md`}>
+      <div className="flex items-start justify-between gap-3">
+        <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>
+          <Icon aria-hidden="true" className="h-[18px] w-[18px]" />
+        </span>
+        <InfoTip label={label} text={info} />
       </div>
-      <p className="mt-3 text-xs text-gray-400">{hint}</p>
+      <p className="mt-4 text-[13px] font-medium text-gray-500">{label}</p>
+      <p className="mt-1 truncate text-[22px] font-semibold tracking-tight text-gray-900 tabular-nums" title={value}>{value}</p>
+      <p className="mt-2 truncate text-xs text-gray-400" title={hint}>{hint}</p>
     </DataPanel>
   )
 }
@@ -46,59 +44,113 @@ export default function DashboardClient(p: Props) {
   const [showProducts, setShowProducts] = useState(false)
   const rangeLabel = formatRange(p.range.start, p.range.end)
   const dayFormat = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', timeZone: 'UTC' })
-  const chartData = p.summary.daily.map(day => ({ name: dayFormat.format(new Date(`${day.day}T00:00:00Z`)), sales: day.sales }))
+  const longDay = new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
+  const chartData = p.summary.daily.map(day => ({
+    name: dayFormat.format(new Date(`${day.day}T00:00:00Z`)),
+    full: longDay.format(new Date(`${day.day}T00:00:00Z`)),
+    sales: day.sales,
+  }))
+  const peak = chartData.reduce<(typeof chartData)[number] | null>((best, day) => (day.sales > (best?.sales ?? 0) ? day : best), null)
+  const top = p.summary.topProducts.slice(0, 10)
+  const topQty = top[0]?.qty || 1
+
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
-        <Card label="Penjualan" value={rupiah(p.summary.sales)} hint={rangeLabel} icon={TrendingUp} tone="bg-green-50 text-green-600" />
-        <Card label="Jumlah Transaksi" value={p.summary.count.toLocaleString('id-ID')} hint="Transaksi kasir selesai pada rentang ini" icon={Receipt} tone="bg-blue-50 text-blue-600" />
-        <Card label="Bon Belum Lunas" value={rupiah(p.summary.unpaidDebt)} hint="Dari transaksi pada rentang ini" icon={HandCoins} tone="bg-amber-50 text-amber-600" />
-        <Card label="Pemasukan" value={rupiah(p.summary.income)} hint={`Penjualan + kelebihan ${rupiah(p.summary.overpay)}`} icon={BookOpen} tone="bg-indigo-50 text-indigo-600" />
-        <Card label="Pengeluaran" value={rupiah(p.summary.expenses)} hint={rangeLabel} icon={Wallet} tone="bg-red-50 text-red-600" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <DataPanel className="relative overflow-hidden rounded-2xl bg-espresso-900 p-6 text-white shadow-lg md:col-span-2 xl:row-span-2">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-champagne/20 blur-3xl" />
+          <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,transparent_55%,rgb(217_191_136/0.08))]" />
+          <div className="relative flex h-full flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <span className="inline-flex items-center gap-2 rounded-full bg-white/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-champagne ring-1 ring-white/10">
+                <TrendingUp aria-hidden="true" className="h-3.5 w-3.5" /> Penjualan
+              </span>
+              <InfoTip tone="dark" label="Penjualan" text="Total nilai penjualan pada rentang terpilih, termasuk rekap manual. Catatan bulanan dihitung pada tanggal 1." />
+            </div>
+            <p className="mt-6 font-display text-4xl font-semibold tracking-tight tabular-nums sm:text-5xl" title={rupiah(p.summary.sales)}>{rupiah(p.summary.sales)}</p>
+            <p className="mt-2 text-sm text-gray-400">{rangeLabel}</p>
+            <dl className="mt-auto grid grid-cols-2 gap-4 border-t border-white/10 pt-5 text-sm max-xl:mt-8">
+              <div>
+                <dt className="text-xs text-gray-400">Jumlah transaksi</dt>
+                <dd className="mt-1 text-lg font-semibold tabular-nums">{p.summary.count.toLocaleString('id-ID')}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-xs text-gray-400">Hari tertinggi</dt>
+                <dd className="mt-1 truncate text-lg font-semibold" title={peak ? `${peak.full} · ${rupiah(peak.sales)}` : undefined}>
+                  {peak ? <>{peak.name} <span className="text-sm font-normal text-champagne">{rupiah(peak.sales)}</span></> : '—'}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </DataPanel>
+        <Metric label="Pemasukan" value={rupiah(p.summary.income)} hint={`Penjualan + kelebihan ${rupiah(p.summary.overpay)}`} icon={BookOpen} tone="bg-blue-50 text-blue-700"
+          info="Nilai penjualan ditambah kelebihan pembayaran, termasuk penjualan bon yang belum lunas." />
+        <Metric label="Pengeluaran" value={rupiah(p.summary.expenses)} hint={rangeLabel} icon={Wallet} tone="bg-red-50 text-red-600"
+          info="Total pengeluaran dari admin dan kasir pada rentang terpilih." />
+        <Metric label="Bon Belum Lunas" value={rupiah(p.summary.unpaidDebt)} hint="Dari transaksi pada rentang ini" icon={HandCoins} tone="bg-amber-50 text-amber-700"
+          info="Sisa tagihan pelanggan (bon) dari transaksi pada rentang ini yang belum dibayar." />
+        <Metric label="Jumlah Transaksi" value={p.summary.count.toLocaleString('id-ID')} hint="Transaksi kasir selesai" icon={Receipt} tone="bg-emerald-50 text-emerald-700"
+          info="Jumlah transaksi kasir berstatus selesai pada rentang terpilih." />
       </div>
-      <p className="text-xs text-gray-400">Penjualan termasuk rekap manual. Catatan bulanan dihitung pada tanggal 1. Pemasukan di sini adalah nilai penjualan dan kelebihan pembayaran, termasuk penjualan bon.</p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <DataPanel className="lg:col-span-2 bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900 mb-4">Penjualan</h3>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <DataPanel className={`${panel} p-6 lg:col-span-2`}>
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Tren Penjualan Harian</h2>
+              <p className="mt-0.5 text-xs text-gray-500">{rangeLabel} · arahkan kursor ke batang untuk detail</p>
+            </div>
+          </div>
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#6B7280', fontSize: 12 }} />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#6B7280', fontSize: 12 }}
-                  tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 1000)}rb` : String(v))}
-                />
+              <BarChart data={chartData} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="salesBar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#c7a25f" />
+                    <stop offset="100%" stopColor="#8a6a30" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="2 4" vertical={false} stroke="#e8e4dd" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#7a7268', fontSize: 11 }} minTickGap={8} />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#7a7268', fontSize: 11 }}
+                  tickFormatter={(v: number) => (v >= 1_000_000 ? `${(v / 1_000_000).toLocaleString('id-ID', { maximumFractionDigits: 1 })}jt` : v >= 1000 ? `${Math.round(v / 1000)}rb` : String(v))} />
                 <Tooltip
-                  cursor={{ fill: '#F3F4F6' }}
-                  contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  cursor={{ fill: '#f4ecda', opacity: 0.6 }}
+                  contentStyle={{ borderRadius: 12, border: '1px solid #e8e4dd', boxShadow: '0 12px 32px -16px rgb(28 24 20 / 0.25)', fontSize: 12 }}
+                  labelFormatter={(_, payload) => payload?.[0]?.payload?.full ?? ''}
                   formatter={(value) => [rupiah(Number(value)), 'Penjualan']}
                 />
-                <Bar dataKey="sales" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="sales" fill="url(#salesBar)" radius={[6, 6, 2, 2]} maxBarSize={36} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </DataPanel>
 
-        <DataPanel className="bg-white rounded-xl shadow-sm p-5 border border-gray-100 min-w-0">
-          <div className="flex items-center justify-between gap-2 mb-4">
-            <h3 className="text-lg font-bold text-gray-900">Produk Terlaris</h3>
-            <button type="button" onClick={() => setShowProducts(true)} aria-haspopup="dialog" className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50"><Expand className="h-3.5 w-3.5" />Lihat Semua</button>
+        <DataPanel className={`${panel} min-w-0 p-6`}>
+          <div className="mb-5 flex items-start justify-between gap-2">
+            <div>
+              <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900"><Trophy aria-hidden="true" className="h-4 w-4 text-blue-600" />Produk Terlaris</h2>
+              <p className="mt-0.5 text-xs text-gray-500">Berdasarkan jumlah terjual</p>
+            </div>
+            <button type="button" onClick={() => setShowProducts(true)} aria-haspopup="dialog"
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"><Expand aria-hidden="true" className="h-3.5 w-3.5" />Semua</button>
           </div>
-          {p.summary.topProducts.length === 0 ? (
-            <p className="text-sm text-gray-500">Belum ada data.</p>
+          {top.length === 0 ? (
+            <p className="flex h-72 items-center justify-center rounded-xl border border-dashed border-gray-200 text-sm text-gray-500">Belum ada penjualan pada rentang ini.</p>
           ) : (
-            <ol tabIndex={0} aria-label="10 produk terlaris berdasarkan jumlah terjual" className="h-72 overflow-y-auto space-y-3 pr-2">
-              {p.summary.topProducts.slice(0, 10).map((item, i) => (
-                <li key={item.key} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate" title={item.name}>
-                    <span className="text-gray-400 mr-2">{i + 1}.</span>
-                    {item.name}
-                  </span>
-                  <span className="font-semibold shrink-0 tabular-nums">{item.qty.toLocaleString('id-ID')}</span>
+            <ol tabIndex={0} aria-label="10 produk terlaris berdasarkan jumlah terjual" className="h-72 space-y-3.5 overflow-y-auto pr-1 [scrollbar-width:thin]">
+              {top.map((item, i) => (
+                <li key={item.key} className="text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex min-w-0 items-center gap-2.5" title={item.name}>
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums ${i < 3 ? 'bg-espresso-900 text-champagne' : 'bg-gray-100 text-gray-500'}`}>{i + 1}</span>
+                      <span className="truncate font-medium text-gray-800">{item.name}</span>
+                    </span>
+                    <span className="shrink-0 font-semibold tabular-nums text-gray-900">{item.qty.toLocaleString('id-ID')}</span>
+                  </div>
+                  <div aria-hidden="true" className="ml-8.5 mt-1.5 h-1 overflow-hidden rounded-full bg-gray-100">
+                    <div className="h-full rounded-full bg-linear-to-r from-blue-600 to-blue-400" style={{ width: `${Math.max(4, (item.qty / topQty) * 100)}%` }} />
+                  </div>
                 </li>
               ))}
             </ol>
@@ -106,11 +158,15 @@ export default function DashboardClient(p: Props) {
         </DataPanel>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-lg font-bold text-gray-900">Transaksi Terbaru</h3>
-          <Link href={`/dashboard/transactions?from=${p.range.start}&to=${p.range.end}`} className="text-sm font-medium text-blue-600 hover:underline">
-            Lihat transaksi cabang aktif
+      <div className={`${panel} overflow-hidden`}>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-6 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Transaksi Terbaru</h2>
+            <p className="mt-0.5 text-xs text-gray-500">Klik transaksi untuk melihat detail pesanan</p>
+          </div>
+          <Link href={`/dashboard/transactions?from=${p.range.start}&to=${p.range.end}`}
+            className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-semibold text-blue-700 hover:bg-blue-50">
+            Lihat transaksi cabang aktif <ArrowUpRight aria-hidden="true" className="h-4 w-4" />
           </Link>
         </div>
         <TransactionList transactions={p.summary.recent} showBusiness={p.showBusiness} compact />

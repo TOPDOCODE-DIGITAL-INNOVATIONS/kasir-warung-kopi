@@ -3,6 +3,8 @@ import { unstable_rethrow } from 'next/navigation'
 import { getBusinessContext } from '@/lib/business-context'
 import { getCashierUsers } from './actions'
 import UsersClient from './UsersClient'
+import { Users } from 'lucide-react'
+import { EmptyState, PageHeader, ui } from '@/components/ui'
 
 export default async function UsersPage() {
   const { businessId } = await getBusinessContext()
@@ -17,18 +19,14 @@ export default async function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Kelola User</h1>
-        <p className="text-gray-500 text-sm mt-1">Kelola profil dan hak akses kasir pada setiap cabang usaha Anda.</p>
-      </div>
+      {(errorMessage || data?.invalidBusiness || data?.businesses.length === 0) &&
+        <PageHeader eyebrow="Usaha & Tim" title="Kelola User" description="Kelola profil dan hak akses kasir pada setiap cabang usaha Anda." />}
 
-      {errorMessage ? <p role="alert" className="text-sm text-red-600 bg-red-50 p-4 rounded-lg">{errorMessage}</p>
-        : data?.invalidBusiness ? <p role="alert" className="text-sm text-red-600 bg-red-50 p-4 rounded-lg">Cabang tidak ditemukan atau tidak dapat diakses. Pilih cabang lain.</p>
+      {errorMessage ? <p role="alert" className="text-sm text-red-700 bg-red-50 p-4 rounded-xl border border-red-100">{errorMessage}</p>
+        : data?.invalidBusiness ? <p role="alert" className="text-sm text-red-700 bg-red-50 p-4 rounded-xl border border-red-100">Cabang tidak ditemukan atau tidak dapat diakses. Pilih cabang lain.</p>
           : data?.businesses.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-sm p-8 border border-gray-100 text-center space-y-3">
-              <p className="text-gray-500">Belum ada cabang usaha. Buat cabang dan sinkronkan aplikasi kasir untuk menampilkan user.</p>
-              <Link href="/dashboard/businesses" className="inline-block text-sm font-semibold text-blue-600 hover:underline">Buka Cabang &amp; Token</Link>
-            </div>
+            <div className={ui.panel}><EmptyState icon={Users} title="Belum ada cabang usaha" description="Buat cabang dan sinkronkan aplikasi kasir untuk menampilkan user."
+              action={<Link href="/dashboard/businesses" className={ui.btnPrimary}>Buka Cabang &amp; Token</Link>} /></div>
           ) : <UsersClient key={businessId ?? 'all'} users={data?.users ?? []} configuration={data?.configuration ?? null} />}
     </div>
   )

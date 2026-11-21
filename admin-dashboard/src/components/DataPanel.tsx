@@ -11,7 +11,7 @@ export default function DataPanel({ children, className = '', loading, label = '
   const routePending = useDataLoading(), pending = loading ?? routePending
   return <div className={`relative ${className}`} aria-busy={pending} data-loading-panel="">
     <div inert={pending || undefined} className={pending ? 'pointer-events-none' : undefined}>{children}</div>
-    {pending && <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[inherit] bg-white/70 p-3 text-sm text-blue-600 print:hidden">
+    {pending && <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[inherit] bg-white/60 p-3 text-sm text-blue-700 backdrop-blur-[1px] print:hidden">
       <LoadingSpinner label={label} showLabel={!compact} />
     </div>}
   </div>

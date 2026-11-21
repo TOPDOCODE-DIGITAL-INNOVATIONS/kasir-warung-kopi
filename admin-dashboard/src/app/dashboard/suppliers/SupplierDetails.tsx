@@ -68,7 +68,7 @@ export default function SupplierDetails({ supplier, onClose }: { supplier: Suppl
 
   return (
     <AdminModal title={supplier.name} description="Detail Supplier" wide="detail" pending={false} onClose={onClose}
-      footer={<div className="flex justify-end"><button type="button" onClick={onClose} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Tutup</button></div>}>
+      footer={<div className="flex justify-end"><button type="button" onClick={onClose} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors">Tutup</button></div>}>
       <div className="space-y-4 p-5">
         <div role="tablist" aria-label="Detail supplier" className="flex gap-1 border-b border-gray-200">
           {tabs.map(({ value, label }) => (
@@ -107,7 +107,7 @@ export default function SupplierDetails({ supplier, onClose }: { supplier: Suppl
                         <p className="break-words font-medium">{row.label}</p>
                         <p className="mt-1 text-xs text-gray-500">
                           {(row.monthly ? monthFormat : dateFormat).format(new Date(`${row.date}T00:00:00Z`))} · {row.business}
-                          {row.kind === 'expense' && ' · Pengeluaran'}
+                          {row.kind === 'purchase' ? ' · Pembelian produk' : ' · Pengeluaran'}
                         </p>
                         {row.reference && <p className="mt-1 break-all text-xs text-gray-500">{row.reference}</p>}
                       </div>
@@ -116,10 +116,10 @@ export default function SupplierDetails({ supplier, onClose }: { supplier: Suppl
                   ))}
                 </ul>
               )}
-              {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
+              {error && <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
               {pending && <div className="py-2 text-sm text-gray-500"><LoadingSpinner label="Memuat riwayat transaksi..." showLabel /></div>}
               {!pending && next && (loaded || error) && (
-                <button type="button" onClick={() => void loadHistory()} className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                <button type="button" onClick={() => void loadHistory()} className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">
                   {error ? 'Coba Lagi' : 'Muat Lebih Banyak'}
                 </button>
               )}

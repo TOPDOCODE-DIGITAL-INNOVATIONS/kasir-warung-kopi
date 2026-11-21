@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { Edit, Plus, Power } from 'lucide-react'
+import { Edit, Plus, Power, Truck } from 'lucide-react'
+import { Badge, EmptyState, Notice, ui } from '@/components/ui'
 import AdminModal from '@/components/AdminModal'
 import DataPanel from '@/components/DataPanel'
 import LoadingSpinner from '@/components/LoadingSpinner'
@@ -10,9 +11,9 @@ import { saveSupplier, setSupplierStatus } from './actions'
 import SupplierDetails from './SupplierDetails'
 import type { Supplier } from './types'
 
-const primary = 'rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50'
-const secondary = 'rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50'
-const input = 'mt-1 w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+const primary = 'rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors'
+const secondary = 'rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50'
+const input = 'rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 mt-1 w-full'
 const fields = [
   { key: 'name', label: 'Nama supplier', limit: 150 },
   { key: 'code', label: 'Kode supplier', limit: 50 },
@@ -85,7 +86,7 @@ function SupplierForm({ supplier, statusOnly, onClose, onSaved }: {
             })}
           </fieldset>
         )}
-        {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
         <div className="flex flex-wrap justify-end gap-3 border-t border-gray-100 pt-4">
           <button type="button" onClick={onClose} disabled={pending} className={secondary}>Batal</button>
           <button type="submit" disabled={pending} className={primary}>
@@ -114,10 +115,13 @@ export default function SuppliersClient({ suppliers }: { suppliers: Supplier[] }
 
   return (
     <div className="space-y-4">
-      {message && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{message}</p>}
-      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-5">
-          <h2 className="font-semibold text-gray-900">Daftar Supplier <span className="ml-2 text-sm font-normal text-gray-500">{suppliers.length} supplier</span></h2>
+      {message && <Notice tone="success" role="status">{message}</Notice>}
+      <div className="overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-4 sm:px-6">
+          <div>
+            <h2 className="text-[15px] font-semibold text-gray-900">Daftar Supplier <span className="ml-1 text-sm font-normal text-gray-400">{suppliers.length} supplier</span></h2>
+            <p className="mt-0.5 text-xs text-gray-500">{suppliers.filter(x => x.is_active).length} aktif · klik nama untuk melihat riwayat pembelian</p>
+          </div>
           <button type="button" onClick={() => setModal({ type: 'create' })} disabled={refreshing} className={`${primary} inline-flex items-center gap-2`}>
             <Plus aria-hidden="true" className="h-4 w-4" /> Tambah Supplier
           </button>
@@ -126,38 +130,41 @@ export default function SuppliersClient({ suppliers }: { suppliers: Supplier[] }
           {suppliers.length ? (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-gray-600">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-700">
-                  <tr>{['Nama Supplier', 'Nama Kontak', 'Telepon / Email', 'Status', 'Aksi'].map(label => (
-                    <th key={label} scope="col" className="px-4 py-3">{label}</th>
+                <thead className="bg-gray-50/70 text-[11px] uppercase text-gray-500 tracking-[0.08em] border-b border-gray-100">
+                  <tr>{['Nama Supplier', 'Nama Kontak', 'Telepon / Email', 'Status', ''].map(label => (
+                    <th key={label} scope="col" className={ui.th}>{label}</th>
                   ))}</tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {suppliers.map(supplier => (
-                    <tr key={supplier.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <button type="button" onClick={() => setModal({ type: 'details', supplier })} className="text-left font-semibold text-blue-600 hover:underline">
-                          {supplier.name}
-                        </button>
-                        {supplier.code && <p className="mt-1 text-xs text-gray-500">{supplier.code}</p>}
+                    <tr key={supplier.id} className="transition-colors hover:bg-blue-50/30">
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-500"><Truck className="h-4 w-4" /></span>
+                          <div className="min-w-0">
+                            <button type="button" onClick={() => setModal({ type: 'details', supplier })} title="Lihat detail & riwayat pembelian" className="text-left font-semibold text-gray-900 hover:text-blue-700">
+                              {supplier.name}
+                            </button>
+                            {supplier.code && <p className="mt-0.5 font-mono text-xs text-gray-500">{supplier.code}</p>}
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-4 py-3">{supplier.contact_name || '—'}</td>
-                      <td className="px-4 py-3">
+                      <td className="px-5 py-3.5">{supplier.contact_name || '—'}</td>
+                      <td className="px-5 py-3.5">
                         <p>{supplier.phone || supplier.email || '—'}</p>
                         {supplier.phone && supplier.email && <p className="mt-1 text-xs text-gray-500">{supplier.email}</p>}
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={`rounded-md px-2 py-1 text-xs font-medium ${supplier.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                          {supplier.is_active ? 'Aktif' : 'Nonaktif'}
-                        </span>
+                      <td className="px-5 py-3.5">
+                        <Badge tone={supplier.is_active ? 'green' : 'gray'}>{supplier.is_active ? 'Aktif' : 'Nonaktif'}</Badge>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1">
-                          <button type="button" title="Edit Supplier" aria-label={`Edit ${supplier.name}`} onClick={() => setModal({ type: 'edit', supplier })} className="rounded-lg p-2 text-blue-600 hover:bg-blue-50">
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center justify-end gap-1">
+                          <button type="button" title="Edit Supplier" aria-label={`Edit ${supplier.name}`} onClick={() => setModal({ type: 'edit', supplier })} className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-700">
                             <Edit aria-hidden="true" className="h-4 w-4" />
                           </button>
                           <button type="button" title={supplier.is_active ? 'Nonaktifkan Supplier' : 'Aktifkan Supplier'}
                             aria-label={`${supplier.is_active ? 'Nonaktifkan' : 'Aktifkan'} ${supplier.name}`}
-                            onClick={() => setModal({ type: 'status', supplier })} className="rounded-lg p-2 text-gray-600 hover:bg-gray-100">
+                            onClick={() => setModal({ type: 'status', supplier })} className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900">
                             <Power aria-hidden="true" className="h-4 w-4" />
                           </button>
                         </div>
@@ -167,7 +174,7 @@ export default function SuppliersClient({ suppliers }: { suppliers: Supplier[] }
                 </tbody>
               </table>
             </div>
-          ) : <p className="p-8 text-center text-sm text-gray-500">Belum ada supplier. Tambahkan supplier agar bisa dipilih saat mencatat pembelian.</p>}
+          ) : <EmptyState icon={Truck} title="Belum ada supplier" description="Tambahkan supplier agar bisa dipilih saat mencatat pembelian." />}
         </DataPanel>
       </div>
       {modal?.type === 'details' && <SupplierDetails supplier={modal.supplier} onClose={close} />}

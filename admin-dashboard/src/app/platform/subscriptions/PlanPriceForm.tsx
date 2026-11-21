@@ -37,15 +37,15 @@ export default function PlanPriceForm({ code, amount }: { code: 'monthly' | 'yea
               inputMode="numeric"
               required
               defaultValue={amount ?? ''}
-              className="mt-1 block w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 mt-1 block w-36"
             />
           </label>
           <button type="submit" disabled={pending}
-            className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+            className="rounded-xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">
             {pending ? 'Menyimpan...' : 'Simpan'}
           </button>
           <button type="button" disabled={pending} onClick={() => setEditing(false)}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+            className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50">
             Batal
           </button>
         </form>

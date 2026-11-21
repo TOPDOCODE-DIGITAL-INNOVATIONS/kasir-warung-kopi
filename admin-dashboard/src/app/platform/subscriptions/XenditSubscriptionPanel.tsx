@@ -226,7 +226,7 @@ export default function XenditSubscriptionPanel({
       </div>
 
       {notice && (
-        <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">
+        <p role="status" className="rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-sm text-emerald-800">
           {notice}
         </p>
       )}

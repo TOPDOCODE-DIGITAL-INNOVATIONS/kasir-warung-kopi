@@ -26,6 +26,16 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      proxy: {
+        '/api': { target: 'http://localhost:3000', xfwd: true },
+        '/login': { target: 'http://localhost:3000', xfwd: true },
+        '/register': { target: 'http://localhost:3000', xfwd: true },
+        '/forgot-password': { target: 'http://localhost:3000', xfwd: true },
+        '/reset-password': { target: 'http://localhost:3000', xfwd: true },
+        '/auth': { target: 'http://localhost:3000', xfwd: true },
+        '/kasir-connect': { target: 'http://localhost:3000', xfwd: true },
+        '/_next': { target: 'http://localhost:3000', xfwd: true },
+      },
     },
   };
 });

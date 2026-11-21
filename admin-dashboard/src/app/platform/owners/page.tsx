@@ -1,6 +1,7 @@
 import { unstable_rethrow } from 'next/navigation'
 import { getOwnerPage } from './actions'
 import OwnersClient from './OwnersClient'
+import { PageHeader } from '@/components/ui'
 
 export default async function PlatformOwnersPage({
   searchParams,
@@ -16,10 +17,7 @@ export default async function PlatformOwnersPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Kelola Owner</h1>
-        <p className="mt-1 text-sm text-gray-500">Lihat akun Owner dan atur status administrasinya.</p>
-      </div>
+      <PageHeader eyebrow="Pelanggan" title="Kelola Owner" description="Lihat akun Owner dan atur status administrasinya. Klik nama Owner untuk melihat detail." />
       {directory
         ? <OwnersClient {...directory} />
         : <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">

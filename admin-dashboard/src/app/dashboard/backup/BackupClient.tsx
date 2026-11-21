@@ -73,22 +73,22 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
-      <section className="xl:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 md:p-6 border-b border-gray-100 flex items-center gap-3">
-          <DatabaseBackup className="w-6 h-6 text-blue-600 shrink-0" />
+      <section className="xl:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200/70 overflow-hidden">
+        <div className="px-5 py-4 sm:px-6 border-b border-gray-100 flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 ring-1 ring-blue-100"><DatabaseBackup aria-hidden="true" className="h-[18px] w-[18px]" /></span>
           <div>
-            <h2 className="font-semibold text-lg text-gray-900">Backup Data</h2>
+            <h2 className="font-semibold text-[15px] text-gray-900">Backup Data</h2>
             <p className="text-sm text-gray-500 mt-1">Pilih periode, lalu unduh kategori data dari cabang aktif.</p>
           </div>
         </div>
 
-        <div className="p-4 md:p-6 space-y-6">
+        <div className="space-y-6 p-5 sm:p-6">
           <fieldset disabled={!!pending || unavailable} className="space-y-3">
             <legend className="text-sm font-medium text-gray-900 mb-3">Filter backup</legend>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label htmlFor="backup-business" className="block text-sm font-medium text-gray-700 mb-1.5">Cabang</label>
-                <input id="backup-business" readOnly value={branchLabel} className="w-full rounded-lg border border-gray-200 bg-gray-50 p-2.5 text-sm text-gray-900" />
+                <input id="backup-business" readOnly value={branchLabel} className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full bg-gray-50" />
               </div>
               <div>
                 <label htmlFor="backup-start" className="block text-sm font-medium text-gray-700 mb-1.5">Tanggal mulai</label>
@@ -102,7 +102,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
                   onInput={(event) => setStart(event.currentTarget.value)}
                   aria-describedby="backup-date-help"
                   aria-invalid={!!invalid}
-                  className="w-full border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5 disabled:opacity-50"
+                  className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full disabled:opacity-50"
                 />
               </div>
               <div>
@@ -117,7 +117,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
                   onInput={(event) => setEnd(event.currentTarget.value)}
                   aria-describedby="backup-date-help"
                   aria-invalid={!!invalid}
-                  className="w-full border border-gray-300 text-gray-900 text-sm rounded-lg p-2.5 disabled:opacity-50"
+                  className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full disabled:opacity-50"
                 />
               </div>
             </div>
@@ -127,19 +127,19 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
             </div>
           </fieldset>
 
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-blue-800 space-y-1">
+          <div className="space-y-1 rounded-xl border border-blue-100 bg-blue-50/70 p-4 text-sm text-blue-900">
             <p>Cabang, master kasir, dan produk selalu memuat seluruh data master dari cabang pilihan.</p>
             <p className="text-xs text-blue-700">Data bulanan ikut diambil bila bulannya beririsan dengan periode yang dipilih.</p>
           </div>
 
-          {businesses.length === 0 && !unavailable && <p className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">Buat cabang terlebih dahulu melalui menu Cabang &amp; Token untuk menyiapkan backup.</p>}
-          {(invalid || error) && <p role="alert" className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{invalid || error}</p>}
+          {businesses.length === 0 && !unavailable && <p className="rounded-xl bg-gray-50 p-3 text-sm text-gray-500">Buat cabang terlebih dahulu melalui menu Cabang &amp; Token untuk menyiapkan backup.</p>}
+          {(invalid || error) && <p role="alert" className="text-sm text-red-700 bg-red-50 p-3 rounded-xl border border-red-100">{invalid || error}</p>}
 
           <div>
             <h3 className="text-sm font-semibold text-gray-900 mb-3">Unduh per kategori</h3>
-            <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg overflow-hidden">
+            <div className="grid gap-3 sm:grid-cols-2">
               {BACKUP_DATASETS.map((dataset) => (
-                <div key={dataset.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div key={dataset.id} className="flex flex-col justify-between gap-4 rounded-2xl border border-gray-200/70 p-4 transition-colors hover:border-blue-200 hover:bg-blue-50/20">
                   <div className="min-w-0">
                     <h4 className="font-medium text-sm text-gray-900">{dataset.label}</h4>
                     <p className="text-xs text-gray-500 mt-1">{dataset.description}</p>
@@ -147,7 +147,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
                   </div>
                   <div className="flex shrink-0 gap-2">
                     {(['json', 'csv'] as const).map((format) => (
-                      <button key={format} type="button" disabled={disabled} onClick={() => download(dataset.id, format)} aria-label={`Unduh ${dataset.label} ${format.toUpperCase()}`} className="inline-flex items-center justify-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                      <button key={format} type="button" disabled={disabled} onClick={() => download(dataset.id, format)} aria-label={`Unduh ${dataset.label} ${format.toUpperCase()}`} className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
                         {pending === `${dataset.id}-${format}` ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                         {format.toUpperCase()}
                       </button>
@@ -161,18 +161,18 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
       </section>
 
       <aside className="space-y-6">
-        <section className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-4 md:p-6 border-b border-gray-100">
-            <h2 className="font-semibold text-lg text-gray-900">Ringkasan Backup</h2>
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-200/70 overflow-hidden">
+          <div className="px-5 py-4 sm:px-6 border-b border-gray-100">
+            <h2 className="font-semibold text-[15px] text-gray-900">Ringkasan Backup</h2>
             <p className="text-sm text-gray-500 mt-1">Unduhan mengikuti filter yang sedang dipilih.</p>
           </div>
-          <div className="p-4 md:p-6 space-y-5">
+          <div className="space-y-5 p-5 sm:p-6">
             <dl className="space-y-3 text-sm">
               <div><dt className="text-gray-500">Cabang</dt><dd className="font-medium text-gray-900 mt-1 break-words">{branchLabel}</dd></div>
               <div><dt className="text-gray-500">Periode data operasional</dt><dd className="font-medium text-gray-900 mt-1">{invalid ? 'Periksa rentang tanggal' : periodLabel}</dd></div>
               <div><dt className="text-gray-500">Kategori tersedia</dt><dd className="font-medium text-gray-900 mt-1">{BACKUP_DATASETS.length} kategori</dd></div>
             </dl>
-            <button type="button" disabled={disabled} onClick={() => download('all', 'json')} className="w-full inline-flex items-center justify-center gap-2 bg-blue-600 text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+            <button type="button" disabled={disabled} onClick={() => download('all', 'json')} className="w-full inline-flex items-center justify-center gap-2 bg-blue-600 text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               {pending === 'all-json' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileJson className="w-4 h-4" />}
               Unduh JSON Lengkap
             </button>
@@ -184,7 +184,7 @@ export default function BackupClient({ businesses, initialBusinessId, unavailabl
           </div>
         </section>
 
-        <section className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 md:p-6 space-y-3" aria-live="polite" aria-busy={!!pending}>
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-200/70 p-4 md:p-6 space-y-3" aria-live="polite" aria-busy={!!pending}>
           <h2 className="font-semibold text-gray-900">Unduhan Terakhir</h2>
           {pending ? (
             <p className="flex items-center gap-2 text-sm text-blue-600"><Loader2 className="w-4 h-4 animate-spin shrink-0" />Menyiapkan berkas backup…</p>

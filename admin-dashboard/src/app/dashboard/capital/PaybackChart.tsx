@@ -21,15 +21,15 @@ export default function PaybackChart({ data }: { data: ChartPoint[] }) {
     <div className="h-72 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} />
-          <YAxis tickFormatter={short} tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} width={56} />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e8e4dd" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#7a7268' }} tickLine={false} axisLine={false} />
+          <YAxis tickFormatter={short} tick={{ fontSize: 11, fill: '#7a7268' }} tickLine={false} axisLine={false} width={56} />
           <Tooltip formatter={(v, name) => [rupiah(Number(v)), NAMES[String(name)] ?? String(name)]} />
           <Legend formatter={(name) => NAMES[String(name)] ?? String(name)} wrapperStyle={{ fontSize: 12 }} />
-          <Bar dataKey="income" fill="#bfdbfe" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="profit" fill="#60a5fa" radius={[4, 4, 0, 0]} />
-          <Line type="monotone" dataKey="cumProfit" stroke="#15803d" strokeWidth={2} dot={false} />
-          <Line type="stepAfter" dataKey="cumCapital" stroke="#dc2626" strokeWidth={2} strokeDasharray="6 4" dot={false} />
+          <Bar dataKey="income" fill="#e8d8b3" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="profit" fill="#b0883f" radius={[4, 4, 0, 0]} />
+          <Line type="monotone" dataKey="cumProfit" stroke="#1f7a55" strokeWidth={2} dot={false} />
+          <Line type="stepAfter" dataKey="cumCapital" stroke="#b4442f" strokeWidth={2} strokeDasharray="6 4" dot={false} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

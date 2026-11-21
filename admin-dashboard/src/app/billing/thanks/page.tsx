@@ -23,9 +23,12 @@ export default async function BillingThanksPage({ searchParams }: {
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-gray-600">
           {cancelled
-            ? 'Anda keluar dari halaman pembayaran sebelum selesai. Tidak ada tagihan yang diproses. Hubungi admin KasirKu bila ingin mendapatkan tautan pembayaran lagi.'
+            ? 'Anda keluar dari halaman pembayaran sebelum selesai. Tidak ada tagihan yang diproses. Anda bisa mencoba lagi dari menu Langganan di dashboard.'
             : 'Pembayaran langganan KasirKu Anda sedang kami verifikasi bersama Xendit. Status langganan diperbarui otomatis dalam beberapa menit. Halaman ini boleh ditutup.'}
         </p>
+        <a href="/dashboard/billing" className="mt-6 inline-block rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+          Buka Langganan Saya
+        </a>
       </div>
     </main>
   )

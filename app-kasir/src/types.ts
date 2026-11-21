@@ -10,7 +10,8 @@ export interface Product {
   name: string;
   categoryId: CategoryId;
   price: number;
-  costPrice?: number; // Modal
+  costPrice?: number; // HPP / modal
+  costVerified?: boolean; // HPP checked by the Owner in the dashboard
   stock: number; // -1 for unlimited
   isAvailable: boolean;
   imageUrl?: string;

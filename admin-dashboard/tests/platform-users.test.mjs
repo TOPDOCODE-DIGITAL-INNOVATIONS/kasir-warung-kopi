@@ -127,7 +127,8 @@ test('starting a trial uses the verified actor and server duration and refreshes
 
 const branchId = 'e8200000-0000-0000-0000-000000000001'
 const version = '2026-11-16T01:00:00.000Z'
-function fixture({ active = branchId, initialized = true, race = false, owned = true } = {}) {
+function fixture({ active = branchId, initialized = true, race = false, owned = true, readOnly = false } = {}) {
+  const access = { readOnly }
   const original = { products: [{ id: 'latte', options: [{ name: 'Suhu' }] }], categories: [{ id: 'coffee' }], cashiers: [{ id: 'owner-profile', name: 'Existing', role: 'Owner', pinHash: 'existing-hash', pinSalt: 'existing-salt' }], settings: { storeName: 'Original store' }, custom: { preserved: true } }
   const branch = { id: branchId, name: 'Fixture branch', owner_id: owned ? 'owner-account' : 'foreign', pos_config: initialized ? structuredClone(original) : null, pos_config_updated_at: version }
   const queries = []
@@ -155,6 +156,7 @@ function fixture({ active = branchId, initialized = true, race = false, owned = 
     'next/cache': { revalidatePath() {} },
     '@/utils/supabase/server': { createClient: async () => db },
     '@/lib/business-context': { getBusinessContext: async () => ({ supabase: db, user: { id: 'owner-account' }, businessId: active, businesses: [{ id: branchId, name: branch.name }] }) },
+    '@/lib/billing/owner-billing': { READ_ONLY_MESSAGE: 'Hanya-baca', getCurrentOwnerAccess: async () => ({ access: { readOnly: access.readOnly } }) },
   })
   return { actions, branch, original, queries }
 }
@@ -191,8 +193,8 @@ test('cashier list never returns PIN hashes, plaintext or salts to the browser',
   assert.doesNotMatch(JSON.stringify(result), /existing-hash|existing-salt|pinHash|pinSalt/)
 })
 
-test('cashier creation rejects foreign or changed branch context, stale writes and uninitialized config', async () => {
-  for (const options of [{ active: 'another-branch' }, { owned: false }, { race: true }, { initialized: false }]) {
+test('cashier creation rejects foreign or changed branch context and stale writes', async () => {
+  for (const options of [{ active: 'another-branch' }, { owned: false }, { race: true }]) {
     const f = fixture(options)
     const before = JSON.stringify(f.branch.pos_config)
     assert.equal((await f.actions.addCashier(form())).success, false)
@@ -259,4 +261,43 @@ test('bootstrap rejects unknown email, unconfirmed and inactive accounts', async
   const f = authAdmin()
   await assert.rejects(bootstrapSuperAdmin(f.admin, { email: 'missing@example.invalid', apply: true }))
   assert.equal(f.updates.length, 0)
+})
+
+test('read-only subscription blocks adding, editing and deleting cashiers without touching config', async () => {
+  const f = fixture({ readOnly: true })
+  for (const result of [await f.actions.addCashier(form()), await f.actions.updateCashier(form({ cashier_id: 'owner-profile' })), await f.actions.deleteCashier(form({ cashier_id: 'owner-profile' }))]) {
+    assert.deepEqual(plain(result), { success: false, message: 'Hanya-baca' })
+  }
+  assert.deepEqual(plain(f.branch.pos_config), f.original)
+  assert.equal(f.queries.length, 0)
+})
+
+test('empty branch: first user must be Owner and creates an empty server config for this branch only', async () => {
+  const f = fixture({ initialized: false })
+  const refused = await f.actions.addCashier(form())
+  assert.equal(refused.success, false)
+  assert.match(refused.message, /Owner/)
+  assert.equal(f.branch.pos_config, null)
+
+  const f2 = fixture({ initialized: false })
+  f2.branch.pos_config_updated_at = null
+  const created = await f2.actions.addCashier(form({ role: 'Owner', config_version: '' }))
+  assert.equal(created.success, true, created.message)
+  const config = plain(f2.branch.pos_config)
+  assert.deepEqual(config.products, [])
+  assert.ok(config.categories.some(c => c.id === 'all'))
+  assert.equal(config.settings.storeName, 'Fixture branch')
+  assert.deepEqual(config.settings.bankAccounts, [])
+  assert.equal(config.cashiers.length, 1)
+  assert.equal(config.cashiers[0].role, 'Owner')
+  assert.ok(config.cashiers[0].pinHash && !('pin' in config.cashiers[0]))
+  assert.ok(f2.branch.pos_config_updated_at)
+})
+
+test('a partial or corrupted branch config is never overwritten from the dashboard', async () => {
+  const f = fixture()
+  f.branch.pos_config = { cashiers: 'broken' }
+  const result = await f.actions.addCashier(form({ role: 'Owner' }))
+  assert.equal(result.success, false)
+  assert.deepEqual(plain(f.branch.pos_config), { cashiers: 'broken' })
 })

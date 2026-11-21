@@ -42,6 +42,7 @@ import {
   deleteDraft,
   draftItemsForCart,
   maybeAutoSync,
+  isBranchSetupRequired,
 } from './storage';
 import { verifyPin, hashPin, isValidPin, sha256Hex } from './security';
 import { can } from './permissions';
@@ -755,7 +756,7 @@ describe('sync dua arah antar perangkat', () => {
     expect(getAllShifts().map((s) => s.id)).toEqual([own.id, 'SHIFT-B']);
   });
 
-  it('perangkat lama: server belum punya data master -> menu perangkat ini dikirim', async () => {
+  it('perangkat lama: server belum punya data master -> menu perangkat TIDAK dikirim, cabang perlu disiapkan', async () => {
     saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
     const configs: any[] = [];
     stubServer(
@@ -767,10 +768,8 @@ describe('sync dua arah antar perangkat', () => {
     );
     const res = await performCloudSync();
     expect(res.success).toBe(true);
-    expect(configs).toHaveLength(1);
-    expect(configs[0].products.length).toBeGreaterThan(0);
-    expect(configs[0].settings.syncApiKey).toBeUndefined();
-    expect(hasPendingPush()).toBe(false);
+    expect(configs).toHaveLength(0);
+    expect(isBranchSetupRequired()).toBe(true);
   });
 
   it('link kasir: simpan token, hapus dari URL, perangkat baru menunggu data master server', async () => {

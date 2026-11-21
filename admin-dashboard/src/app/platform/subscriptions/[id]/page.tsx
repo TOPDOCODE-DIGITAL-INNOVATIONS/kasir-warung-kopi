@@ -8,7 +8,7 @@ import StartTrialButton from '../StartTrialButton'
 import XenditSubscriptionPanel from '../XenditSubscriptionPanel'
 import { getCheckoutContext } from '../xendit-actions'
 
-const panel = 'overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm'
+const panel = 'overflow-hidden rounded-2xl border border-gray-200/70 bg-white shadow-sm'
 const tableHead = 'whitespace-nowrap px-4 py-3'
 const tableCell = 'whitespace-nowrap px-4 py-3 text-gray-600'
 
@@ -40,7 +40,7 @@ export default async function BillingDetailPage({ params, searchParams }: {
   if (detail === null) notFound()
 
   const back = (
-    <Link href={list} className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline">
+    <Link href={list} className="-ml-2 inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-semibold text-gray-600 transition-colors hover:bg-white hover:text-gray-900">
       <ArrowLeft aria-hidden="true" className="h-4 w-4" /> Kembali ke Subscription &amp; Trial
     </Link>
   )
@@ -72,7 +72,8 @@ export default async function BillingDetailPage({ params, searchParams }: {
       <div className="space-y-3">
         {back}
         <div>
-          <h1 className="break-words text-2xl font-bold text-gray-900">{name}</h1>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Monetisasi</p>
+          <h1 className="mt-1 break-words text-[28px] leading-tight text-gray-900 sm:text-3xl">{name}</h1>
           <p className="mt-1 break-words text-sm text-gray-500">
             {[owner.name ? owner.email : null, environment === 'test' ? 'Lingkungan Test' : 'Lingkungan Live'].filter(Boolean).join(' · ')}
           </p>
@@ -81,12 +82,12 @@ export default async function BillingDetailPage({ params, searchParams }: {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
         {[{ label: 'Free Trial', fields: trial }, { label: 'Langganan', fields: subscription }].map(({ label, fields }) => (
-          <section key={label} className={`${panel} p-5`}>
-            <h2 className="font-semibold text-gray-900">{label}</h2>
+          <section key={label} className={`${panel} p-5 sm:p-6`}>
+            <h2 className="text-[15px] font-semibold text-gray-900">{label}</h2>
             <dl className="mt-4 grid gap-4 sm:grid-cols-2">
               {fields.map(({ label, value }) => (
                 <div className="min-w-0" key={label}>
-                  <dt className="text-sm text-gray-500">{label}</dt>
+                  <dt className="text-xs font-medium text-gray-500">{label}</dt>
                   <dd className="mt-1 break-words text-sm font-medium text-gray-900">{value}</dd>
                 </div>
               ))}
@@ -108,7 +109,7 @@ export default async function BillingDetailPage({ params, searchParams }: {
         <h2 id="billing-cycles" className="border-b border-gray-100 px-5 py-4 font-semibold text-gray-900">Siklus tagihan <span className="ml-2 text-xs font-normal text-gray-500">25 terbaru</span></h2>
         <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-700">
+              <thead className="bg-gray-50/70 text-[11px] uppercase text-gray-500 tracking-[0.08em] border-b border-gray-100">
                 <tr>{['Paket', 'Jadwal', 'Nominal', 'Status', 'Dibayar', 'Referensi pembayaran'].map(label => <th key={label} scope="col" className={tableHead}>{label}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -130,7 +131,7 @@ export default async function BillingDetailPage({ params, searchParams }: {
         <h2 id="billing-checkouts" className="border-b border-gray-100 px-5 py-4 font-semibold text-gray-900">Sesi checkout <span className="ml-2 text-xs font-normal text-gray-500">25 terbaru</span></h2>
         <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50 text-xs uppercase text-gray-700">
+              <thead className="bg-gray-50/70 text-[11px] uppercase text-gray-500 tracking-[0.08em] border-b border-gray-100">
                 <tr>{['Referensi', 'Paket', 'Nominal', 'Status', 'Dibuat', 'Kedaluwarsa'].map(label => <th key={label} scope="col" className={tableHead}>{label}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
