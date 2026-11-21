@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react'
 import { PiggyBank, Pencil, Plus, Trash2 } from 'lucide-react'
 import AdminModal from '@/components/AdminModal'
 import DataPanel from '@/components/DataPanel'
+import { EmptyState, Notice, ui } from '@/components/ui'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { rupiah } from '@/lib/format'
 import MoneyInput from '../products/MoneyInput'
@@ -12,7 +13,7 @@ import type { CapitalEntry } from './domain'
 
 const fmtDate = new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeZone: 'UTC' })
 const KIND_LABEL = { initial: 'Modal awal', additional: 'Tambahan modal' } as const
-const input = 'w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm'
+const input = ui.inputBare
 
 export default function CapitalClient({ businessId, entries, today }: { businessId: string; entries: CapitalEntry[]; today: string }) {
   const [editing, setEditing] = useState<CapitalEntry | 'new' | null>(null)
@@ -37,12 +38,12 @@ export default function CapitalClient({ businessId, entries, today }: { business
   }
 
   return (
-    <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 p-5">
+    <div className={`${ui.panel} overflow-hidden`}>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 px-5 py-4 sm:px-6">
         <div className="flex items-start gap-3">
-          <PiggyBank className="h-6 w-6 shrink-0 text-blue-600" aria-hidden="true" />
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 ring-1 ring-blue-100"><PiggyBank className="h-[18px] w-[18px]" aria-hidden="true" /></span>
           <div>
-            <h2 className="font-semibold text-gray-900">Catatan Modal</h2>
+            <h2 className="text-[15px] font-semibold text-gray-900">Catatan Modal</h2>
             <p className="mt-1 text-xs text-gray-500">
               Uang yang Anda keluarkan untuk memulai/mengembangkan usaha (alat, renovasi, stok awal). Jangan dicatat lagi sebagai
               pengeluaran operasional agar tidak dihitung dua kali.
@@ -53,21 +54,21 @@ export default function CapitalClient({ businessId, entries, today }: { business
           type="button"
           onClick={() => { setError(null); setEditing('new') }}
           disabled={!businessId}
-          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 print:hidden"
+          className={`${ui.btnPrimary} print:hidden`}
         >
           <Plus className="h-4 w-4" aria-hidden="true" /> Tambah Modal
         </button>
       </div>
 
-      {error && !editing && <p className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
+      {error && !editing && <Notice tone="error" className="m-4">{error}</Notice>}
 
       <DataPanel loading={pending && !editing} label="Menyimpan...">
         {entries.length === 0 ? (
-          <p className="p-5 text-sm text-gray-500">Belum ada catatan modal. Tambahkan modal awal untuk melihat progres balik modal.</p>
+          <EmptyState icon={PiggyBank} title="Belum ada catatan modal" description="Tambahkan modal awal untuk melihat progres balik modal." />
         ) : (
           <ul className="divide-y divide-gray-100">
             {entries.map((e) => (
-              <li key={e.id} className="flex items-center justify-between gap-3 px-5 py-3">
+              <li key={e.id} className="flex items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-gray-50/60 sm:px-6">
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-900">
                     {KIND_LABEL[e.kind]} <span className="font-normal text-gray-500">· {fmtDate.format(new Date(`${e.date}T00:00:00Z`))}</span>
@@ -91,7 +92,7 @@ export default function CapitalClient({ businessId, entries, today }: { business
                 </div>
               </li>
             ))}
-            <li className="flex justify-between bg-gray-50 px-5 py-3 text-sm font-semibold text-gray-900">
+            <li className="flex justify-between bg-gray-50/80 px-5 py-3.5 text-sm font-semibold tabular-nums text-gray-900 sm:px-6">
               <span>Total modal</span>
               <span>{rupiah(total)}</span>
             </li>
@@ -133,14 +134,14 @@ export default function CapitalClient({ businessId, entries, today }: { business
               <label htmlFor="capital-note" className="mb-1 block text-sm font-medium text-gray-700">Catatan (opsional)</label>
               <input id="capital-note" name="note" maxLength={500} defaultValue={current?.note ?? ''} placeholder="mis. mesin espresso, renovasi, stok awal" className={input} />
             </div>
-            {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
-            <div className="flex justify-end gap-2">
+            {error && <Notice tone="error">{error}</Notice>}
+            <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
               <button type="button" disabled={pending} onClick={() => setEditing(null)}
-                className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                className={ui.btnSecondary}>
                 Batal
               </button>
               <button type="submit" disabled={pending}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+                className={ui.btnPrimary}>
                 {pending && <LoadingSpinner />} {pending ? 'Menyimpan...' : 'Simpan'}
               </button>
             </div>

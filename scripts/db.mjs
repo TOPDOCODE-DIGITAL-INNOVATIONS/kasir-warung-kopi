@@ -210,6 +210,9 @@ export async function test() {
     'sync_drafts_and_transaction_edits.sql',
     'admin_inventory.sql',
     'platform_account_roles.sql',
+    'platform_xendit_webhook.sql',
+    'owner_self_service_billing.sql',
+    'hpp_purchase_correction.sql',
   ]
 
   const platformMigration = fs
@@ -259,4 +262,3 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exitCode = 1
   })
 }
-

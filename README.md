@@ -69,15 +69,44 @@ dijalankan di prod. Aplikasi production di Vercel memakai env dari Vercel, bukan
 
 ## 3. Hubungkan kasir
 
-1. Buka `https://<domain>/dashboard`, login, buka **Cabang & Token**, buat cabang, salin tokennya.
+1. Buka `https://<domain>/dashboard`, login, buka **Cabang & Token**, buat cabang.
 2. Di tablet/HP kasir buka `https://<domain>/kasir/` lalu *Add to Home Screen*.
-3. Login Owner di kasir → **Pengaturan** → *Sinkronisasi ke Dashboard Owner* → tempel token →
-   **Tes Sync Sekarang**. URL sync otomatis memakai domain yang sama (kolom URL boleh kosong).
+3. Kasir yang belum terhubung selalu menampilkan layar **Hubungkan ke Cabang**:
+   - **Akun Owner**: masuk dengan email + password (atau **Masuk dengan Google**), lalu pilih cabang.
+     Hanya cabang milik akun tersebut yang tampil.
+   - **Token Cabang**: tempel token dari Cabang & Token, atau buka *Link Kasir* dari dashboard.
+4. **Data kasir selalu bersumber dari server per cabang.** Cabang yang sudah punya data: menu,
+   kasir, dan pengaturan ditarik dari server dan menimpa data di perangkat. Cabang baru: siapkan
+   user pertama (Owner) dari Dashboard → Kelola User, atau buat nama + PIN Owner di kasir. Perangkat
+   tidak pernah mengunggah menu/karyawannya ke cabang kosong secara otomatis; kasir menampilkan
+   layar **Siapkan Cabang** (Mulai kosong / Kirim data perangkat ini, wajib PIN Owner).
+5. Nama cabang tampil di navbar kasir (**Cabang: …**).
+6. **Keluar dari Cabang** ada di Pengaturan kasir (khusus Owner, wajib PIN). Logout ditolak bila
+   shift masih terbuka atau ada data yang belum terkirim. Setelah logout, data cabang di perangkat
+   dihapus (data di server tetap aman) dan kasir kembali ke layar Hubungkan.
 
 Setelah itu sync berjalan otomatis saat online. Data yang dikirim: transaksi (termasuk
 pembatalan & pelunasan bon), pengeluaran, shift 14 hari terakhir, dan katalog produk.
 Satu cabang bisa punya beberapa perangkat kasir dengan token yang sama; nomor nota memuat kode
 perangkat sehingga tidak bentrok. Jika token bocor, tekan **Ganti** di dashboard.
+
+## Langganan, trial, dan login
+
+- **Saklar `BILLING_ENABLED`** (default mati). Tanpa `BILLING_ENABLED=true` tidak ada trial, dashboard
+  tidak pernah hanya-baca, dan kasir tidak pernah dibatasi. Nyalakan setelah Xendit Live siap.
+- Saat saklar menyala, **trial otomatis 14 hari** dimulai saat Owner pertama kali membuka dashboard atau kasirnya sync
+  (email harus terverifikasi). Owner lama juga otomatis mendapat trial 14 hari sejak rilis ini.
+- Owner berlangganan sendiri di **Dashboard → Langganan** (checkout Xendit; `BILLING_ENVIRONMENT`
+  memilih `test`/`live`). Satu langganan untuk semua cabang.
+- Setelah trial/periode berakhir ada **toleransi 3 hari**. Lewat dari itu dashboard **hanya-baca**
+  (laporan & backup tetap bisa) dan kasir **tidak bisa membuat transaksi baru**. Transaksi yang sudah
+  ada tetap diterima `/api/sync`. Aturannya ada di `shared/billing-access.ts`.
+- **Lupa password** (`/forgot-password`) dan **login Google** memakai Supabase Auth. Di Supabase →
+  Authentication → URL Configuration, tambahkan `https://<domain>/auth/confirm` (dan
+  `http://localhost:3000/auth/confirm` untuk dev) ke *Redirect URLs*. Aktifkan provider Google di
+  Authentication → Providers dengan Client ID/Secret dari Google Cloud Console.
+- Halaman publik: `/` (landing + harga), `/terms`, `/privacy`. Isi `NEXT_PUBLIC_COMPANY_*` dan
+  `NEXT_PUBLIC_SUPPORT_*` (lihat `.env.example`) sebelum rilis.
 
 ## Catatan operasional
 
@@ -117,6 +146,9 @@ cd app-kasir
 npm install
 npm run dev
 npm test
+
+# Test dashboard
+cd admin-dashboard && node --test tests/*.test.mjs
 ```
 
 Saat kasir dijalankan terpisah di port 3001, isi URL sync di Pengaturan kasir dengan

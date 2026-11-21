@@ -1,9 +1,12 @@
 'use server'
 
+import { getCurrentOwnerAccess, READ_ONLY_MESSAGE } from '@/lib/billing/owner-billing'
+
 import { revalidatePath } from 'next/cache'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createClient } from '@/utils/supabase/server'
 import { getBusinessContext } from '@/lib/business-context'
+import { NEW_BRANCH_CATEGORIES, newBranchSettings } from '../../../../../shared/branch-defaults'
 import { AVATAR_COLORS, CASHIER_ROLES, avatarColor, type CashierConfiguration, type CashierRow, type UserActionResult } from './types'
 
 type Row = Record<string, unknown>
@@ -52,6 +55,7 @@ export async function getCashierUsers(requestedBusinessId: string | null) {
     businessId: String(selected.id), businessName: String(selected.name),
     configVersion: typeof selected.pos_config_updated_at === 'string' ? selected.pos_config_updated_at : null,
     ready: validConfig(selected.config),
+    empty: selected.config === null || selected.config === undefined,
   } : null
   return { businesses, users, configuration, invalidBusiness: !!businessId && !businesses.some((business) => business.id === businessId) }
 }
@@ -63,6 +67,7 @@ function validConfig(config: unknown): config is Row & { cashiers: Row[] } {
 }
 
 export async function addCashier(formData: FormData): Promise<UserActionResult> {
+  if ((await getCurrentOwnerAccess()).access.readOnly) return { success: false, message: READ_ONLY_MESSAGE }
   const fail = (message: string): UserActionResult => ({ success: false, message })
   const businessId = String(formData.get('business_id') ?? '')
   const name = String(formData.get('name') ?? '').trim()
@@ -80,16 +85,21 @@ export async function addCashier(formData: FormData): Promise<UserActionResult> 
   const { supabase, user, businessId: activeBusinessId } = await getBusinessContext()
   if (businessId !== activeBusinessId) return fail('Cabang aktif sudah berubah. Muat ulang halaman sebelum mencoba lagi.')
   const { data: business, error } = await supabase.from('businesses')
-    .select('id,pos_config,pos_config_updated_at').eq('id', businessId).eq('owner_id', user.id).maybeSingle()
+    .select('id,name,pos_config,pos_config_updated_at').eq('id', businessId).eq('owner_id', user.id).maybeSingle()
   if (error) return fail('Gagal memeriksa data cabang. Silakan coba kembali.')
   if (!business) return fail('Cabang tidak ditemukan atau tidak dapat diakses.')
   const version = business.pos_config_updated_at as string | null
   if (String(formData.get('config_version')) !== (version ?? '')) {
     return fail('Data cabang sudah berubah. Tutup dialog dan muat ulang halaman sebelum mencoba lagi.')
   }
-  // Never initialize a partial config and overwrite the POS menu/settings.
-  if (!validConfig(business.pos_config)) return fail('Sinkronkan aplikasi kasir terlebih dahulu agar konfigurasi cabang tersedia.')
-  const config = business.pos_config
+  // Cabang kosong disiapkan dari server (menu kosong + user pertama). Konfigurasi rusak/parsial
+  // tidak pernah ditimpa agar menu/pengaturan perangkat tidak hilang.
+  const empty = business.pos_config === null || business.pos_config === undefined
+  if (!empty && !validConfig(business.pos_config)) return fail('Konfigurasi kasir cabang tidak valid. Sinkronkan aplikasi kasir lalu coba lagi.')
+  if (empty && role !== 'Owner') return fail('Cabang ini belum punya user. User pertama harus memiliki role Owner.')
+  const config = empty
+    ? { products: [], categories: NEW_BRANCH_CATEGORIES, cashiers: [] as Row[], settings: newBranchSettings(String(business.name ?? '')) }
+    : business.pos_config as Row & { cashiers: Row[] }
   if (!config.cashiers.some((cashier) => cashier.role === 'Owner') && role !== 'Owner') {
     return fail('Profil pertama pada cabang harus memiliki role Owner.')
   }
@@ -112,6 +122,7 @@ export async function addCashier(formData: FormData): Promise<UserActionResult> 
 }
 
 async function changeCashier(formData: FormData, remove: boolean): Promise<UserActionResult> {
+  if ((await getCurrentOwnerAccess()).access.readOnly) return { success: false, message: READ_ONLY_MESSAGE }
   const fail = (message: string): UserActionResult => ({ success: false, message })
   const businessId = String(formData.get('business_id') ?? '')
   const cashierId = String(formData.get('cashier_id') ?? '')

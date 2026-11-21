@@ -40,11 +40,11 @@ export default function BookRulesClient({
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-      <div className="p-4 md:p-6 border-b border-gray-100 flex items-start gap-3">
-        <CalendarClock className="w-6 h-6 text-blue-600 shrink-0" />
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-200/70 overflow-hidden">
+      <div className="px-5 py-4 sm:px-6 border-b border-gray-100 flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 ring-1 ring-blue-100"><CalendarClock aria-hidden="true" className="h-[18px] w-[18px]" /></span>
         <div>
-          <h2 className="font-semibold text-lg text-gray-900">Periode Tutup Buku</h2>
+          <h2 className="font-semibold text-[15px] text-gray-900">Periode Tutup Buku</h2>
           <p className="text-xs text-gray-500 mt-1">
             Menentukan cara rekap & kartu &quot;periode ini&quot; dihitung. Saat aturan diganti, periode sebelum tanggal
             berlaku tetap memakai aturan lama, jadi laporan lama tidak berubah.
@@ -52,7 +52,7 @@ export default function BookRulesClient({
         </div>
       </div>
 
-      {error && <p className="m-4 text-sm text-red-600 bg-red-50 p-3 rounded-lg">{error}</p>}
+      {error && <p className="m-4 text-sm text-red-700 bg-red-50 p-3 rounded-xl border border-red-100">{error}</p>}
 
       <DataPanel loading={loading || routePending} label="Memuat aturan buku..."><ul className="divide-y divide-gray-100">
         {businesses.map((b) => {
@@ -62,7 +62,7 @@ export default function BookRulesClient({
           const current = bookPeriod(own, today)
           const active = own.find((r) => r.effective_from <= today)
           return (
-            <li key={b.id} className="p-4 md:p-6 space-y-3">
+            <li key={b.id} className="space-y-4 p-5 sm:p-6">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   {businesses.length > 1 && <p className="font-semibold text-gray-900">{b.name}</p>}
@@ -71,7 +71,7 @@ export default function BookRulesClient({
                 </div>
                 <button
                   onClick={() => setOpenFor(openFor === b.id ? null : b.id)}
-                  className="px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg"
+                  className="rounded-xl bg-blue-50 px-3.5 py-2 text-sm font-semibold text-blue-800 ring-1 ring-blue-100 transition-colors hover:bg-blue-100"
                 >
                   {openFor === b.id ? 'Tutup' : own.length ? 'Ubah Aturan' : 'Atur'}
                 </button>
@@ -85,7 +85,7 @@ export default function BookRulesClient({
                       setOpenFor(null)
                     })
                   }
-                  className="bg-gray-50 rounded-lg p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 items-end"
+                  className="grid grid-cols-1 items-end gap-3 rounded-xl bg-gray-50/80 p-4 ring-1 ring-gray-100 sm:grid-cols-3"
                 >
                   <input type="hidden" name="business_id" value={b.id} />
                   <div>
@@ -97,7 +97,7 @@ export default function BookRulesClient({
                       max={28}
                       required
                       defaultValue={active?.start_day ?? 26}
-                      className="w-full border-gray-300 rounded-lg p-2.5 border bg-white"
+                      className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full"
                     />
                     <p className="text-[11px] text-gray-500 mt-1">26 = tutup buku tgl 25. Isi 1 untuk akhir bulan.</p>
                   </div>
@@ -106,7 +106,7 @@ export default function BookRulesClient({
                     <input
                       type="date"
                       name="effective_from"
-                      className="w-full border-gray-300 rounded-lg p-2.5 border bg-white"
+                      className="rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full"
                     />
                     <p className="text-[11px] text-gray-500 mt-1">
                       Kosongkan = sejak awal. Untuk perubahan, isi tanggal buka buku baru yang pertama.
@@ -115,7 +115,7 @@ export default function BookRulesClient({
                   <button
                     type="submit"
                     disabled={loading}
-                    className="px-4 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+                    className="px-4 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl disabled:opacity-50 transition-colors"
                   >
                     {loading && operationKey === 'save' && <LoadingSpinner className="mr-2" />}{loading && operationKey === 'save' ? 'Menyimpan...' : 'Simpan Aturan'}
                   </button>

@@ -1,5 +1,7 @@
 'use server'
 
+import { assertWritable } from '@/lib/billing/owner-billing'
+
 import { getBusinessContext, requireBusinessContext, setBusinessCookie, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { revalidatePath } from 'next/cache'
 
@@ -23,6 +25,7 @@ function readForm(formData: FormData) {
 }
 
 export async function addBusiness(formData: FormData) {
+  await assertWritable()
   const { supabase, user } = await getBusinessContext()
   const { data, error } = await supabase.from('businesses').insert({ ...readForm(formData), owner_id: user.id }).select('id').single()
   if (error) throw new Error(error.message)
@@ -31,6 +34,7 @@ export async function addBusiness(formData: FormData) {
 }
 
 export async function updateBusiness(id: string, formData: FormData) {
+  await assertWritable()
   const { supabase } = await requireBusinessContext(id)
   const { error } = await supabase.from('businesses').update(readForm(formData)).eq('id', id)
   if (error) throw new Error(error.message)
@@ -38,6 +42,7 @@ export async function updateBusiness(id: string, formData: FormData) {
 }
 
 export async function deleteBusiness(id: string) {
+  await assertWritable()
   const { supabase } = await requireBusinessContext(id)
   const { error } = await supabase.from('businesses').delete().eq('id', id)
   if (error) throw new Error(error.message)
@@ -46,6 +51,7 @@ export async function deleteBusiness(id: string) {
 
 /** Buat token baru; token lama langsung tidak berlaku. */
 export async function regenerateSyncToken(id: string) {
+  await assertWritable()
   const bytes = crypto.getRandomValues(new Uint8Array(32))
   const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
   const { supabase } = await requireBusinessContext(id)

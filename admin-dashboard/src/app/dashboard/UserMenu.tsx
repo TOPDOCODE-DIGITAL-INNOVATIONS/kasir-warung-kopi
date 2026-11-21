@@ -9,7 +9,7 @@ export default function UserMenu({ name, email, roleLabel }: { name: string; ema
   const trigger = useRef<HTMLElement>(null)
   const [signingOut, setSigningOut] = useState(false)
   const initials = name.split(/\s+/).slice(0, 2).map(part => Array.from(part)[0]).join('').toLocaleUpperCase('id-ID')
-  const avatar = 'flex shrink-0 items-center justify-center rounded-full bg-linear-to-br from-indigo-500 to-blue-500 font-bold tracking-wide text-white'
+  const avatar = 'flex shrink-0 items-center justify-center rounded-full bg-linear-to-br from-espresso-700 to-espresso-900 font-semibold tracking-wide text-champagne ring-1 ring-champagne/30'
 
   useEffect(() => {
     const outside = (event: PointerEvent) => {
@@ -33,10 +33,14 @@ export default function UserMenu({ name, email, roleLabel }: { name: string; ema
     if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false
   }}>
     <summary ref={trigger} aria-label={`Menu akun ${name}`} title={name}
-      className={`${avatar} h-9 w-9 cursor-pointer list-none text-xs transition-shadow hover:ring-2 hover:ring-blue-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 [&::-webkit-details-marker]:hidden`}>
-      {initials}
+      className="flex cursor-pointer list-none items-center gap-2.5 rounded-full p-0.5 transition-colors hover:bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 lg:pr-3 [&::-webkit-details-marker]:hidden">
+      <span aria-hidden="true" className={`${avatar} h-9 w-9 text-xs`}>{initials}</span>
+      <span aria-hidden="true" className="hidden min-w-0 max-w-36 leading-tight lg:block">
+        <span className="block truncate text-[13px] font-semibold text-gray-900">{name}</span>
+        <span className="block truncate text-[11px] text-gray-500">{roleLabel}</span>
+      </span>
     </summary>
-    <div className="absolute right-0 top-[calc(100%+8px)] z-50 max-h-[calc(100dvh-5rem)] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-y-contain rounded-xl border border-gray-200 bg-white shadow-lg">
+    <div className="absolute right-0 top-[calc(100%+8px)] z-50 max-h-[calc(100dvh-5rem)] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-y-contain rounded-2xl border border-gray-200 bg-white shadow-xl">
       <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3">
         <span aria-hidden="true" className={`${avatar} h-10 w-10 text-sm`}>{initials}</span>
         <div className="min-w-0">

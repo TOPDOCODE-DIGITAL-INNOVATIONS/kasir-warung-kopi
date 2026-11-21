@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-// Menyegarkan sesi Supabase (cookie) dan melindungi /dashboard.
+// Menyegarkan cookie sesi dan mengarahkan pengguna yang belum masuk.
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request })
 
@@ -27,7 +27,7 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getClaims()
   const user = data?.claims
 
-  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
+  if (!user && (request.nextUrl.pathname.startsWith('/dashboard') || request.nextUrl.pathname.startsWith('/platform'))) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     url.search = ''
@@ -38,5 +38,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/login'],
+  matcher: ['/dashboard/:path*', '/platform/:path*', '/login', '/reset-password'],
 }

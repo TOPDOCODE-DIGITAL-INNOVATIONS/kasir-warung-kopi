@@ -12,9 +12,10 @@ import {
   Clock,
   RefreshCw,
   Wallet,
+  Store,
 } from 'lucide-react';
 import { Cashier, Shift, StoreSettings } from '../types';
-import { formatIDR } from '../lib/storage';
+import { formatIDR, getConnectedBranch } from '../lib/storage';
 import { can } from '../lib/permissions';
 import type { AppTab } from '../App';
 
@@ -39,6 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenCashierModal,
   cartItemCount,
 }) => {
+  const branch = getConnectedBranch();
   return (
     <header className="bg-[#3E2723] text-white border-b border-[#2C1A17] sticky top-0 z-30 shadow-md">
       {/* Top Banner Bar */}
@@ -53,8 +55,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>{storeSettings.storeName || 'KOPI KITA'}</span>
               <span className="font-light opacity-70 text-xs hidden sm:inline">| POS v2.0</span>
             </h1>
-            <p className="text-[11px] text-[#D7CCC8] opacity-80 hidden sm:block">
-              {storeSettings.storeTagline || 'Aplikasi Kasir Offline Warung Kopi'}
+            <p className="text-[11px] text-[#D7CCC8] flex items-center gap-1" title="Cabang yang terhubung ke perangkat ini">
+              <Store className="w-3 h-3" aria-hidden="true" />
+              <span>Cabang: {branch?.name || 'memuat…'}</span>
             </p>
           </div>
         </div>

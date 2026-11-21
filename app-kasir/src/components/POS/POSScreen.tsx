@@ -11,6 +11,8 @@ import {
   deleteDraft,
   draftItemsForCart,
   POS_UPDATE_EVENT,
+  canCreateSales,
+  SALES_BLOCKED_MESSAGE,
 } from '../../lib/storage';
 import { DraftListModal, SaveDraftModal } from './DraftModals';
 import { shouldAutoPrint } from '../../lib/printer';
@@ -337,7 +339,9 @@ export const POSScreen: React.FC<POSScreenProps> = ({
 
   // Alasan checkout diblokir: belum buka shift atau stok tidak cukup
   const stockIssues = getStockIssues(cart, products);
-  const checkoutBlockedReason = !activeShift
+  const checkoutBlockedReason = !canCreateSales()
+    ? SALES_BLOCKED_MESSAGE
+    : !activeShift
     ? 'Shift belum dibuka. Buka shift terlebih dahulu.'
     : stockIssues.length > 0
       ? stockIssues.join('\n')
@@ -450,6 +454,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({
                   <ProductCard
                     key={product.id}
                     product={product}
+                    categoryIcon={categories.find(category => category.id === product.categoryId)?.iconName}
                     onSelect={handleSelectProduct}
                   />
                 ))}

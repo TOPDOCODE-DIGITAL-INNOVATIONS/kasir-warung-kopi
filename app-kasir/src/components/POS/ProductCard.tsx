@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Product } from '../../types';
 import { formatIDR } from '../../lib/storage';
 import { Coffee, CupSoda, Utensils, Cookie, Plus } from 'lucide-react';
@@ -6,12 +6,17 @@ import { Coffee, CupSoda, Utensils, Cookie, Plus } from 'lucide-react';
 interface ProductCardProps {
   product: Product;
   onSelect: (product: Product) => void;
+  categoryIcon?: string;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, categoryIcon }) => {
+  const [failedImage, setFailedImage] = useState<string | null>(null);
+  const hasPhoto = !!product.imageUrl && failedImage !== product.imageUrl;
   const isOutOfStock = product.stock === 0 || !product.isAvailable;
 
   const renderDefaultIcon = () => {
+    const Icon = ({ Coffee, CupSoda, Utensils, Cookie } as Record<string, typeof Coffee>)[categoryIcon ?? ''];
+    if (Icon) return <Icon className="w-8 h-8 opacity-80" />;
     switch (product.categoryId) {
       case 'kopi':
         return <Coffee className="w-8 h-8 opacity-80" />;
@@ -38,11 +43,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect }) =
       {/* Top Graphic Header / Badge */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm transition-transform group-hover:scale-105 ${
+          className={`${hasPhoto ? 'w-14 h-14' : 'w-10 h-10'} shrink-0 overflow-hidden rounded-lg flex items-center justify-center font-bold text-sm transition-transform group-hover:scale-105 ${
             product.colorBg || 'bg-[#F5F5F5] text-[#3E2723]'
           }`}
         >
-          {renderDefaultIcon()}
+          {hasPhoto ? <img src={product.imageUrl} alt={product.name} loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-full w-full object-cover" onError={() => setFailedImage(product.imageUrl ?? null)} /> : renderDefaultIcon()}
         </div>
 
         {/* Stock Badge */}

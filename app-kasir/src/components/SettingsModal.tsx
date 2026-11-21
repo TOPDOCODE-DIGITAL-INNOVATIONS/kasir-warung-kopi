@@ -18,6 +18,7 @@ import {
   shouldAutoPrint,
 } from '../lib/printer';
 import { ThermalReceiptPrintPortal } from './POS/ThermalReceipt';
+import { DisconnectBranchPanel } from './DisconnectBranchPanel';
 
 interface SettingsModalProps {
   onSettingsUpdated: (settings: StoreSettings) => void;
@@ -513,9 +514,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
           </h3>
 
           <p className="text-xs text-stone-600">
-            Isi token cabang dari Dashboard Owner (menu <em>Cabang &amp; Token</em>), atau buka <em>Link Kasir</em> dari
-            sana. Semua HP dengan token yang sama memakai menu, kasir, pengaturan, dan data transaksi yang sama.
+            Semua perangkat di cabang yang sama memakai menu, kasir, pengaturan, dan data transaksi yang sama.
+            Untuk pindah cabang, keluar dari cabang ini lalu hubungkan ke cabang lain.
           </p>
+
+          <DisconnectBranchPanel />
 
           {settings.lastSyncError && (
             <div className="p-2.5 rounded text-xs font-medium border bg-amber-50 text-amber-900 border-amber-300">
@@ -535,24 +538,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onSettingsUpdated 
                 onChange={(e) => setSettings({ ...settings, syncApiUrl: e.target.value })}
                 className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-[#3E2723]"
               />
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-[#3E2723] block mb-1">
-                Token Sync Cabang (wajib)
-              </label>
-              <input
-                type="password"
-                placeholder="tempel token dari dashboard"
-                autoComplete="off"
-                value={settings.syncApiKey || ''}
-                onChange={(e) => setSettings({ ...settings, syncApiKey: e.target.value })}
-                className="w-full bg-white border border-[#D7CCC8] text-[#2C2420] rounded px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-[#3E2723]"
-              />
-              <p className="text-[10px] text-stone-500 mt-1">
-                Token disimpan di perangkat ini saja dan tidak ikut di file backup. Gunakan token khusus kasir
-                yang bisa dicabut dari server, bukan password akun Owner.
-              </p>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">

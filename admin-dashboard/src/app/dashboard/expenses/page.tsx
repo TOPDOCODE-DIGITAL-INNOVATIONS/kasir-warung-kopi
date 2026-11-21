@@ -1,6 +1,7 @@
 import DataPanel from '@/components/DataPanel'
 import Link from '@/components/LoadingLink'
-import { Wallet, CalendarDays, CalendarRange, Archive } from 'lucide-react'
+import { Wallet, CalendarDays, CalendarRange, Archive, X } from 'lucide-react'
+import { Badge, EmptyState, Notice, Panel, StatCard, ui } from '@/components/ui'
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { rupiah, formatDateTime } from '@/lib/format'
 import { anchorDate, formatRange } from '@/lib/book-period'
@@ -9,6 +10,7 @@ import PeriodSelect from '../PeriodSelect'
 import ExpenseEntry from './ExpenseEntry'
 import ExpenseActions from './ExpenseActions'
 import ExpenseExport from './ExpenseExport'
+import { expenseNoteSuggestions } from '../../../../../shared/expense-products'
 
 type Exp = {
   id: string
@@ -64,9 +66,10 @@ export default async function ExpensesPage({
     const a = anchorDate(e.date)
     return a >= start && a <= end
   })
-  const catKey = (e: Exp) => e.category?.trim() || 'Lainnya'
+  const catKey = (e: Exp) => e.category?.trim() || 'Lain-lain'
   const cat = sp.cat ?? ''
   const shown = cat ? inPeriod.filter((e) => catKey(e) === cat) : inPeriod
+  const recentNotes = expenseNoteSuggestions(inPeriod.filter(expense => !expense.product_name).map(expense => expense.note), '', 100)
 
   const total = inPeriod.reduce((s, e) => s + n(e.amount), 0)
   const daily = inPeriod.filter((e) => e.scope !== 'monthly')
@@ -96,6 +99,13 @@ export default async function ExpensesPage({
   }
   const groupList = [...groups].sort(([a], [b]) => (a[0] !== b[0] ? (a[0] === 'M' ? -1 : 1) : b.localeCompare(a)))
 
+  // Product lines entered together share one purchase document.
+  const purchaseDocs = new Map<string, { name: string; amount: number }[]>()
+  for (const e of res.data) if (e.purchase_line_id && e.entry_group_id) {
+    const list = purchaseDocs.get(e.entry_group_id) ?? []
+    list.push({ name: e.product_name || e.note || catKey(e), amount: n(e.amount) }); purchaseDocs.set(e.entry_group_id, list)
+  }
+
   const showBiz = false
   const href = (c: string) => {
     const q = new URLSearchParams({ p: `${start}_${end}` })
@@ -104,35 +114,30 @@ export default async function ExpensesPage({
   }
 
   return (
-    <div className="space-y-6 max-w-6xl">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Pengeluaran</h1>
-          <p className="text-gray-500 text-sm mt-1">Periode {formatRange(start, end)} · pengeluaran dari admin dan kasir.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} />
-          <ExpenseExport unavailable={!!res.error || !businessId} report={{ branchName: businesses[0]?.name ?? '', period: formatRange(start, end), category: cat,
-            rows: shown.map(e => ({ id: e.id, scope: e.scope, date: e.date, category: e.category, note: e.note, amount: e.amount,
-              fromDrawer: e.from_drawer, createdBy: e.created_by, createdAt: e.created_at, productName: e.product_name, quantity: e.quantity,
-              unitLabel: e.unit_label, supplierName: e.supplier_name, entryGroupId: e.entry_group_id, shiftId: e.shift_id })) }} />
-          <PeriodSelect options={options} value={`${start}_${end}`} />
-        </div>
-      </div>
+    <div className="space-y-6">
+      <ExpenseEntry key={businessId ?? 'none'} businessId={businessId} recentNotes={recentNotes} description={<>Periode <span className="font-medium text-gray-700">{formatRange(start, end)}</span> · pengeluaran dari admin dan kasir.</>}>
+        <ExpenseExport unavailable={!!res.error || !businessId} report={{ branchName: businesses[0]?.name ?? '', period: formatRange(start, end), category: cat,
+          rows: shown.map(e => ({ id: e.id, scope: e.scope, date: e.date, category: e.category, note: e.note, amount: e.amount,
+            fromDrawer: e.from_drawer, createdBy: e.created_by, createdAt: e.created_at, productName: e.product_name, quantity: e.quantity,
+            unitLabel: e.unit_label, supplierName: e.supplier_name, entryGroupId: e.entry_group_id, shiftId: e.shift_id })) }} />
+        <PeriodSelect options={options} value={`${start}_${end}`} />
+      </ExpenseEntry>
 
-      {res.error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{res.error}</p>}
+      {res.error && <Notice tone="error">{res.error}</Notice>}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat icon={Wallet} label="Total Pengeluaran" value={rupiah(total)} hint={`${inPeriod.length} catatan`} tone="bg-red-50 text-red-600" />
-        <Stat icon={CalendarDays} label="Harian / Operasional" value={rupiah(sum(daily))} hint={`${daily.length} catatan`} tone="bg-orange-50 text-orange-600" />
-        <Stat icon={CalendarRange} label="Bulanan / Biaya Tetap" value={rupiah(sum(monthly))} hint={`${monthly.length} catatan`} tone="bg-purple-50 text-purple-600" />
-        <Stat icon={Archive} label="Diambil dari Laci" value={rupiah(sum(drawer))} hint="Uang kas shift" tone="bg-gray-100 text-gray-600" />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard icon={Wallet} tone="red" label="Total Pengeluaran" value={rupiah(total)} hint={`${inPeriod.length} catatan`} valueClassName="text-red-600"
+          info="Seluruh pengeluaran harian dan bulanan pada periode ini." />
+        <StatCard icon={CalendarDays} tone="amber" label="Harian / Operasional" value={rupiah(sum(daily))} hint={`${daily.length} catatan`}
+          info="Belanja bahan dan biaya operasional yang dicatat per tanggal." />
+        <StatCard icon={CalendarRange} tone="sky" label="Bulanan / Biaya Tetap" value={rupiah(sum(monthly))} hint={`${monthly.length} catatan`}
+          info="Biaya tetap per bulan seperti sewa, gaji, dan listrik." />
+        <StatCard icon={Archive} tone="gray" label="Diambil dari Laci" value={rupiah(sum(drawer))} hint="Uang kas shift"
+          info="Pengeluaran yang dibayar kasir langsung dari uang laci shift." />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <DataPanel className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 self-start">
-          <h2 className="font-bold text-gray-900 mb-1">Per Kategori</h2>
-          <p className="text-xs text-gray-400 mb-4">Klik kategori untuk menyaring daftar.</p>
+        <Panel data className="self-start lg:sticky lg:top-4" title="Per Kategori" description="Klik kategori untuk menyaring daftar">
           {categories.length === 0 ? (
             <p className="text-sm text-gray-400">Belum ada pengeluaran.</p>
           ) : (
@@ -144,7 +149,7 @@ export default async function ExpensesPage({
                   <li key={k}>
                     <Link
                       href={href(active ? '' : k)}
-                      className={'block rounded-lg px-2 py-2 -mx-2 ' + (active ? 'bg-red-50' : 'hover:bg-gray-50')}
+                      aria-current={active ? 'true' : undefined} className={'-mx-2 block rounded-xl px-3 py-2.5 transition-colors ' + (active ? 'bg-red-50 ring-1 ring-red-100' : 'hover:bg-gray-50')}
                     >
                       <div className="flex justify-between gap-3 text-sm">
                         <span className={'truncate ' + (active ? 'font-semibold text-red-700' : 'text-gray-700')}>
@@ -163,44 +168,39 @@ export default async function ExpensesPage({
               })}
             </ul>
           )}
-        </DataPanel>
+        </Panel>
 
-        <section className="lg:col-span-2 space-y-3">
+        <section aria-label="Daftar pengeluaran" className="space-y-4 lg:col-span-2">
           {cat && (
-            <div className="flex items-center justify-between bg-red-50 text-red-700 text-sm rounded-lg px-4 py-2">
-              <span>
-                Kategori <b>{cat}</b>: {rupiah(sum(shown))}
-              </span>
-              <Link href={href('')} className="underline">
-                Tampilkan semua
-              </Link>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+              <span>Filter kategori <b>{cat}</b> · {rupiah(sum(shown))}</span>
+              <Link href={href('')} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 font-semibold hover:bg-red-100"><X aria-hidden="true" className="h-3.5 w-3.5" />Hapus filter</Link>
             </div>
           )}
           {groupList.length === 0 ? (
-            <DataPanel className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-sm text-gray-500">
-              Belum ada pengeluaran pada periode ini.
+            <DataPanel className={ui.panel}>
+              <EmptyState icon={Wallet} title="Belum ada pengeluaran" description="Belum ada pengeluaran pada periode ini. Tambahkan lewat tombol Tambah Pengeluaran." />
             </DataPanel>
           ) : (
             groupList.map(([key, g]) => (
-              <DataPanel key={key} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className={'flex justify-between items-center gap-3 px-4 py-2.5 border-b border-gray-100 ' + (key[0] === 'M' ? 'bg-purple-50/60' : 'bg-gray-50')}>
+              <DataPanel key={key} className={`${ui.panel} overflow-hidden`}>
+                <div className={'flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-3 ' + (key[0] === 'M' ? 'bg-sky-50/60' : 'bg-gray-50/70')}>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{g.title}</p>
                     {g.hint && <p className="text-xs text-gray-500">{g.hint}</p>}
                   </div>
-                  <span className="text-sm font-bold text-red-600 whitespace-nowrap">{rupiah(sum(g.items))}</span>
+                  <span className="whitespace-nowrap text-sm font-bold tabular-nums text-red-600">{rupiah(sum(g.items))}</span>
                 </div>
                 <ul className="divide-y divide-gray-100">
                   {g.items.map((e) => (
-                    <li key={`${e.businesses?.name}-${e.id}`} className="flex justify-between gap-3 px-4 py-3">
+                    <li key={`${e.businesses?.name}-${e.id}`} className="flex justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-gray-50/50">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-gray-900">
-                          {catKey(e)}
-                          {e.from_drawer && <span className="ml-2 text-xs font-normal px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">dari laci</span>}
+                          {e.product_name || e.note || catKey(e)}
+                          {e.from_drawer && <Badge className="ml-2 align-middle">dari laci</Badge>}
                         </p>
-                        {e.product_name && <p className="mt-1 text-sm text-gray-700">{e.product_name}{e.quantity != null ? ` · ${Number(e.quantity).toLocaleString('id-ID', { maximumFractionDigits: 6 })} ${e.unit_label === 'l' ? 'L' : e.unit_label ?? ''}` : ''}</p>}
-                        {e.entry_group_id && <p className="mt-1 text-xs text-gray-400">Kelompok input: {e.entry_group_id.slice(0, 8)}</p>}
-                        {e.note && <p className="text-sm text-gray-600 break-words">{e.note}</p>}
+                        {(e.product_name || e.note) && <p className="mt-1 text-sm text-gray-700">{catKey(e)}{e.quantity != null && ` · ${e.product_name ? '' : 'Jumlah: '}${Number(e.quantity).toLocaleString('id-ID', { maximumFractionDigits: 6 })}${e.unit_label ? ` ${e.unit_label === 'l' ? 'L' : e.unit_label}` : ''}`}</p>}
+                        {e.product_name && e.note && <p className="text-sm text-gray-600 break-words">{e.note}</p>}
                         {e.supplier_name && <p className="mt-1 text-xs text-gray-500">Supplier: {e.supplier_name}</p>}
                         <p className="text-xs text-gray-400 mt-0.5">
                           {[
@@ -212,9 +212,10 @@ export default async function ExpensesPage({
                             .join(' · ')}
                         </p>
                       </div>
-                      <div className="flex shrink-0 items-start gap-2"><span className="pt-2 text-sm font-semibold text-gray-900 whitespace-nowrap">{rupiah(e.amount)}</span>
-                        {businessId && <ExpenseActions expense={{ id: e.id, businessId, scope: e.scope === 'monthly' ? 'monthly' : 'daily', date: e.date, category: e.category ?? '', amount: n(e.amount), note: e.note ?? '', version: e.synced_at, fromDrawer: e.from_drawer, purchaseLinked: !!e.purchase_line_id,
-                          financialLock: e.purchase_line_id ? 'Terkait pembelian dan stok. Kategori serta catatan dapat diperbaiki; jumlah, nominal, dan tanggal pembelian tetap dipertahankan.' : e.from_drawer ? 'Dari laci kasir. Kategori dan catatan dapat diperbaiki di sini; nominal dikoreksi melalui kasir pada shift asal yang masih aktif.' : null }} />}
+                      <div className="flex shrink-0 items-start gap-2"><span className="whitespace-nowrap pt-2 text-sm font-semibold tabular-nums text-gray-900">{rupiah(e.amount)}</span>
+                        {businessId && <ExpenseActions expense={{ id: e.id, businessId, scope: e.scope === 'monthly' ? 'monthly' : 'daily', date: e.date, category: e.category ?? '', amount: n(e.amount), note: e.note ?? '', version: e.synced_at, fromDrawer: e.from_drawer, purchaseLinked: !!e.purchase_line_id, purchaseLineId: e.purchase_line_id,
+                          purchaseItems: e.purchase_line_id && e.entry_group_id ? (purchaseDocs.get(e.entry_group_id) ?? []) : [],
+                          financialLock: e.purchase_line_id ? 'Terkait pembelian dan stok. Di sini hanya kategori dan catatan yang dapat diperbaiki. Jika jumlah, nominal, atau tanggal salah, gunakan tombol Koreksi Pembelian.' : e.from_drawer ? 'Dari laci kasir. Kategori dan catatan dapat diperbaiki di sini; nominal dikoreksi melalui kasir pada shift asal yang masih aktif.' : null }} />}
                       </div>
                     </li>
                   ))}
@@ -225,20 +226,5 @@ export default async function ExpensesPage({
         </section>
       </div>
     </div>
-  )
-}
-
-function Stat({ icon: Icon, label, value, hint, tone }: { icon: typeof Wallet; label: string; value: string; hint: string; tone: string }) {
-  return (
-    <DataPanel compact className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 min-w-0">
-      <div className="flex items-center gap-2 mb-2">
-        <span className={`w-7 h-7 rounded-lg flex items-center justify-center ${tone}`}>
-          <Icon className="w-4 h-4" />
-        </span>
-        <p className="text-xs font-medium text-gray-500 truncate">{label}</p>
-      </div>
-      <p className="text-lg font-bold text-gray-900 truncate">{value}</p>
-      <p className="text-xs text-gray-400">{hint}</p>
-    </DataPanel>
   )
 }

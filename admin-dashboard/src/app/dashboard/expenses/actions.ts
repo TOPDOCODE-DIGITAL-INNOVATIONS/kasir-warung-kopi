@@ -1,10 +1,12 @@
 'use server'
 
+import { assertWritable } from '@/lib/billing/owner-billing'
+
 import { revalidatePath } from 'next/cache'
 import { unstable_rethrow } from 'next/navigation'
 import { requireBusinessContext } from '@/lib/business-context'
 import { createAdminClient } from '@/utils/supabase/admin'
-import type { ExpenseOptions } from './types'
+import type { ExpenseOptions, ExpenseProductSearch } from './types'
 import { financialChange, validateExpense } from './edit-domain'
 
 async function expenseWriter({ supabase, user, businessId }: Awaited<ReturnType<typeof requireBusinessContext>>) {
@@ -18,6 +20,7 @@ async function expenseWriter({ supabase, user, businessId }: Awaited<ReturnType<
 
 export async function deleteExpense(form: FormData) {
   try {
+    await assertWritable()
     const business = String(form.get('business_id') ?? ''), id = String(form.get('id') ?? '')
     const context = await requireBusinessContext(business)
     if (!id || id.length > 200) throw new Error('Pengeluaran tidak valid.')
@@ -47,6 +50,7 @@ export async function deleteExpense(form: FormData) {
 
 export async function updateExpense(form: FormData) {
   try {
+    await assertWritable()
     const business = String(form.get('business_id') ?? ''), id = String(form.get('id') ?? '')
     const context = await requireBusinessContext(business), { supabase } = context
     if (!id || id.length > 200) throw new Error('Pengeluaran tidak valid.')
@@ -72,34 +76,77 @@ export async function updateExpense(form: FormData) {
   }
 }
 
-export async function getExpenseOptions(expectedBusiness: string): Promise<ExpenseOptions> {
-  const { supabase, businessId, user } = await requireBusinessContext(expectedBusiness)
-  async function rows(table: string, columns: string, product = false) {
-    const result: Record<string, unknown>[] = []
-    for (let from = 0; ; from += 500) {
-      let query = supabase.from(table).select(columns).eq('owner_id', user.id).eq('is_active', true).order('id').range(from, from + 499)
-      if (product) query = query.eq('business_id', businessId).eq('can_buy', true)
-      if (table === 'item_units') query = query.eq('products.business_id', businessId)
-      const { data, error } = await query
-      if (error) throw new Error('Gagal memuat pilihan pengeluaran. Coba buka kembali form.')
-      result.push(...(data ?? []) as unknown as Record<string, unknown>[])
-      if (!data || data.length < 500) return result
-    }
+/** Correction for a wrong stock purchase: cancel the whole purchase document, then record it again. */
+export async function cancelExpensePurchase(form: FormData) {
+  try {
+    await assertWritable()
+    const business = String(form.get('business_id') ?? ''), line = String(form.get('purchase_line_id') ?? ''), reason = String(form.get('reason') ?? '').trim()
+    const { supabase } = await requireBusinessContext(business)
+    if (!reason || reason.length > 300) throw new Error('Alasan koreksi wajib diisi, maksimal 300 karakter.')
+    const { data: purchaseLine, error: readError } = await supabase.from('purchase_lines').select('purchase_id')
+      .eq('business_id', business).eq('id', line).maybeSingle()
+    if (readError) throw new Error('Dokumen pembelian belum dapat dimuat. Coba kembali.')
+    if (!purchaseLine) throw new Error('Pembelian tidak ditemukan atau sudah dikoreksi. Muat ulang halaman.')
+    const { error } = await supabase.rpc('admin_cancel_purchase', { p_business: business, p_purchase: purchaseLine.purchase_id, p_reason: reason })
+    if (error) throw new Error(error.message)
+    for (const path of ['/dashboard/expenses', '/dashboard/products', '/dashboard/suppliers', '/dashboard/recap', '/dashboard']) revalidatePath(path)
+    return { success: true, message: 'Pembelian dibatalkan sebagai koreksi. Stok dan HPP sudah disesuaikan; silakan catat ulang pembelian yang benar.' }
+  } catch (error) {
+    unstable_rethrow(error)
+    return { success: false, message: error instanceof Error ? error.message : 'Koreksi pembelian belum berhasil.' }
   }
-  const [products, units, suppliers] = await Promise.all([
-    rows('products', 'id,inventory_id,name,stock,updated_at,base_unit:units!products_base_unit_id_fkey(code)', true),
-    rows('item_units', 'id,product_id,label,factor_to_base,products!inner(business_id)'),
-    rows('suppliers', 'id,name'),
-  ])
-  return {
-    products: products.map(p => ({ id: String(p.inventory_id), name: String(p.name), stock: Number(p.stock), version: String(p.updated_at), unitCode: String((p.base_unit as { code?: string } | null)?.code ?? 'pcs') })).sort((a,b) => a.name.localeCompare(b.name, 'id')),
-    units: units.map(u => ({ id: String(u.id), productId: String(u.product_id), label: String(u.label), factor: Number(u.factor_to_base) })),
-    suppliers: suppliers.map(s => ({ id: String(s.id), name: String(s.name) })).sort((a,b) => a.name.localeCompare(b.name, 'id')),
+}
+
+export async function getExpenseOptions(expectedBusiness: string): Promise<ExpenseOptions> {
+  const { supabase, user } = await requireBusinessContext(expectedBusiness)
+  const suppliers: ExpenseOptions['suppliers'] = []
+  for (let from = 0; ; from += 500) {
+    const { data, error } = await supabase.from('suppliers').select('id,name').eq('owner_id', user.id)
+      .eq('is_active', true).order('id').range(from, from + 499)
+    if (error) throw new Error('Gagal memuat pilihan pengeluaran. Coba buka kembali form.')
+    suppliers.push(...(data ?? []))
+    if (!data || data.length < 500) break
+  }
+  return { suppliers: suppliers.sort((a,b) => a.name.localeCompare(b.name, 'id')) }
+}
+
+export async function searchExpenseProducts(expectedBusiness: string, search: string): Promise<ExpenseProductSearch> {
+  try {
+    const { supabase, businessId, user } = await requireBusinessContext(expectedBusiness)
+    if (typeof search !== 'string' || search.length > 200) throw new Error('Pencarian produk maksimal 200 karakter.')
+    let query = supabase.from('products').select('inventory_id,name,stock,updated_at,base_unit:units!products_base_unit_id_fkey(code)')
+      .eq('owner_id', user.id).eq('business_id', businessId).eq('is_active', true).eq('can_buy', true)
+      .order('name').order('inventory_id').limit(21)
+    const term = search.trim()
+    if (term) query = query.ilike('name', `%${term.replace(/[\\%_]/g, '\\$&')}%`)
+    const { data, error } = await query
+    if (error) throw new Error('Produk belum berhasil dimuat. Silakan coba kembali.')
+    const products = (data ?? []).slice(0, 20)
+    if (!products.length) return { products: [], hasMore: false }
+    // Batch units of these 20 results; paginate by rows, never query per product.
+    const units: { id: string; product_id: string; label: string; factor_to_base: number }[] = []
+    for (let from = 0; ; from += 500) {
+      const { data, error } = await supabase.from('item_units').select('id,product_id,label,factor_to_base')
+        .eq('owner_id', user.id).eq('is_active', true).in('product_id', products.map(p => p.inventory_id))
+        .order('id').range(from, from + 499)
+      if (error) throw new Error('Satuan produk belum berhasil dimuat. Silakan coba kembali.')
+      units.push(...(data ?? []))
+      if (!data || data.length < 500) break
+    }
+    return { hasMore: (data?.length ?? 0) > 20, products: products.map(p => ({
+      id: String(p.inventory_id), name: String(p.name), stock: Number(p.stock), version: String(p.updated_at),
+      unitCode: String((p.base_unit as { code?: string } | null)?.code ?? 'pcs'),
+      units: units.filter(u => u.product_id === p.inventory_id).map(u => ({ id: String(u.id), label: String(u.label), factor: Number(u.factor_to_base) })),
+    })) }
+  } catch (error) {
+    unstable_rethrow(error)
+    return { products: [], hasMore: false, error: error instanceof Error ? error.message : 'Produk belum berhasil dimuat.' }
   }
 }
 
 export async function saveExpenseBatch(form: FormData) {
   try {
+    await assertWritable()
     const businessId = String(form.get('business_id') ?? '')
     const { supabase } = await requireBusinessContext(businessId)
     const { error } = await supabase.rpc('admin_record_expenses', {
@@ -109,7 +156,7 @@ export async function saveExpenseBatch(form: FormData) {
     })
     if (error) throw new Error(error.message)
     for (const path of ['/dashboard/expenses', '/dashboard/products', '/dashboard/recap', '/dashboard']) revalidatePath(path)
-    return { success: true, message: 'Pengeluaran berhasil disimpan. Barang dengan pelacakan stok telah ditambahkan.' }
+    return { success: true, message: 'Pengeluaran berhasil disimpan.' }
   } catch (error) {
     unstable_rethrow(error)
     return { success: false, message: error instanceof Error ? error.message : 'Pengeluaran belum berhasil disimpan.' }

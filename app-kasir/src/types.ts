@@ -10,7 +10,8 @@ export interface Product {
   name: string;
   categoryId: CategoryId;
   price: number;
-  costPrice?: number; // Modal
+  costPrice?: number; // HPP / modal
+  costVerified?: boolean; // HPP checked by the Owner in the dashboard
   stock: number; // -1 for unlimited
   isAvailable: boolean;
   imageUrl?: string;
@@ -182,6 +183,9 @@ export interface Expense {
   unitLabel?: string;
   supplierName?: string;
   entryGroupId?: string;
+  businessId?: string;
+  pendingPurchase?: import('../../shared/expense-products').PendingExpensePurchase;
+  purchaseSyncError?: string;
 }
 
 export interface StoreSettings {

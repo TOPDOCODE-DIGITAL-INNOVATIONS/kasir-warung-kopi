@@ -1,5 +1,7 @@
 'use server'
 
+import { assertWritable } from '@/lib/billing/owner-billing'
+
 import { revalidatePath } from 'next/cache'
 import { requireBusinessContext } from '@/lib/business-context'
 import { parseMoney } from '@/lib/money'
@@ -13,6 +15,7 @@ function parseAmount(v: FormDataEntryValue | null): number {
 
 /** Simpan rekap; tanggal yang sama untuk cabang & jenis yang sama akan ditimpa (tidak dobel). */
 export async function saveSummary(formData: FormData) {
+  await assertWritable()
   const businessId = String(formData.get('business_id') ?? '')
   const period = String(formData.get('period') ?? '')
   const date = String(formData.get('date') ?? '')
@@ -40,6 +43,7 @@ export async function saveSummary(formData: FormData) {
 }
 
 export async function deleteSummary(id: string) {
+  await assertWritable()
   const { supabase, businessId } = await requireBusinessContext()
   const { error } = await supabase.from('manual_summaries').delete().eq('id', id).eq('business_id', businessId)
   if (error) throw new Error(error.message)
@@ -48,6 +52,7 @@ export async function deleteSummary(id: string) {
 
 /** Tambah/ubah aturan periode buku. Tanggal berlaku yang sama akan ditimpa. */
 export async function saveBookRule(formData: FormData) {
+  await assertWritable()
   const businessId = String(formData.get('business_id') ?? '')
   const startDay = Number(formData.get('start_day'))
   const from = String(formData.get('effective_from') ?? '').trim()
@@ -70,6 +75,7 @@ export async function saveBookRule(formData: FormData) {
 }
 
 export async function deleteBookRule(id: string) {
+  await assertWritable()
   const { supabase, businessId } = await requireBusinessContext()
   const { error } = await supabase.from('book_period_rules').delete().eq('id', id).eq('business_id', businessId)
   if (error) throw new Error(error.message)

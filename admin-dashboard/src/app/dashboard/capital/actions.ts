@@ -1,5 +1,7 @@
 'use server'
 
+import { assertWritable } from '@/lib/billing/owner-billing'
+
 import { revalidatePath } from 'next/cache'
 import { requireBusinessContext } from '@/lib/business-context'
 import { parseMoney } from '@/lib/money'
@@ -12,6 +14,7 @@ function validDate(s: string) {
 
 /** Tambah atau ubah catatan modal. `id` kosong = catatan baru. */
 export async function saveCapital(formData: FormData) {
+  await assertWritable()
   const businessId = String(formData.get('business_id') ?? '')
   const id = String(formData.get('id') ?? '').trim()
   const date = String(formData.get('date') ?? '')
@@ -36,6 +39,7 @@ export async function saveCapital(formData: FormData) {
 }
 
 export async function deleteCapital(id: string) {
+  await assertWritable()
   if (!UUID_RE.test(id)) throw new Error('Catatan modal tidak valid')
   const { supabase, businessId } = await requireBusinessContext()
   const { error } = await supabase.from('capital_entries').delete().eq('id', id).eq('business_id', businessId)

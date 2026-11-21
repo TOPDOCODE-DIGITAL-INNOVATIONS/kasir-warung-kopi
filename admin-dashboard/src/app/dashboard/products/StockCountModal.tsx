@@ -9,7 +9,7 @@ import { recordStockCount } from './actions'
 import { stockChange } from './domain'
 import type { ProductRow } from './types'
 
-const input = 'w-full rounded-lg border border-gray-300 bg-white p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500'
+const input = 'rounded-xl border border-gray-200 bg-gray-50/60 px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition-colors hover:border-gray-300 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 w-full'
 const modes = { count: 'Isi sisa fisik', usage: 'Pemakaian', damage: 'Rusak / terbuang', addition: 'Penambahan lainnya' }
 type Draft = { mode: string; quantity: string; reason: string }
 const empty: Draft = { mode: 'count', quantity: '', reason: '' }
@@ -69,10 +69,10 @@ export default function StockCountModal({ products, businessId, onClose, onSaved
         })}</tbody></table></div>}
         <label className="block text-sm text-gray-700">Catatan umum (opsional)<textarea rows={2} value={note} maxLength={500} onChange={event => setNote(event.target.value)} className={`${input} mt-2`} /></label>
       </fieldset></DataPanel>
-      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
-        <button type="button" disabled={pending} onClick={preview ? () => setPreview(false) : onClose} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700">{preview ? 'Kembali' : 'Batal'}</button>
-        <button type="submit" disabled={pending || !selected.length} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : preview ? 'Simpan Perubahan' : 'Tinjau Perubahan'}</button>
+        <button type="button" disabled={pending} onClick={preview ? () => setPreview(false) : onClose} className="rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-700">{preview ? 'Kembali' : 'Batal'}</button>
+        <button type="submit" disabled={pending || !selected.length} className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors">{pending && <LoadingSpinner className="mr-2" />}{pending ? 'Menyimpan...' : preview ? 'Simpan Perubahan' : 'Tinjau Perubahan'}</button>
       </div>
     </form>
   </AdminModal>

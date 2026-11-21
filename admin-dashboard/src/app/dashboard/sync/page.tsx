@@ -1,5 +1,7 @@
 import Link from 'next/link'
-import { Smartphone, Server } from 'lucide-react'
+import { RefreshCw, Smartphone, Server } from 'lucide-react'
+import InfoTip from '@/components/InfoTip'
+import { EmptyState, PageHeader, Panel, ui } from '@/components/ui'
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { formatDateTime } from '@/lib/format'
 import { getSiteUrl } from '@/lib/site-url'
@@ -11,74 +13,64 @@ export default async function SyncPage() {
     getSiteUrl(),
   ])
 
+  const rows = businesses ?? []
+  const steps = [
+    <>Buka <Link href="/dashboard/businesses" className="font-semibold text-blue-700 hover:underline">Cabang &amp; Token</Link>, salin token cabang.</>,
+    <>Di tablet/HP kasir buka <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs">{siteUrl}/kasir/</code> lalu pasang (Add to Home Screen).</>,
+    <>Login sebagai Owner di kasir → <strong>Pengaturan</strong> → bagian Sinkronisasi → tempel token → Simpan.</>,
+    <>Tekan <strong>Tes Sync Sekarang</strong>. Setelah itu sync berjalan otomatis saat online.</>,
+  ]
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Status Sinkronisasi</h1>
-        <p className="text-gray-500 text-sm mt-1">Menghubungkan aplikasi kasir offline dengan database.</p>
-      </div>
+      <PageHeader eyebrow="Sistem & Akun" title="Status Sinkronisasi" description="Menghubungkan aplikasi kasir offline dengan database." />
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-left text-sm text-gray-600">
-          <thead className="bg-gray-50 text-xs uppercase text-gray-700">
-            <tr>
-              <th className="px-4 py-3 font-medium">Cabang</th>
-              <th className="px-4 py-3 font-medium">Sync terakhir</th>
-              <th className="px-4 py-3 font-medium">Perangkat</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {(businesses ?? []).map((b) => (
-              <tr key={b.id}>
-                <td className="px-4 py-3 font-medium text-gray-900">{b.name}</td>
-                <td className="px-4 py-3">{b.last_synced_at ? formatDateTime(b.last_synced_at) : 'Belum pernah'}</td>
-                <td className="px-4 py-3 font-mono">{b.last_device_code ?? '-'}</td>
-              </tr>
-            ))}
-            {(!businesses || businesses.length === 0) && (
-              <tr>
-                <td colSpan={3} className="px-4 py-6 text-center text-gray-500">
-                  Belum ada cabang.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {rows.length === 0
+        ? <div className={ui.panel}><EmptyState icon={RefreshCw} title="Belum ada cabang" description="Buat cabang terlebih dahulu untuk menghubungkan aplikasi kasir."
+            action={<Link href="/dashboard/businesses" className={ui.btnPrimary}>Buka Cabang &amp; Token</Link>} /></div>
+        : rows.map((b) => (
+          <section key={b.id} aria-label={`Status sync ${b.name}`} className="relative overflow-hidden rounded-3xl bg-espresso-900 p-6 text-white shadow-lg sm:p-8">
+            <div aria-hidden="true" className="pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full bg-champagne/15 blur-3xl" />
+            <div className="relative grid gap-6 sm:grid-cols-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-champagne">Cabang</p>
+                <p className="mt-2 font-display text-2xl font-semibold">{b.name}</p>
+              </div>
+              <div>
+                <p className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Sync terakhir <InfoTip tone="dark" label="Sync terakhir" text="Waktu terakhir aplikasi kasir cabang ini berhasil mengirim data ke server." /></p>
+                <p className="mt-2 flex items-center gap-2 text-lg font-semibold">
+                  <span aria-hidden="true" className={`h-2 w-2 rounded-full ${b.last_synced_at ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+                  {b.last_synced_at ? formatDateTime(b.last_synced_at) : 'Belum pernah'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Perangkat</p>
+                <p className="mt-2 font-mono text-lg">{b.last_device_code ?? '—'}</p>
+              </div>
+            </div>
+          </section>
+        ))}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-          <div className="flex items-center mb-4 text-blue-600">
-            <Server className="w-7 h-7 mr-3" />
-            <h2 className="text-lg font-bold text-gray-900">Endpoint</h2>
-          </div>
-          <div className="bg-gray-50 p-3 rounded-lg font-mono text-sm border border-gray-200 break-all">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        <Panel className="lg:col-span-2" title={<><Server aria-hidden="true" className="h-4 w-4 text-blue-700" />Endpoint</>} info="Alamat API yang dipakai aplikasi kasir untuk mengirim data.">
+          <div className="break-all rounded-xl bg-gray-50 p-3 font-mono text-sm text-gray-800 ring-1 ring-gray-100">
             POST {siteUrl}/api/sync
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Header <code>Authorization: Bearer &lt;token cabang&gt;</code>. Data disimpan ke Supabase.
+          <p className="mt-3 text-xs text-gray-500">
+            Header <code className="rounded bg-gray-100 px-1 py-0.5">Authorization: Bearer &lt;token cabang&gt;</code>. Data disimpan ke Supabase.
           </p>
-        </div>
+        </Panel>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
-          <div className="flex items-center mb-4 text-orange-500">
-            <Smartphone className="w-7 h-7 mr-3" />
-            <h2 className="text-lg font-bold text-gray-900">Cara menghubungkan kasir</h2>
-          </div>
-          <ol className="list-decimal list-inside space-y-2 text-gray-600 text-sm">
-            <li>
-              Buka <Link href="/dashboard/businesses" className="text-blue-600 underline">Cabang & Token</Link>, salin
-              token cabang.
-            </li>
-            <li>
-              Di tablet/HP kasir buka <code>{siteUrl}/kasir/</code> lalu pasang (Add to Home Screen).
-            </li>
-            <li>
-              Login sebagai Owner di kasir → <strong>Pengaturan</strong> → bagian Sinkronisasi → tempel token → Simpan.
-            </li>
-            <li>Tekan <strong>Tes Sync Sekarang</strong>. Setelah itu sync berjalan otomatis saat online.</li>
+        <Panel className="lg:col-span-3" title={<><Smartphone aria-hidden="true" className="h-4 w-4 text-blue-700" />Cara menghubungkan kasir</>}>
+          <ol className="space-y-4">
+            {steps.map((step, i) => (
+              <li key={i} className="flex gap-3 text-sm text-gray-600">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-espresso-900 text-xs font-semibold text-champagne">{i + 1}</span>
+                <span className="pt-1">{step}</span>
+              </li>
+            ))}
           </ol>
-        </div>
+        </Panel>
       </div>
     </div>
   )
