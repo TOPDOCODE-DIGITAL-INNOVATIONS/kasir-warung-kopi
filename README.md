@@ -124,6 +124,44 @@ perangkat sehingga tidak bentrok. Jika token bocor, tekan **Ganti** di dashboard
   di semua perangkat (pakai backup/restore JSON di kasir), atau buat cabang terpisah per perangkat.
 - PIN kasir bawaan (1234/1111/2222) wajib diganti sebelum dipakai.
 
+## CI dan monitoring sync
+
+**CI** (`.github/workflows/ci.yml`) berjalan pada setiap pull request dan push ke `main`/`development`:
+
+| Job | Isi |
+|---|---|
+| Aplikasi kasir | typecheck, `vitest`, build |
+| Dashboard & API sync | eslint, typecheck, `node --test tests/*.test.mjs`, build (env placeholder, tanpa rahasia) |
+| Migrasi & SQL tests | Supabase lokal di runner, semua migrasi diterapkan dari nol, lalu `node scripts/db.mjs test --local` |
+
+CI tidak pernah menyentuh database dev/prod. Untuk menjalankan SQL tests yang sama di komputer sendiri
+(butuh Docker dan `psql`):
+
+```bash
+npx supabase db start
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres node scripts/db.mjs test --local
+npx supabase stop --no-backup
+```
+
+Agar CI benar-benar menjaga `main`, aktifkan di GitHub → Settings → Branches → *Require status checks*
+untuk ketiga job di atas.
+
+**Monitoring sync.** Setiap permintaan `/api/sync` (push dan pull) dicatat di tabel `sync_events`
+(status HTTP, error, durasi, kode perangkat). Push dari kasir juga membawa antrean perangkat: jumlah
+transaksi/pengeluaran yang belum terkirim, umur data tertua, dan error terakhir di perangkat (mis.
+offline). Pencatatan berjalan setelah respons terkirim dan tidak pernah menggagalkan sync. Data
+disimpan 30 hari.
+
+- **Dashboard → Status Sinkronisasi**: status Sehat / Perlu dicek / Bermasalah per cabang, gagal 24 jam,
+  durasi rata-rata, dan tabel perangkat. *Bermasalah* = 3 sync gagal berturut-turut, atau data tertahan
+  di perangkat lebih dari 6 jam. *Perlu dicek* = ada kegagalan 24 jam terakhir, data tertahan lebih
+  dari 1 jam, atau tidak ada sync berhasil selama 24 jam. Aturannya ada di `admin-dashboard/src/lib/sync-health.ts`.
+- **Platform → Overview**: kegagalan 24 jam di seluruh cabang, termasuk percobaan dengan token tidak valid.
+- Kegagalan juga ditulis ke log Vercel sebagai JSON `{"event":"sync_failed",...}` untuk dipasang alert.
+
+Perangkat yang benar-benar offline tidak bisa melapor. Kondisinya baru terlihat saat perangkat tersambung
+lagi, atau lewat peringatan "tidak ada sync berhasil selama 24 jam".
+
 ## Pengembangan lokal
 
 Butuh Node.js 20+. Cara paling mirip produksi (semua service sekaligus, satu port):

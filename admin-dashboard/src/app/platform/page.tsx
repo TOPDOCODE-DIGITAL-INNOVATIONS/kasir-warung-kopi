@@ -1,9 +1,9 @@
 import Link from 'next/link'
 import { unstable_rethrow } from 'next/navigation'
-import { ArrowUpRight, Building2, CalendarClock, CircleAlert, CreditCard, UserCheck, UserRound, UserRoundX, Users } from 'lucide-react'
+import { Activity, ArrowUpRight, Building2, CalendarClock, CircleAlert, CreditCard, UserCheck, UserRound, UserRoundX, Users } from 'lucide-react'
 import InfoTip from '@/components/InfoTip'
-import { rupiah } from '@/lib/format'
-import { getPlatformOverview } from './actions'
+import { formatDateTime, rupiah } from '@/lib/format'
+import { getPlatformOverview, getSyncIncidents } from './actions'
 import { getBillingOverview } from './subscriptions/actions'
 
 const panel = 'rounded-2xl border border-gray-200/70 bg-white shadow-sm'
@@ -18,8 +18,9 @@ const billingSegments = [
 const percent = (value: number, total: number) => (total ? Math.round((value / total) * 100) : 0)
 
 export default async function PlatformPage() {
-  const [ownerResult, billingResult] = await Promise.allSettled([getPlatformOverview(), getBillingOverview({})])
-  for (const result of [ownerResult, billingResult]) if (result.status === 'rejected') unstable_rethrow(result.reason)
+  const [ownerResult, billingResult, syncResult] = await Promise.allSettled([getPlatformOverview(), getBillingOverview({}), getSyncIncidents()])
+  for (const result of [ownerResult, billingResult, syncResult]) if (result.status === 'rejected') unstable_rethrow(result.reason)
+  const sync = syncResult.status === 'fulfilled' ? syncResult.value : null
   const overview = ownerResult.status === 'fulfilled' ? ownerResult.value : null
   const billing = billingResult.status === 'fulfilled' ? billingResult.value : null
 
@@ -134,6 +135,48 @@ export default async function PlatformPage() {
       ) : <p role="alert" className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-800">
         Ringkasan langganan belum berhasil dimuat. Buka menu Subscription &amp; Trial untuk detailnya.
       </p>}
+
+      <section aria-labelledby="sync-monitor" className={`${panel} p-6`}>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 id="sync-monitor" className="flex items-center gap-2 text-base font-semibold text-gray-900"><Activity aria-hidden="true" className="h-4 w-4 text-blue-700" />Monitoring Sync · 24 jam</h2>
+            <p className="mt-0.5 text-xs text-gray-500">Permintaan kasir ke /api/sync yang gagal, per cabang. Cabang yang belum pulih tampil paling atas.</p>
+          </div>
+          {sync && (
+            <p className="text-sm tabular-nums text-gray-600">
+              {sync.failed.toLocaleString('id-ID')} gagal dari {sync.total.toLocaleString('id-ID')} permintaan
+              {sync.total ? ` (${percent(sync.failed, sync.total)}%)` : ''}
+              {sync.invalidToken ? ` · ${sync.invalidToken} token tidak valid` : ''}
+            </p>
+          )}
+        </div>
+        {!sync ? (
+          <p role="alert" className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-4 text-sm text-amber-800">Monitoring sync belum tersedia. Pastikan migrasi sync_events sudah dijalankan.</p>
+        ) : sync.incidents.length === 0 ? (
+          <p className="mt-4 rounded-xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-500">Tidak ada sync gagal dalam 24 jam terakhir.</p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-sm">
+              <thead className="text-[11px] uppercase tracking-[0.12em] text-gray-500">
+                <tr><th className="py-2 pr-3 font-semibold">Cabang</th><th className="py-2 pr-3 font-semibold">Gagal</th><th className="py-2 pr-3 font-semibold">Terakhir gagal</th><th className="py-2 pr-3 font-semibold">Status</th><th className="py-2 font-semibold">Error terakhir</th></tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {sync.incidents.map((i) => (
+                  <tr key={i.businessId}>
+                    <td className="py-2.5 pr-3 font-medium text-gray-900">{i.name}</td>
+                    <td className="py-2.5 pr-3 tabular-nums text-red-600">{i.failed}</td>
+                    <td className="py-2.5 pr-3 text-gray-600">{formatDateTime(i.lastFailureAt)}</td>
+                    <td className="py-2.5 pr-3">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${i.recovered ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{i.recovered ? 'Pulih' : 'Belum pulih'}</span>
+                    </td>
+                    <td className="max-w-[20rem] break-words py-2.5 text-gray-500">{i.lastError ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   )
 }

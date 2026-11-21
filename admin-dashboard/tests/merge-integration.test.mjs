@@ -658,3 +658,37 @@ test('expense search escapes literal wildcard characters, handles empty results 
   const invalid = await actions.searchExpenseProducts('a', 'x'.repeat(201))
   assert.match(invalid.error, /200 karakter/)
 })
+
+test('every sync request is recorded for monitoring without changing the response', async () => {
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0))
+  const fixture = database()
+  const sync = request(fixture)('app/api/sync/route.ts')
+  const health = { pendingTx: 3, pendingExpenses: 1, oldestPendingAt: '2026-11-21T01:00:00.000Z', lastError: 'Failed to fetch' }
+  const ok = await sync.POST(post({ deviceCode: 'KSR-1', health, transactions: [], expenses: [] }))
+  assert.equal(ok.status, 200)
+  assert.equal((await ok.json()).success, true)
+  await flush()
+  const pushed = fixture.queries.filter(q => q.table === 'rpc:record_sync_event').map(q => JSON.parse(JSON.stringify(q.args)))
+  assert.equal(pushed.length, 1)
+  assert.equal(pushed[0].p_business, 'a')
+  assert.equal(pushed[0].p_direction, 'push')
+  assert.equal(pushed[0].p_http_status, 200)
+  assert.equal(pushed[0].p_error, null)
+  assert.equal(pushed[0].p_device_code, 'KSR-1')
+  assert.equal(pushed[0].p_pending_tx, 3)
+  assert.equal(pushed[0].p_pending_expenses, 1)
+  assert.equal(pushed[0].p_oldest_pending_at, health.oldestPendingAt)
+  assert.equal(pushed[0].p_client_error, 'Failed to fetch')
+
+  const bad = await sync.POST(new Request('http://local.test/api/sync', { method: 'POST', headers: { 'x-api-key': 'test-token' }, body: 'not json' }))
+  assert.equal(bad.status, 400)
+  await flush()
+  const failed = fixture.queries.filter(q => q.table === 'rpc:record_sync_event').at(-1).args
+  assert.equal(failed.p_http_status, 400)
+  assert.equal(failed.p_error, 'Body harus JSON')
+
+  fixture.queries.length = 0
+  await sync.GET(new Request('http://local.test/api/sync?expenseSearch=kopi', { headers: { 'x-api-key': 'test-token' } }))
+  await flush()
+  assert.ok(!fixture.queries.some(q => q.table === 'rpc:record_sync_event'), 'catalog search is not a sync')
+})

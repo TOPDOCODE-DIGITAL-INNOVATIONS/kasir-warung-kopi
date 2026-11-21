@@ -7,10 +7,10 @@ import ts from 'typescript'
 
 const source = fs.readFileSync(path.resolve(import.meta.dirname, '../../shared/expense-report.ts'), 'utf8')
 function load(globals = {}) {
-  const module = { exports: {} }
+  const loaded = { exports: {} }
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText,
-    { module, exports: module.exports, setTimeout, clearTimeout, ...globals })
-  return module.exports
+    { module: loaded, exports: loaded.exports, setTimeout, clearTimeout, ...globals })
+  return loaded.exports
 }
 const base = { branchName: 'RUAS KOPI BALI', period: 'November 2026' }
 

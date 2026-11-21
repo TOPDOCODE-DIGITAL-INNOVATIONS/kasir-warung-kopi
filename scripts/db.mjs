@@ -25,11 +25,19 @@ function readEnvFile(filePath) {
 //   prod           -> .env.prod  (HANYA dibaca script ini; tidak dimuat otomatis oleh Next/Vite)
 // Pilih dengan flag --prod atau DB_TARGET=prod.
 const args = process.argv.slice(2)
+// --local: jalankan lewat psql ke DATABASE_URL (Supabase lokal / CI). Hanya untuk `test`.
+const local = args.includes('--local')
 const target = args.includes('--prod') || process.env.DB_TARGET === 'prod' ? 'prod' : 'dev'
 const assumeYes = args.includes('--yes') || args.includes('-y')
 const ENV_FILES = { dev: '.env', prod: '.env.prod' }
 
 function resolveConfig() {
+  if (local) {
+    const url = process.env.DATABASE_URL
+    if (!url) throw new Error('--local membutuhkan DATABASE_URL (mis. postgresql://postgres:postgres@127.0.0.1:54322/postgres)')
+    if (!/@(127\.0\.0\.1|localhost)[:/]/.test(url)) throw new Error('--local hanya untuk database lokal (127.0.0.1/localhost).')
+    return { local: true, url, target: 'local', label: 'LOCAL' }
+  }
   const envFile = ENV_FILES[target]
   const envPath = path.join(rootDir, envFile)
   if (target === 'prod' && !fs.existsSync(envPath)) {
@@ -81,7 +89,25 @@ async function confirmProd(config, action) {
   }
 }
 
+async function runLocal(query, url) {
+  const { spawn } = await import('node:child_process')
+  return new Promise((resolve, reject) => {
+    const child = spawn('psql', [url, '-v', 'ON_ERROR_STOP=1', '-q', '-X', '-f', '-'], { stdio: ['pipe', 'pipe', 'pipe'] })
+    let stderr = ''
+    child.stderr.on('data', (d) => { stderr += d })
+    child.stdout.resume()
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code === 0) resolve([])
+      // NOTICE PASS: ... dari test ikut ditampilkan agar kegagalan mudah dilacak.
+      else reject(new Error(`psql gagal (exit ${code}):\n${stderr.split('\n').filter((l) => !/NOTICE:\s+PASS/.test(l)).join('\n')}`))
+    })
+    child.stdin.end(query)
+  })
+}
+
 export async function runQuery(query, config = resolveConfig()) {
+  if (config.local) return runLocal(query, config.url)
   const res = await fetch(`https://api.supabase.com/v1/projects/${config.projectRef}/database/query`, {
     method: 'POST',
     headers: {
@@ -213,6 +239,7 @@ export async function test() {
     'platform_xendit_webhook.sql',
     'owner_self_service_billing.sql',
     'hpp_purchase_correction.sql',
+    'sync_events.sql',
   ]
 
   const platformMigration = fs
@@ -242,6 +269,7 @@ export async function test() {
 
 async function main() {
   const cmd = args.find((a) => !a.startsWith('-')) || 'status'
+  if (local && cmd !== 'test') throw new Error('--local hanya mendukung perintah test; migrasi lokal diterapkan oleh `supabase db start`.')
   if (cmd === 'status') {
     await status()
   } else if (cmd === 'migrate') {

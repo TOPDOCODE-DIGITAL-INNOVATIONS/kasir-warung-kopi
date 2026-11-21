@@ -1001,3 +1001,26 @@ describe('draf pesanan (bayar nanti)', () => {
     expect(getDrafts()).toHaveLength(0);
   });
 });
+
+describe('laporan kesehatan sync', () => {
+  it('push pertama membawa antrean perangkat dan error terakhir; tarik membawa kode perangkat', async () => {
+    saveStoreSettings({ ...getStoreSettings(), syncApiUrl: 'https://x.test/sync', syncApiKey: 'tok' });
+    // Token baru menghapus error lama, jadi error dicatat setelahnya (seperti sync gagal sebelumnya).
+    saveStoreSettings({ ...getStoreSettings(), lastSyncError: 'Failed to fetch' });
+    startNewShift('c-1', 0);
+    saveTransaction({ ...makeTx('tunai'), timestamp: '2026-11-21T02:00:00.000Z' });
+    saveTransaction({ ...makeTx('tunai'), timestamp: '2026-11-21T01:00:00.000Z' });
+    addExpense({ scope: 'monthly', date: '2026-11', category: 'Sewa', amount: 100, createdBy: 'O' });
+    const bodies: any[] = [];
+    const gets = stubServer((body) => { bodies.push(body); return {}; });
+
+    expect((await performCloudSync()).success).toBe(true);
+    expect(bodies[0].health).toEqual({
+      pendingTx: 2,
+      pendingExpenses: 1,
+      oldestPendingAt: '2026-11-21T01:00:00.000Z',
+      lastError: 'Failed to fetch',
+    });
+    expect(new URL(gets[0]).searchParams.get('device')).toBe(bodies[0].deviceCode);
+  });
+});

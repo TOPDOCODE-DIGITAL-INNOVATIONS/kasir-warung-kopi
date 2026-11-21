@@ -5,12 +5,20 @@ import { EmptyState, PageHeader, Panel, ui } from '@/components/ui'
 import { getBusinessContext, EMPTY_BUSINESS_ID } from '@/lib/business-context'
 import { formatDateTime } from '@/lib/format'
 import { getSiteUrl } from '@/lib/site-url'
+import { computeSyncHealth, type SyncEvent } from '@/lib/sync-health'
+import SyncHealthPanel from './SyncHealthPanel'
+
+const EVENT_COLUMNS = 'created_at, direction, http_status, error, device_code, duration_ms, pending_tx, pending_expenses, oldest_pending_at, client_error'
+
+const eventsSince = () => new Date(Date.now() - 7 * 86400000).toISOString()
 
 export default async function SyncPage() {
   const { supabase, businessId } = await getBusinessContext()
-  const [{ data: businesses }, siteUrl] = await Promise.all([
+  const [{ data: businesses }, siteUrl, events] = await Promise.all([
     supabase.from('businesses').select('id, name, last_synced_at, last_device_code').eq('id', businessId ?? EMPTY_BUSINESS_ID),
     getSiteUrl(),
+    supabase.from('sync_events').select(EVENT_COLUMNS).eq('business_id', businessId ?? EMPTY_BUSINESS_ID)
+      .gte('created_at', eventsSince()).order('created_at', { ascending: false }).limit(1000),
   ])
 
   const rows = businesses ?? []
@@ -50,6 +58,13 @@ export default async function SyncPage() {
             </div>
           </section>
         ))}
+
+      {rows[0] && (
+        <SyncHealthPanel
+          unavailable={!!events.error}
+          health={events.error ? null : computeSyncHealth((events.data ?? []) as SyncEvent[], rows[0].last_synced_at)}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         <Panel className="lg:col-span-2" title={<><Server aria-hidden="true" className="h-4 w-4 text-blue-700" />Endpoint</>} info="Alamat API yang dipakai aplikasi kasir untuk mengirim data.">

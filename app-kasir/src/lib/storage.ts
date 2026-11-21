@@ -1330,6 +1330,26 @@ export function getUnsyncedExpenses(): Expense[] {
   return getExpenses().filter((e) => !e.isSynced);
 }
 
+/**
+ * Laporan antrean untuk monitoring sync di server (`body.health`). Dihitung sebelum batch
+ * pertama dikirim, membawa error terakhir yang mungkin tidak pernah sampai ke server (offline).
+ */
+export function getSyncHealthReport(): { pendingTx: number; pendingExpenses: number; oldestPendingAt: string | null; lastError: string | null } {
+  const tx = getUnsyncedTransactions();
+  const exp = getUnsyncedExpenses();
+  let oldest: number | null = null;
+  for (const at of [...tx.map((t) => t.timestamp), ...exp.map((e) => e.createdAt)]) {
+    const ms = at ? new Date(at).getTime() : NaN;
+    if (!Number.isNaN(ms) && (oldest === null || ms < oldest)) oldest = ms;
+  }
+  return {
+    pendingTx: tx.length,
+    pendingExpenses: exp.length,
+    oldestPendingAt: oldest === null ? null : new Date(oldest).toISOString(),
+    lastError: getStoreSettings().lastSyncError?.slice(0, 500) ?? null,
+  };
+}
+
 export function getDeletedExpenseIds(): string[] {
   return readJSON<string[]>(STORAGE_KEYS.EXPENSES_DELETED, []);
 }
@@ -1585,6 +1605,7 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
   let configSent = false;
   let draftsSent = 0;
   const attemptedPurchases = new Set<string>();
+  const health = getSyncHealthReport();
   try {
     for (let batch = 0; ; batch++) {
       const stockEdits = batch === 0 ? getStockEdits().slice(0, 500) : [];
@@ -1615,6 +1636,7 @@ async function pushToCloud(syncUrl: string, apiKey: string): Promise<SyncResult 
         deletedExpenseIds: delBatch,
         ...(batch === 0
           ? {
+              health,
               shift: getActiveShift(),
               shifts: getRecentShifts(),
               drafts: draftBatch,
@@ -2082,6 +2104,7 @@ async function pullFromCloud(
       const catalogAt = readJSON<{ loadedAt: number } | null>(STORAGE_KEYS.EXPENSE_CATALOG, null)?.loadedAt ?? 0;
       if (page === 0 && Date.now() - catalogAt >= 5 * 60_000) url.searchParams.set('expenseCatalog', '1');
       if (page === 0) url.searchParams.set('saleStocks', '1');
+      url.searchParams.set('device', getDeviceCode());
 
       const res = await fetch(url.toString(), { method: 'GET', headers: syncHeaders(apiKey), cache: 'no-store' });
       if (!res.ok) {

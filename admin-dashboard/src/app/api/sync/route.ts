@@ -3,6 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/utils/supabase/admin'
 import { financialChange, sameExpense, validateExpense } from '@/app/dashboard/expenses/edit-domain'
 import { readOwnerBilling } from '@/lib/billing/owner-billing'
+import { monitorSync, type SyncLog } from '@/lib/sync-monitor'
+import { parseDeviceHealth } from '@/lib/sync-health'
 import { computeAccess, toDeviceAccess, type DeviceAccess } from '../../../../../shared/billing-access'
 import { expenseNoteSuggestions, isExpenseQuantity, type ExpensePurchaseCatalog } from '../../../../../shared/expense-products'
 
@@ -376,10 +378,19 @@ async function upsertTolerant(supabase: SupabaseClient, table: string, rows: Row
 // POST: kasir -> server
 // ---------------------------------------------------------------------
 
-export async function POST(request: Request) {
+function crashResponse() {
+  return json({ success: false, error: 'Internal error' }, 500)
+}
+
+export const POST = monitorSync('push', handlePush, crashResponse)
+export const GET = monitorSync('pull', handlePull, crashResponse)
+
+async function handlePush(request: Request, log: SyncLog) {
   const auth = await authenticate(request)
   if ('error' in auth) return auth.error
   const { supabase, business } = auth
+  log.supabase = supabase
+  log.businessId = business.id
   const accessPromise = deviceAccess(business.owner_id)
 
   let body: Row
@@ -393,11 +404,15 @@ export async function POST(request: Request) {
   const businessId = business.id
   const deviceCode = str(body.deviceCode)
   const now = new Date().toISOString()
+  log.deviceCode = deviceCode
+  log.health = parseDeviceHealth(body.health)
 
   const transactions = list(body.transactions)
+  log.txCount = transactions.length
   const stockEdits = Array.isArray(body.stockEdits) ? body.stockEdits : []
   const expenses = list(body.expenses)
   const productExpenses = list(body.productExpenses)
+  log.expenseCount = expenses.length + productExpenses.length
   if (productExpenses.length > PURCHASE_BATCH_SIZE) {
     return json({ success: false, error: 'Maksimal 100 item pembelian per pengiriman.' }, 413)
   }
@@ -752,13 +767,17 @@ async function fetchPage(
  *   init=1               = masih tarikan pertama (bisa beberapa halaman): batasi ke data terbaru.
  *   config               = versi data master yang sudah ada di perangkat.
  */
-export async function GET(request: Request) {
+async function handlePull(request: Request, log: SyncLog) {
+  const params = new URL(request.url).searchParams
+  // Pencarian katalog dipanggil per ketikan; bukan sinkronisasi data.
+  log.skip = params.has('expenseSearch')
   const auth = await authenticate(request)
   if ('error' in auth) return auth.error
   const { supabase, business } = auth
   const businessId = business.id
-
-  const params = new URL(request.url).searchParams
+  log.supabase = supabase
+  log.businessId = businessId
+  log.deviceCode = str(params.get('device'))
   const accessPromise = params.has('expenseSearch') ? null : deviceAccess(business.owner_id)
   if (params.has('expenseSearch')) {
     const term = params.get('expenseSearch')?.trim() ?? ''
