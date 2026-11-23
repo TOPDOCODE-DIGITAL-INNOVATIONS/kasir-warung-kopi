@@ -5,6 +5,7 @@ import { createAdminClient } from '@/utils/supabase/admin'
 import { getBusinessContext } from '@/lib/business-context'
 import { computeAccess, TRIAL_DAYS, type Access, type BillingSnapshot } from '../../../../shared/billing-access'
 import type { BillingEnvironment } from '@/app/platform/subscriptions/types'
+import { xenditEnvironment } from '@/lib/xendit/env'
 
 export type OwnerBillingPlan = { code: 'monthly' | 'yearly'; name: string; amount: number; interval_months: number }
 
@@ -47,9 +48,9 @@ export function billingEnabled(): boolean {
 
 export const BILLING_DISABLED_MESSAGE = 'Langganan belum diaktifkan. Semua fitur dashboard dan kasir dapat dipakai tanpa batas.'
 
-/** Lingkungan Xendit yang dipakai Owner. Default Test sampai akun Live siap. */
+/** Lingkungan Xendit yang dipakai Owner, mengikuti awalan XENDIT_SECRET_KEY (default Test). */
 export function billingEnvironment(): BillingEnvironment {
-  return process.env.BILLING_ENVIRONMENT?.trim().toLowerCase() === 'live' ? 'live' : 'test'
+  return xenditEnvironment()
 }
 
 /**

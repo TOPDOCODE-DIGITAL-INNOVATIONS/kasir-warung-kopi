@@ -14,6 +14,7 @@ function load(env) {
     'server-only': {},
     react: { cache: fn => fn },
     '@/utils/supabase/admin': { createAdminClient: () => ({ rpc: async (name, args) => { calls.push(name); return { data: { status: 'ok', trial_ends_at: '2000-01-01T00:00:00Z' }, error: null } } }) },
+    '@/lib/xendit/env': { xenditEnvironment: () => 'test' },
     '@/lib/business-context': { getBusinessContext: async () => ({ user: { id: 'owner' }, account: { role: 'owner' } }) },
     // Expired trial: with billing on, this owner would be read-only.
     '../../../../shared/billing-access': { TRIAL_DAYS: 14, computeAccess: () => ({ state: 'expired', readOnly: true }) },

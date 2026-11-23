@@ -41,7 +41,7 @@ function bearer(request: Request) {
 
 function publicClient(accessToken?: string): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
   if (!url || !key) throw new Error('Server belum dikonfigurasi (env Supabase).')
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

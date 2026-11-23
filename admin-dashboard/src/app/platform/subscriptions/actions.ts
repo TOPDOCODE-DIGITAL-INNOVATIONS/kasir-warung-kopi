@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { requireSuperAdmin } from '@/lib/platform-auth'
+import { xenditEnvironment } from '@/lib/xendit/env'
 import { platformDb } from '../db'
 import { billingFilters, type BillingEnvironment, type BillingFilter, type BillingOverview, type BillingOwnerDetail } from './types'
 
@@ -8,8 +9,7 @@ const PAGE_SIZE = 25
 
 export function billingEnvironment(value: unknown): BillingEnvironment {
   if (value === 'test' || value === 'live') return value
-  const key = process.env.XENDIT_SECRET_KEY || process.env.XENDIT_TEST_SECRET_KEY || ''
-  return key.startsWith('xnd_development_') ? 'test' : 'live'
+  return xenditEnvironment()
 }
 
 export async function getBillingOverview(params: { environment?: unknown; q?: unknown; status?: unknown; page?: unknown }) {

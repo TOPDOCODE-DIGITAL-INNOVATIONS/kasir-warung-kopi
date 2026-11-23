@@ -14,15 +14,11 @@ export class XenditApiError extends Error {
 }
 
 function resolveSecretKey(environment: BillingEnvironment): string {
-  const key =
-    environment === 'test'
-      ? process.env.XENDIT_TEST_SECRET_KEY || process.env.XENDIT_SECRET_KEY
-      : process.env.XENDIT_LIVE_SECRET_KEY || process.env.XENDIT_SECRET_KEY
+  // Sama dengan xenditSecretKey() di ./env; dibaca langsung agar modul ini tetap mandiri.
+  const key = process.env.XENDIT_SECRET_KEY?.trim()
 
   if (!key) {
-    throw new Error(
-      `Secret key Xendit untuk lingkungan ${environment === 'test' ? 'Test (XENDIT_TEST_SECRET_KEY / XENDIT_SECRET_KEY)' : 'Live (XENDIT_LIVE_SECRET_KEY)'} belum dikonfigurasi di .env.`
-    )
+    throw new Error('Secret key Xendit (XENDIT_SECRET_KEY) belum dikonfigurasi di .env.')
   }
   if (environment === 'test' && !key.startsWith('xnd_development_')) {
     throw new Error('Lingkungan Test hanya menerima secret key Test Mode (diawali xnd_development_).')

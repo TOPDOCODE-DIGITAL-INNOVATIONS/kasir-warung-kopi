@@ -20,16 +20,16 @@ function readEnvFile(filePath) {
   return out
 }
 
-// Target database:
-//   dev  (default) -> .env       (dipakai juga oleh `npm run dev` admin-dashboard & app-kasir)
-//   prod           -> .env.prod  (HANYA dibaca script ini; tidak dimuat otomatis oleh Next/Vite)
-// Pilih dengan flag --prod atau DB_TARGET=prod.
+// Satu file .env untuk semua lingkungan. Database yang dituju = NEXT_PUBLIC_SUPABASE_URL di .env.
+// APP_ENV (development | preview | production) menentukan pengaman:
+//   development     -> langsung jalan
+//   preview         -> migrasi minta konfirmasi ref project
+//   production      -> migrasi minta konfirmasi ref project, SQL tests ditolak
 const args = process.argv.slice(2)
 // --local: jalankan lewat psql ke DATABASE_URL (Supabase lokal / CI). Hanya untuk `test`.
 const local = args.includes('--local')
-const target = args.includes('--prod') || process.env.DB_TARGET === 'prod' ? 'prod' : 'dev'
 const assumeYes = args.includes('--yes') || args.includes('-y')
-const ENV_FILES = { dev: '.env', prod: '.env.prod' }
+const APP_ENVS = ['development', 'preview', 'production']
 
 function resolveConfig() {
   if (local) {
@@ -38,18 +38,16 @@ function resolveConfig() {
     if (!/@(127\.0\.0\.1|localhost)[:/]/.test(url)) throw new Error('--local hanya untuk database lokal (127.0.0.1/localhost).')
     return { local: true, url, target: 'local', label: 'LOCAL' }
   }
-  const envFile = ENV_FILES[target]
-  const envPath = path.join(rootDir, envFile)
-  if (target === 'prod' && !fs.existsSync(envPath)) {
-    throw new Error(`File ${envFile} tidak ditemukan. Buat dari .env.example dan isi kredensial project PROD.`)
+  // Nilai di .env menang atas variabel yang ter-export di shell, agar target selalu
+  // sama dengan isi file yang sedang Anda lihat.
+  const env = { ...process.env, ...readEnvFile(path.join(rootDir, '.env')) }
+  const target = (env.APP_ENV || 'development').trim().toLowerCase()
+  if (!APP_ENVS.includes(target)) {
+    throw new Error(`APP_ENV tidak valid: "${env.APP_ENV}". Gunakan: ${APP_ENVS.join(' | ')}`)
   }
-  // Untuk prod, file .env.prod menang atas process.env agar variabel dev yang ter-export
-  // di shell tidak membuat migrasi "prod" diam-diam jalan ke DB dev (atau sebaliknya).
-  const fileEnv = readEnvFile(envPath)
-  const env = target === 'prod' ? { ...process.env, ...fileEnv } : { ...fileEnv, ...process.env }
   const url = env.NEXT_PUBLIC_SUPABASE_URL
   if (!url) {
-    throw new Error(`NEXT_PUBLIC_SUPABASE_URL belum diset di ${envFile}`)
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL belum diset di .env')
   }
   const refMatch = /https:\/\/([a-z0-9]+)\.supabase\.co/i.exec(url)
   if (!refMatch) {
@@ -58,30 +56,21 @@ function resolveConfig() {
   const projectRef = refMatch[1]
   const token = env.SUPABASE_ACCESS_TOKEN
   if (!token) {
-    throw new Error(`SUPABASE_ACCESS_TOKEN belum diset di ${envFile}`)
-  }
-
-  // Cegah salah target: ref prod tidak boleh sama dengan ref dev.
-  if (target === 'prod') {
-    const devUrl = readEnvFile(path.join(rootDir, '.env')).NEXT_PUBLIC_SUPABASE_URL
-    const devRef = devUrl && /https:\/\/([a-z0-9]+)\.supabase\.co/i.exec(devUrl)?.[1]
-    if (devRef && devRef === projectRef) {
-      throw new Error(`.env.prod menunjuk ke project yang sama dengan .env (dev): ${projectRef}`)
-    }
+    throw new Error('SUPABASE_ACCESS_TOKEN belum diset di .env')
   }
 
   return { projectRef, token, target, label: `${target.toUpperCase()} ${projectRef}` }
 }
 
-async function confirmProd(config, action) {
-  if (config.target !== 'prod' || assumeYes) return
+async function confirmTarget(config, action) {
+  if (config.local || config.target === 'development' || assumeYes) return
   if (!process.stdin.isTTY) {
-    throw new Error(`Menolak ${action} ke PROD tanpa konfirmasi. Tambahkan --yes jika memang disengaja.`)
+    throw new Error(`Menolak ${action} ke ${config.label} tanpa konfirmasi. Tambahkan --yes jika memang disengaja.`)
   }
   const { createInterface } = await import('node:readline/promises')
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const answer = await rl.question(
-    `⚠️  Akan ${action} ke database PROD (${config.label}). Ketik ref project untuk lanjut: `
+    `⚠️  Akan ${action} ke database ${config.label} (APP_ENV=${config.target}). Ketik ref project untuk lanjut: `
   )
   rl.close()
   if (answer.trim() !== config.projectRef) {
@@ -161,7 +150,7 @@ export async function status() {
 
 export async function migrate() {
   const config = resolveConfig()
-  await confirmProd(config, 'menjalankan migrasi')
+  await confirmTarget(config, 'menjalankan migrasi')
   console.log(`Menjalankan migrasi ke (${config.label})...`)
   await ensureMigrationsTable(config)
 
@@ -226,8 +215,8 @@ export async function migrate() {
 
 export async function test() {
   const config = resolveConfig()
-  if (config.target === 'prod' && !args.includes('--allow-prod-tests')) {
-    throw new Error('SQL tests tidak dijalankan di PROD. Jalankan di dev (npm run db:test).')
+  if (config.target === 'production' && !args.includes('--allow-prod-tests')) {
+    throw new Error('SQL tests tidak dijalankan saat APP_ENV=production. Arahkan .env ke database dev.')
   }
   console.log(`Menjalankan SQL tests pada (${config.label})...`)
 
@@ -278,7 +267,7 @@ async function main() {
     await test()
   } else if (cmd === 'all') {
     await migrate()
-    if (target !== 'prod') await test()
+    if (local || resolveConfig().target !== 'production') await test()
   } else {
     throw new Error(`Perintah tidak dikenal: ${cmd}. Gunakan: status | migrate | test | all`)
   }
