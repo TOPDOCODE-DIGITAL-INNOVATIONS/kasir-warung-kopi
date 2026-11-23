@@ -40,16 +40,28 @@ Repo ini dideploy sebagai **satu project Vercel dengan 2 service**
 baru. Rancangan role, batas fitur dan prosedur rollout ada di
 [Akun platform dan profil kasir](docs/platform-accounts.md).
 
-### Database dev & prod
+### Satu file `.env`
 
-| File        | Database | Dipakai oleh                                              |
-|-------------|----------|-----------------------------------------------------------|
-| `.env`      | DEV      | `npm run dev` (dashboard & kasir), `npm run db:status/migrate/test` |
-| `.env.prod` | PROD     | hanya `npm run db:status:prod` / `npm run db:migrate:prod` |
+Semua lingkungan memakai **nama variabel yang sama** (lihat `.env.example`); yang berbeda hanya
+value-nya. Lokal: salin `.env.example` ke `.env` di root repo (dibaca `npm run dev` dashboard &
+kasir serta `npm run db:*`). Vercel: isi nama yang sama di Settings → Environment Variables untuk
+Development, Preview, dan Production.
 
-Alur rilis: `npm run db:migrate` + `npm run db:test` di dev → merge ke `main` →
-`npm run db:migrate:prod` (minta konfirmasi ref project) → deploy. SQL tests tidak
-dijalankan di prod. Aplikasi production di Vercel memakai env dari Vercel, bukan file di atas.
+`APP_ENV` (`development` | `preview` | `production`) menandai lingkungan. `npm run db:*` selalu
+menuju database di `NEXT_PUBLIC_SUPABASE_URL` milik `.env`:
+
+| `APP_ENV`     | `db:migrate`                      | `db:test`  |
+|---------------|-----------------------------------|------------|
+| `development` | langsung jalan                    | jalan      |
+| `preview`     | minta ketik ref project (`--yes`) | jalan      |
+| `production`  | minta ketik ref project (`--yes`) | ditolak    |
+
+Mode Xendit Test/Live mengikuti awalan `XENDIT_SECRET_KEY` (`xnd_development_` → Test,
+`xnd_production_` → Live).
+
+Alur rilis: `npm run db:migrate` + `npm run db:test` dengan `.env` dev → merge ke `main` →
+ganti value `.env` ke prod (`APP_ENV=production`) → `npm run db:migrate` → kembalikan `.env` ke dev
+→ deploy.
 
 ## 2. Deploy ke Vercel
 
@@ -62,8 +74,11 @@ dijalankan di prod. Aplikasi production di Vercel memakai env dari Vercel, bukan
    | Nama                              | Nilai                       |
    |-----------------------------------|-----------------------------|
    | `NEXT_PUBLIC_SUPABASE_URL`        | Project URL                 |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY`   | anon / publishable key      |
+   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | publishable key        |
    | `SUPABASE_SERVICE_ROLE_KEY`       | service_role key (rahasia)  |
+   | `APP_ENV`                         | `development` / `preview` / `production` |
+
+   Variabel lain (Xendit, situs, identitas) mengikuti `.env.example`.
 
 5. **Deploy**.
 
@@ -96,8 +111,8 @@ perangkat sehingga tidak bentrok. Jika token bocor, tekan **Ganti** di dashboard
   tidak pernah hanya-baca, dan kasir tidak pernah dibatasi. Nyalakan setelah Xendit Live siap.
 - Saat saklar menyala, **trial otomatis 14 hari** dimulai saat Owner pertama kali membuka dashboard atau kasirnya sync
   (email harus terverifikasi). Owner lama juga otomatis mendapat trial 14 hari sejak rilis ini.
-- Owner berlangganan sendiri di **Dashboard → Langganan** (checkout Xendit; `BILLING_ENVIRONMENT`
-  memilih `test`/`live`). Satu langganan untuk semua cabang.
+- Owner berlangganan sendiri di **Dashboard → Langganan** (checkout Xendit; mode `test`/`live`
+  mengikuti awalan `XENDIT_SECRET_KEY`). Satu langganan untuk semua cabang.
 - Setelah trial/periode berakhir ada **toleransi 3 hari**. Lewat dari itu dashboard **hanya-baca**
   (laporan & backup tetap bisa) dan kasir **tidak bisa membuat transaksi baru**. Transaksi yang sudah
   ada tetap diterima `/api/sync`. Aturannya ada di `shared/billing-access.ts`.
@@ -175,7 +190,7 @@ Atau jalankan per aplikasi:
 ```bash
 # Dashboard + API (http://localhost:3000)
 cd admin-dashboard
-cp .env.example .env.local   # isi dengan kredensial Supabase
+# .env di root repo (cp .env.example .env) dipakai otomatis
 npm install
 npm run dev
 

@@ -53,8 +53,8 @@ export default function WebhookSettingsPanel({
   }
 
   const items = [
-    { env: 'test' as const, label: 'Test Mode (Development)', envVar: 'XENDIT_TEST_WEBHOOK_TOKEN', status: testStatus },
-    { env: 'live' as const, label: 'Live Mode (Production)', envVar: 'XENDIT_LIVE_WEBHOOK_TOKEN', status: liveStatus },
+    { env: 'test' as const, label: 'Test Mode (Development)', envVar: 'XENDIT_WEBHOOK_TOKEN', status: testStatus },
+    { env: 'live' as const, label: 'Live Mode (Production)', envVar: 'XENDIT_WEBHOOK_TOKEN', status: liveStatus },
   ]
 
   return (

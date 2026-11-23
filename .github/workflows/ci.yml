@@ -46,7 +46,7 @@ jobs:
       NEXT_TELEMETRY_DISABLED: 1
       # Placeholder: build tidak menghubungi Supabase. Rahasia asli hanya ada di Vercel.
       NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

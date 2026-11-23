@@ -26,7 +26,7 @@ for (const { name, intervalMonths, created, anchor } of cases) {
       })
     }
     new Function('exports', 'require', 'process', 'fetch', compiled)(
-      mod.exports, () => ({}), { env: { XENDIT_TEST_SECRET_KEY: 'xnd_development_test' } }, fetch,
+      mod.exports, () => ({}), { env: { XENDIT_SECRET_KEY: 'xnd_development_test' } }, fetch,
     )
     const params = {
       environment: 'test',
@@ -65,7 +65,7 @@ test('recurring plan operations use the Subscriptions API version', async () => 
     return Response.json({ data: [] })
   }
   new Function('exports', 'require', 'process', 'fetch', compiled)(
-    mod.exports, () => ({}), { env: { XENDIT_TEST_SECRET_KEY: 'xnd_development_test' } }, fetch,
+    mod.exports, () => ({}), { env: { XENDIT_SECRET_KEY: 'xnd_development_test' } }, fetch,
   )
   const client = mod.exports
   await client.getXenditRecurringPlan('test', 'repl_test')

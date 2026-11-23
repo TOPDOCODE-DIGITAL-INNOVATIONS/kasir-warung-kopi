@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { platformDb } from '@/app/platform/db'
 import { parseXenditWebhook, resolveWebhookEnvironment } from '@/lib/xendit/webhook'
+import { xenditBusinessId, xenditEnvironment, xenditWebhookToken } from '@/lib/xendit/env'
 
 // Sama dengan region database Supabase (Sydney); lihat src/app/layout.tsx.
 export const preferredRegion = 'syd1'
@@ -8,16 +9,17 @@ export const preferredRegion = 'syd1'
 /**
  * Webhook Xendit Subscriptions (recurring.plan.*, recurring.cycle.*) dan Payment Sessions
  * (payment_session.*). Satu URL dipakai untuk Test dan Live; lingkungan ditentukan dari
- * token `x-callback-token` (XENDIT_TEST_WEBHOOK_TOKEN / XENDIT_LIVE_WEBHOOK_TOKEN).
+ * token `x-callback-token`: XENDIT_WEBHOOK_TOKEN (berlaku untuk mode sesuai awalan
+ * XENDIT_SECRET_KEY), lalu token per mode yang disimpan Super Admin di database.
  *
  * Respons 2xx hanya dikirim setelah event tersimpan di billing_webhook_events.
  * Respons 5xx membuat Xendit mengirim ulang (dedup di database mencegah efek ganda).
  */
 export async function POST(request: Request) {
   const headerToken = request.headers.get('x-callback-token')
+  const configuredEnvironment = xenditEnvironment()
   let environment = resolveWebhookEnvironment(headerToken, {
-    test: process.env.XENDIT_TEST_WEBHOOK_TOKEN || process.env.XENDIT_WEBHOOK_TOKEN,
-    live: process.env.XENDIT_LIVE_WEBHOOK_TOKEN,
+    [configuredEnvironment]: xenditWebhookToken(),
   })
   if (!environment && headerToken) {
     const { data } = await platformDb().rpc('platform_get_webhook_tokens')
@@ -46,9 +48,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true, result: 'ignored' })
   }
 
-  const expectedBusiness = environment === 'live'
-    ? process.env.XENDIT_LIVE_BUSINESS_ID
-    : process.env.XENDIT_TEST_BUSINESS_ID
+  // XENDIT_BUSINESS_ID hanya berlaku untuk mode yang sedang dikonfigurasi.
+  const expectedBusiness = environment === configuredEnvironment ? xenditBusinessId() : undefined
   if (expectedBusiness && parsed.businessId !== expectedBusiness) {
     console.warn(`[xendit-webhook] env=${environment} event=${parsed.event} business_id tidak cocok`)
     return NextResponse.json({ error: 'unexpected business' }, { status: 403 })

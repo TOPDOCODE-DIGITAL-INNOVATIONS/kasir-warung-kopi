@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { requireSuperAdmin } from '@/lib/platform-auth'
+import { xenditEnvironment, xenditWebhookToken } from '@/lib/xendit/env'
 import {
   cancelXenditSession,
   getXenditPlanCycles,
@@ -270,8 +271,10 @@ export async function getWebhookSettingsStatus() {
   await requireSuperAdmin()
   const { data } = await platformDb().rpc('platform_get_webhook_tokens')
   const dbTokens = (data ?? {}) as { test?: string | null; live?: string | null }
-  const envTest = process.env.XENDIT_TEST_WEBHOOK_TOKEN || process.env.XENDIT_WEBHOOK_TOKEN || null
-  const envLive = process.env.XENDIT_LIVE_WEBHOOK_TOKEN || null
+  // XENDIT_WEBHOOK_TOKEN berlaku untuk mode yang sesuai awalan XENDIT_SECRET_KEY.
+  const envToken = xenditWebhookToken() ?? null
+  const envTest = xenditEnvironment() === 'test' ? envToken : null
+  const envLive = xenditEnvironment() === 'live' ? envToken : null
 
   return {
     test: {
