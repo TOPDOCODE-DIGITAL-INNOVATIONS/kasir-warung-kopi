@@ -52,7 +52,7 @@ export default async function BillingPage() {
             </div>
             <dl className="relative grid border-t border-white/10 sm:grid-cols-3">
               {[
-                { label: 'Paket', value: sub && sub.status !== 'pending' ? `${sub.plan_name} · ${rupiah(sub.amount)}` : access.state === 'trial' ? 'Trial 14 hari' : '-' },
+                { label: 'Paket', value: sub && sub.status !== 'pending' ? `${sub.plan_name} · ${rupiah(sub.amount)}` : access.tester ? 'Akses penguji (gratis)' : access.state === 'trial' ? 'Trial 14 hari' : '-' },
                 { label: 'Perpanjangan otomatis', value: renewing ? `Aktif · tagihan berikutnya ${formatDateTime(sub?.next_billing_at)}` : 'Tidak aktif' },
                 { label: 'Toleransi setelah berakhir', value: `${GRACE_DAYS} hari` },
               ].map(item => (

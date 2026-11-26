@@ -20,6 +20,7 @@ type Exp = {
   amount: number | string
   note: string | null
   from_drawer: boolean
+  salary_payment_id: string | null
   created_by: string | null
   created_at: string | null
   product_name: string | null
@@ -52,7 +53,7 @@ export default async function ExpensesPage({
   const res = await fetchAll<Exp>((from, to) => {
     let q = supabase
       .from('expenses')
-      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, synced_at, purchase_line_id, shift_id, businesses(name)')
+      .select('id, scope, date, category, amount, note, from_drawer, created_by, created_at, product_name, quantity, unit_label, entry_group_id, supplier_name, synced_at, purchase_line_id, salary_payment_id, shift_id, businesses(name)')
       .gte('date', start.slice(0, 7))
       .lte('date', end)
       .order('date', { ascending: false })
@@ -198,6 +199,7 @@ export default async function ExpensesPage({
                         <p className="text-sm font-medium text-gray-900">
                           {e.product_name || e.note || catKey(e)}
                           {e.from_drawer && <Badge className="ml-2 align-middle">dari laci</Badge>}
+                          {e.salary_payment_id && <Badge tone="sky" className="ml-2 align-middle">gaji</Badge>}
                         </p>
                         {(e.product_name || e.note) && <p className="mt-1 text-sm text-gray-700">{catKey(e)}{e.quantity != null && ` · ${e.product_name ? '' : 'Jumlah: '}${Number(e.quantity).toLocaleString('id-ID', { maximumFractionDigits: 6 })}${e.unit_label ? ` ${e.unit_label === 'l' ? 'L' : e.unit_label}` : ''}`}</p>}
                         {e.product_name && e.note && <p className="text-sm text-gray-600 break-words">{e.note}</p>}
@@ -213,9 +215,9 @@ export default async function ExpensesPage({
                         </p>
                       </div>
                       <div className="flex shrink-0 items-start gap-2"><span className="whitespace-nowrap pt-2 text-sm font-semibold tabular-nums text-gray-900">{rupiah(e.amount)}</span>
-                        {businessId && <ExpenseActions expense={{ id: e.id, businessId, scope: e.scope === 'monthly' ? 'monthly' : 'daily', date: e.date, category: e.category ?? '', amount: n(e.amount), note: e.note ?? '', version: e.synced_at, fromDrawer: e.from_drawer, purchaseLinked: !!e.purchase_line_id, purchaseLineId: e.purchase_line_id,
+                        {businessId && <ExpenseActions expense={{ id: e.id, businessId, scope: e.scope === 'monthly' ? 'monthly' : 'daily', date: e.date, category: e.category ?? '', amount: n(e.amount), note: e.note ?? '', version: e.synced_at, fromDrawer: e.from_drawer, purchaseLinked: !!e.purchase_line_id, salaryLinked: !!e.salary_payment_id, purchaseLineId: e.purchase_line_id,
                           purchaseItems: e.purchase_line_id && e.entry_group_id ? (purchaseDocs.get(e.entry_group_id) ?? []) : [],
-                          financialLock: e.purchase_line_id ? 'Terkait pembelian dan stok. Di sini hanya kategori dan catatan yang dapat diperbaiki. Jika jumlah, nominal, atau tanggal salah, gunakan tombol Koreksi Pembelian.' : e.from_drawer ? 'Dari laci kasir. Kategori dan catatan dapat diperbaiki di sini; nominal dikoreksi melalui kasir pada shift asal yang masih aktif.' : null }} />}
+                          financialLock: e.salary_payment_id ? 'Terkait pembayaran gaji. Di sini hanya catatan yang dapat diperbaiki. Jika nominal atau periode salah, batalkan dan catat ulang di halaman Gaji Pegawai.' : e.purchase_line_id ? 'Terkait pembelian dan stok. Di sini hanya kategori dan catatan yang dapat diperbaiki. Jika jumlah, nominal, atau tanggal salah, gunakan tombol Koreksi Pembelian.' : e.from_drawer ? 'Dari laci kasir. Kategori dan catatan dapat diperbaiki di sini; nominal dikoreksi melalui kasir pada shift asal yang masih aktif.' : null }} />}
                       </div>
                     </li>
                   ))}

@@ -25,10 +25,11 @@ export async function deleteExpense(form: FormData) {
     const context = await requireBusinessContext(business)
     if (!id || id.length > 200) throw new Error('Pengeluaran tidak valid.')
     const { data: previous, error: readError } = await context.supabase.from('expenses')
-      .select('synced_at,purchase_line_id').eq('business_id', business).eq('id', id).maybeSingle()
+      .select('synced_at,purchase_line_id,salary_payment_id').eq('business_id', business).eq('id', id).maybeSingle()
     if (readError) throw new Error('Pengeluaran belum dapat dimuat. Coba kembali.')
     if (!previous) return { success: true, message: 'Pengeluaran sudah tidak ada di cabang aktif.' }
     if (previous.purchase_line_id) throw new Error('Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.')
+    if (previous.salary_payment_id) throw new Error('Pengeluaran gaji dibatalkan dari halaman Gaji Pegawai.')
     if (previous.synced_at !== String(form.get('version') ?? '')) throw new Error('Pengeluaran sudah berubah. Muat ulang halaman sebelum menghapus.')
     const writer = await expenseWriter(context), deletedAt = new Date().toISOString()
     // Record the deletion before removing the row, so a disconnected POS can
@@ -56,10 +57,11 @@ export async function updateExpense(form: FormData) {
     if (!id || id.length > 200) throw new Error('Pengeluaran tidak valid.')
     const fields = validateExpense(Object.fromEntries(['scope', 'date', 'category', 'amount', 'note'].map(key => [key, form.get(key)])))
     const { data: previous, error: readError } = await supabase.from('expenses')
-      .select('scope,date,amount,synced_at,from_drawer,purchase_line_id').eq('business_id', business).eq('id', id).maybeSingle()
+      .select('scope,date,amount,category,synced_at,from_drawer,purchase_line_id,salary_payment_id').eq('business_id', business).eq('id', id).maybeSingle()
     if (readError) throw new Error('Pengeluaran belum dapat dimuat. Coba kembali.')
     if (!previous) throw new Error('Pengeluaran tidak ditemukan di cabang aktif.')
     if (previous.synced_at !== String(form.get('version') ?? '')) throw new Error('Pengeluaran sudah berubah. Muat ulang halaman dan buka kembali form edit.')
+    if (previous.salary_payment_id && (financialChange(previous, fields) || previous.category !== fields.category)) throw new Error('Pengeluaran gaji: hanya catatan yang dapat diedit. Ubah nominal atau periode dari halaman Gaji Pegawai.')
     if ((previous.purchase_line_id || previous.from_drawer) && financialChange(previous, fields)) throw new Error(previous.purchase_line_id
       ? 'Pengeluaran terkait pembelian: hanya kategori dan catatan yang dapat diedit.'
       : 'Koreksi nominal dari laci dilakukan di aplikasi kasir pada shift asal yang masih aktif.')

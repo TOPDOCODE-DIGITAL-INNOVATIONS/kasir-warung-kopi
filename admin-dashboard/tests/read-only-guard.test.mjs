@@ -5,7 +5,7 @@ import path from 'node:path'
 import ts from 'typescript'
 
 const root = new URL('../src/app/dashboard/', import.meta.url)
-const WRITE = /^(save|delete|add|update|regenerate|record|complete|sync|set|remove|create)/
+const WRITE = /^(save|delete|add|update|regenerate|record|complete|sync|set|remove|create|cancel)/
 const GUARD = /assertWritable\(\)|getCurrentOwnerAccess\(\)\)\.access\.readOnly/
 
 function actionFiles(dir) {

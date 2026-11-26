@@ -215,15 +215,15 @@ export const ExpensesScreen: React.FC<ExpensesScreenProps> = ({ activeCashier, a
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <span className="font-black text-xs text-rose-700">-{formatIDR(e.amount)}</span>
-        {canManage && !e.pendingPurchase && (
+        {canManage && !e.pendingPurchase && !e.salaryPaymentId && (
           <button type="button" onClick={() => startEdit(e)} className="p-1 text-stone-400 hover:text-[#3E2723]" aria-label={`Edit pengeluaran ${e.category}`} title="Edit pengeluaran"><Pencil className="w-3.5 h-3.5" /></button>
         )}
         {canManage && !e.pendingPurchase && (
           <button
-            disabled={!!e.purchaseLineId}
+            disabled={!!e.purchaseLineId || !!e.salaryPaymentId}
             onClick={() => handleDelete(e)}
             className="p-1 text-stone-400 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-30"
-            title={e.purchaseLineId ? 'Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.' : 'Hapus pengeluaran'}
+            title={e.salaryPaymentId ? 'Pengeluaran gaji dikelola dari dashboard admin.' : e.purchaseLineId ? 'Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.' : 'Hapus pengeluaran'}
             aria-label="Hapus pengeluaran"
           >
             <Trash2 className="w-3.5 h-3.5" />

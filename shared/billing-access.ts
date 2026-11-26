@@ -2,7 +2,7 @@
  * Aturan hak akses langganan KasirKu (dipakai dashboard Owner, API sync, dan aplikasi kasir).
  *
  * - trial       : masa coba berjalan.
- * - active      : periode berbayar berjalan.
+ * - active      : periode berbayar berjalan, atau akses penguji (tester) dari Super Admin.
  * - grace       : trial/periode sudah lewat, masih dalam toleransi GRACE_DAYS hari.
  * - expired     : lewat toleransi -> dashboard read-only, kasir tidak bisa membuat transaksi baru.
  * - none        : belum ada trial maupun periode berbayar (mis. email belum terverifikasi).
@@ -21,6 +21,8 @@ export type AccessState = 'trial' | 'active' | 'grace' | 'expired' | 'none'
 
 export type BillingSnapshot = {
   trial_ends_at?: string | null
+  /** Akses penuh tanpa bayar yang diberikan Super Admin untuk user testing. */
+  tester_until?: string | null
   subscription?: {
     status?: string | null
     period_end?: string | null
@@ -41,6 +43,8 @@ export type Access = {
   paymentIssue: boolean
   /** Tampilkan banner pengingat di dashboard. */
   showReminder: boolean
+  /** Akses aktif berasal dari akses penguji, bukan pembayaran. */
+  tester?: boolean
 }
 
 function time(value: string | null | undefined): number | null {
@@ -55,10 +59,11 @@ export function computeAccess(billing: BillingSnapshot | null | undefined, now: 
   const sub = billing?.subscription
   // Subscription 'pending' belum dibayar; periode hanya berlaku bila tercatat.
   const paidEnd = sub && sub.status !== 'pending' ? time(sub.period_end) : null
+  const testerEnd = time(billing?.tester_until)
   const renewing = !!sub?.renewal_enabled && (sub.status === 'active' || sub.status === 'past_due')
   const paymentIssue = sub?.status === 'past_due'
 
-  const ends = [trialEnd, paidEnd].filter((t): t is number => t !== null)
+  const ends = [trialEnd, paidEnd, testerEnd].filter((t): t is number => t !== null)
   if (!ends.length) {
     return { state: 'none', endsAt: null, graceEndsAt: null, daysLeft: 0, readOnly: false, paymentIssue, showReminder: false }
   }
@@ -68,10 +73,14 @@ export function computeAccess(billing: BillingSnapshot | null | undefined, now: 
   const daysUntil = (t: number) => Math.max(0, Math.ceil((t - nowMs) / DAY_MS))
 
   if (nowMs < end) {
-    const state: AccessState = paidEnd !== null && nowMs < paidEnd ? 'active' : 'trial'
+    const paidActive = paidEnd !== null && nowMs < paidEnd
+    const testerActive = testerEnd !== null && nowMs < testerEnd
+    const state: AccessState = paidActive || testerActive ? 'active' : 'trial'
     const daysLeft = daysUntil(end)
-    const showReminder = paymentIssue || (!(state === 'active' && renewing) && daysLeft <= REMINDER_DAYS)
-    return { ...base, state, daysLeft, readOnly: false, showReminder }
+    const autoRenews = renewing && paidActive
+    const showReminder = paymentIssue || (!autoRenews && daysLeft <= REMINDER_DAYS)
+    const tester = testerActive && !paidActive
+    return { ...base, state, daysLeft, readOnly: false, showReminder, ...(tester ? { tester } : {}) }
   }
   if (nowMs < graceEnd) {
     return { ...base, state: 'grace', daysLeft: daysUntil(graceEnd), readOnly: false, showReminder: true }
@@ -85,6 +94,7 @@ export function accessMessage(access: Access): string {
     case 'trial':
       return `Masa coba gratis tersisa ${access.daysLeft} hari.`
     case 'active':
+      if (access.tester) return `Akses penguji aktif dari Super Admin, tersisa ${access.daysLeft} hari.`
       return access.paymentIssue
         ? 'Pembayaran perpanjangan gagal. Perbarui pembayaran agar langganan tidak terhenti.'
         : `Langganan aktif, tersisa ${access.daysLeft} hari.`

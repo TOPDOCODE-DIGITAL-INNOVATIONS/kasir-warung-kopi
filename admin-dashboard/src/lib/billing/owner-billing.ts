@@ -13,6 +13,7 @@ export type OwnerBilling = BillingSnapshot & {
   status: 'ok'
   trial_started_at: string | null
   trial_ends_at: string | null
+  tester_until: string | null
   subscription: {
     status: 'pending' | 'active' | 'past_due' | 'ended'
     plan_code: 'monthly' | 'yearly'

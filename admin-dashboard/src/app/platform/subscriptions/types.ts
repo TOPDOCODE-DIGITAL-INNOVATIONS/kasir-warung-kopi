@@ -5,6 +5,7 @@ export const TRIAL_DURATION_DAYS = 14
 export const billingFilters = {
   trial_active: 'Trial aktif',
   subscription_active: 'Langganan aktif',
+  tester_active: 'Akun penguji',
   pending: 'Menunggu pembayaran',
   past_due: 'Perlu pembayaran',
   not_started: 'Belum mulai',
@@ -13,6 +14,10 @@ export const billingFilters = {
 export type BillingFilter = keyof typeof billingFilters
 export type TrialStatus = 'none' | 'scheduled' | 'active' | 'expired'
 export type SubscriptionStatus = 'none' | 'pending' | 'active' | 'past_due' | 'expired'
+export type TesterStatus = 'none' | 'active' | 'expired'
+
+/** Pilihan durasi akses penguji (hari). */
+export const TESTER_DURATIONS = [30, 90, 180, 365] as const
 
 export type BillingOwner = {
   owner_id: string
@@ -27,6 +32,10 @@ export type BillingOwner = {
   period_end: string | null
   next_billing_at: string | null
   renewal_enabled: boolean | null
+  tester_status: TesterStatus
+  tester_until: string | null
+  tester_note: string | null
+  tester_granted_at: string | null
 }
 
 export type BillingOverview = {
@@ -45,4 +54,5 @@ export type BillingOwnerDetail = {
     id: string; plan_name: string; status: string; amount: number; reference_id: string
     created_at: string; expires_at: string | null
   }[]
+  audit: { id: string; action: string; outcome: string; reference_id: string | null; created_at: string; actor: string }[]
 }

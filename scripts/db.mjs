@@ -1,5 +1,7 @@
 
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -15,9 +17,32 @@ function readEnvFile(filePath) {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith('#')) continue
     const m = /^([A-Z0-9_]+)\s*=\s*(.*)$/.exec(trimmed)
-    if (m) out[m[1]] = m[2].replace(/^['"]|['"]$/g, '')
+    if (m) {
+      const val = m[2].replace(/^['"]|['"]$/g, '')
+      if (val !== '') out[m[1]] = val
+    }
   }
   return out
+}
+
+function readSupabaseCliToken() {
+  const tokenFile = path.join(os.homedir(), '.supabase', 'access-token')
+  if (fs.existsSync(tokenFile)) {
+    const t = fs.readFileSync(tokenFile, 'utf8').trim()
+    if (t) return t
+  }
+  if (process.platform === 'darwin') {
+    try {
+      const t = execFileSync('security', ['find-generic-password', '-s', 'Supabase CLI', '-w'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim()
+      if (t) return t
+    } catch {
+      // ignore if keychain entry does not exist
+    }
+  }
+  return ''
 }
 
 // Satu file .env untuk semua lingkungan. Database yang dituju = NEXT_PUBLIC_SUPABASE_URL di .env.
@@ -54,9 +79,9 @@ function resolveConfig() {
     throw new Error(`Format NEXT_PUBLIC_SUPABASE_URL tidak valid: ${url}`)
   }
   const projectRef = refMatch[1]
-  const token = env.SUPABASE_ACCESS_TOKEN
+  const token = (env.SUPABASE_ACCESS_TOKEN || '').trim() || readSupabaseCliToken()
   if (!token) {
-    throw new Error('SUPABASE_ACCESS_TOKEN belum diset di .env')
+    throw new Error('Token Supabase tidak ditemukan. Jalankan `npx supabase login` atau isi SUPABASE_ACCESS_TOKEN di .env')
   }
 
   return { projectRef, token, target, label: `${target.toUpperCase()} ${projectRef}` }
@@ -229,6 +254,8 @@ export async function test() {
     'owner_self_service_billing.sql',
     'hpp_purchase_correction.sql',
     'sync_events.sql',
+    'platform_tester_access.sql',
+    'payroll_salary.sql',
   ]
 
   const platformMigration = fs

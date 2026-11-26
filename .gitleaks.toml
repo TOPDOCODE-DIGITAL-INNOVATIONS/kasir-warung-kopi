@@ -1,0 +1,50 @@
+# Konfigurasi gitleaks: aturan bawaan + aturan khusus project ini.
+# Dipakai oleh pre-commit hook (.githooks/pre-commit) dan GitHub Action (.github/workflows/secret-scan.yml).
+title = "kasir-warung-kopi"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "env-secret-assignment"
+description = "Nilai rahasia di file env / konfigurasi (PASSWORD, SECRET, TOKEN, SERVICE_ROLE_KEY)"
+regex = '''(?m)^[ \t]*(?:export[ \t]+)?[A-Z0-9_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|SERVICE_ROLE_KEY|PRIVATE_KEY)[A-Z0-9_]*=["']?([^\s"'#]{8,})'''
+secretGroup = 1
+keywords = ["password", "passwd", "secret", "token", "service_role_key", "private_key"]
+[[rules.allowlists]]
+# Placeholder di .env.example dan dokumentasi
+regexes = ['''(?i)x{4,}''', '''\.\.\.''', '''^<.*>$''', '''(?i)^(changeme|your[-_].*|example.*|placeholder.*)$''']
+
+[[rules]]
+id = "xendit-secret-key"
+description = "Xendit secret key"
+regex = '''xnd_(?:development|production)_[A-Za-z0-9]{20,}'''
+keywords = ["xnd_"]
+
+[[rules]]
+id = "supabase-access-token"
+description = "Supabase personal access token / secret key"
+regex = '''\b(?:sbp_[a-f0-9]{32,}|sb_secret_[A-Za-z0-9_-]{20,})'''
+keywords = ["sbp_", "sb_secret_"]
+
+[[rules]]
+id = "supabase-service-role-jwt"
+description = "JWT Supabase (service_role / anon lama)"
+regex = '''\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'''
+keywords = ["eyj"]
+
+[[rules]]
+id = "postgres-uri-with-password"
+description = "Connection string Postgres berisi password"
+regex = '''postgres(?:ql)?://[^:@/\s]+:([^@/\s]{4,})@'''
+secretGroup = 1
+keywords = ["postgres"]
+[[rules.allowlists]]
+regexes = ['''(?i)^(password|postgres|\[?your-password\]?|<.*>|\$\{.*\}|x+)$''']
+
+[allowlist]
+description = "File yang boleh diabaikan"
+paths = [
+  '''(?:^|/)package-lock\.json$''',
+  '''(?:^|/)node_modules/''',
+]

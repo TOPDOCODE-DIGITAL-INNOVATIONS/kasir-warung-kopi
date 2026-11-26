@@ -178,6 +178,8 @@ export interface Expense {
   serverVersion?: string;
   editBase?: Pick<Expense, 'scope' | 'date' | 'category' | 'amount' | 'note'>;
   purchaseLineId?: string;
+  /** Dibuat dari pembayaran gaji di dashboard admin; hanya dikelola dari sana. */
+  salaryPaymentId?: string;
   productName?: string;
   quantity?: number;
   unitLabel?: string;
