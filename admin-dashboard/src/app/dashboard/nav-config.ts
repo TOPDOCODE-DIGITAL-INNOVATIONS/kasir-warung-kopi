@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Receipt, RefreshCw, Building2, Package, Wallet, History, DatabaseBackup, Users,
-  FileBarChart, PiggyBank, Truck, CreditCard, BadgeCheck, type LucideIcon,
+  FileBarChart, PiggyBank, Truck, CreditCard, BadgeCheck, Banknote, type LucideIcon,
 } from 'lucide-react'
 
 export type NavItem = { href: string; label: string; description: string; icon: LucideIcon }
@@ -24,6 +24,7 @@ export const OWNER_NAV: NavGroup[] = [
   { id: 'usaha', label: 'Usaha & Tim', items: [
     { href: '/dashboard/businesses', label: 'Cabang & Token', icon: Building2, description: 'Kelola cabang usaha dan token sync untuk aplikasi kasir.' },
     { href: '/dashboard/users', label: 'Kelola User', icon: Users, description: 'Profil dan hak akses kasir pada setiap cabang.' },
+    { href: '/dashboard/payroll', label: 'Gaji Pegawai', icon: Banknote, description: 'Daftar pegawai dan pencatatan gaji bulanan; otomatis masuk ke pengeluaran.' },
   ] },
   { id: 'sistem', label: 'Sistem & Akun', items: [
     { href: '/dashboard/sync', label: 'Sinkronisasi', icon: RefreshCw, description: 'Status koneksi aplikasi kasir offline dengan database.' },

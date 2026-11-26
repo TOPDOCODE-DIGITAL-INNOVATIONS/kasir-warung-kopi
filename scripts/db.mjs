@@ -214,6 +214,7 @@ export async function test() {
     'owner_self_service_billing.sql',
     'hpp_purchase_correction.sql',
     'platform_tester_access.sql',
+    'payroll_salary.sql',
   ]
 
   const platformMigration = fs

@@ -500,6 +500,7 @@ export async function POST(request: Request) {
         const base = e.editBase as Row
         if (!sameExpense(previous, base) || (e.serverVersion && e.serverVersion !== previous.synced_at)) conflicts.push(rowToExpense(previous))
         if (previous.purchase_line_id && financialChange(previous, e)) return json({ success: false, error: 'Pengeluaran terkait pembelian: hanya kategori dan catatan yang dapat diedit.' }, 400)
+        if (previous.salary_payment_id && (financialChange(previous, e) || String(previous.category ?? '') !== String(e.category ?? '').trim())) return json({ success: false, error: 'Pengeluaran gaji: hanya catatan yang dapat diedit. Ubah nominal atau periode dari dashboard admin.' }, 400)
         if (previous.from_drawer && (previous.date !== e.date || previous.scope !== e.scope)) return json({ success: false, error: 'Tanggal dan jenis pengeluaran laci tetap mengikuti shift asal.' }, 400)
         try { validateExpense(e) } catch (error) { return json({ success: false, error: error instanceof Error ? error.message : 'Isian pengeluaran tidak valid.' }, 400) }
       }
@@ -542,10 +543,11 @@ export async function POST(request: Request) {
     }
 
     if (deletedExpenseIds.length) {
-      const { data: linked, error: linkedError } = await supabase.from('expenses').select('id,purchase_line_id')
+      const { data: linked, error: linkedError } = await supabase.from('expenses').select('id,purchase_line_id,salary_payment_id')
         .eq('business_id', businessId).in('id', deletedExpenseIds)
       if (linkedError) throw linkedError
       if (linked?.some(e => e.purchase_line_id)) return json({ success: false, error: 'Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.' }, 400)
+      if (linked?.some(e => e.salary_payment_id)) return json({ success: false, error: 'Pengeluaran gaji hanya dapat dibatalkan dari dashboard admin.' }, 400)
       const { error } = await supabase
         .from('expenses')
         .delete()
@@ -717,6 +719,7 @@ function rowToExpense(r: Row): Row {
     createdAt: ts(r.created_at) ?? ts(r.synced_at),
     serverVersion: r.synced_at,
     purchaseLineId: r.purchase_line_id,
+    salaryPaymentId: r.salary_payment_id,
     productName: r.product_name,
     quantity: r.quantity == null ? undefined : num(r.quantity),
     unitLabel: r.unit_label,

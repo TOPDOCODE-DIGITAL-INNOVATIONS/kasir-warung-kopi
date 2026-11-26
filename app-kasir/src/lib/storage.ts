@@ -1168,6 +1168,7 @@ export function updateExpense(id: string, input: Pick<Expense, 'scope' | 'date' 
   if (index < 0) throw new Error('Pengeluaran tidak ditemukan. Muat ulang daftar.');
   const previous = list[index];
   if (previous.pendingPurchase) throw new Error('Sinkronkan pembelian produk sebelum mengeditnya.');
+  if (previous.salaryPaymentId) throw new Error('Pengeluaran gaji dikelola dari dashboard admin (Gaji Pegawai).');
   if (JSON.stringify(previous) !== JSON.stringify(expected)) throw new Error('Pengeluaran sudah berubah. Tutup dan buka kembali form edit.');
   if (!Number.isFinite(input.amount) || input.amount <= 0 || input.amount > 999_999_999 || Math.abs(input.amount * 100 - Math.round(input.amount * 100)) > 0.00001) throw new Error('Nominal harus lebih dari 0, maksimal Rp 999.999.999, dan maksimal dua angka desimal.');
   if (!input.category.trim() || input.category.trim().length > 100) throw new Error('Kategori wajib diisi, maksimal 100 karakter.');
@@ -1199,6 +1200,7 @@ export function deleteExpense(id: string): { ok: boolean; message: string } {
   if (!exp) return { ok: false, message: 'Pengeluaran tidak ditemukan.' };
   if (exp.pendingPurchase) return { ok: false, message: 'Sinkronkan pembelian produk sebelum menghapusnya.' };
   if (exp.purchaseLineId) return { ok: false, message: 'Pengeluaran terkait pembelian/stok tidak dapat dihapus dari sini.' };
+  if (exp.salaryPaymentId) return { ok: false, message: 'Pengeluaran gaji hanya dapat dibatalkan dari dashboard admin (Gaji Pegawai).' };
 
   let message = 'Pengeluaran dihapus.';
   if (exp.fromDrawer && exp.shiftId) {

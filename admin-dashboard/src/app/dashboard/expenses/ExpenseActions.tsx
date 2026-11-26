@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { usePendingRefresh } from '@/hooks/usePendingRefresh'
 import LoadingSpinner from '@/components/LoadingSpinner'
-import { Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import { Banknote, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import LoadingLink from '@/components/LoadingLink'
 import AdminModal from '@/components/AdminModal'
 import MoneyInput from '../products/MoneyInput'
 import { cancelExpensePurchase, deleteExpense, updateExpense } from './actions'
@@ -22,6 +23,7 @@ function EditModal({ expense, onClose, onSaved }: { expense: EditableExpense; on
     form.set('business_id', expense.businessId); form.set('id', expense.id); form.set('version', expense.version)
     form.set('scope', scope); form.set('date', date)
     if (expense.financialLock) form.set('amount', String(expense.amount))
+    if (expense.salaryLinked) form.set('category', expense.category)
     try {
       const result = await updateExpense(form)
       if (result.success) onSaved(); else setError(result.message)
@@ -44,7 +46,7 @@ function EditModal({ expense, onClose, onSaved }: { expense: EditableExpense; on
           <label className="space-y-2 text-sm text-gray-700"><span>{scope === 'monthly' ? 'Bulan' : 'Tanggal'}</span><input disabled={!!expense.financialLock} required type={scope === 'monthly' ? 'month' : 'date'} value={date} onChange={e => setDate(e.target.value)} className={input} /></label>
         </div>
         <label className="block space-y-2 text-sm text-gray-700"><span>Kategori</span>
-          <select name="category" value={category} onChange={event => setCategory(event.target.value)} className={input} required>
+          <select name="category" disabled={expense.salaryLinked} value={category} onChange={event => setCategory(event.target.value)} className={input} required>
             {!EXPENSE_CATEGORIES[scope].includes(category) && <option value={category}>{category}</option>}
             {EXPENSE_CATEGORIES[scope].map(option => <option key={option}>{option}</option>)}
           </select>
@@ -115,7 +117,9 @@ export default function ExpenseActions({ expense }: { expense: EditableExpense }
   const { refreshing, refresh } = usePendingRefresh()
   const saved = () => { setOpen(null); refresh() }
   return <div className="flex items-center" aria-busy={refreshing}><button type="button" disabled={refreshing} onClick={() => setOpen('edit')} aria-label={`Edit pengeluaran ${expense.category}`} title="Edit pengeluaran" className="rounded-lg p-2 text-blue-600 hover:bg-blue-50 disabled:opacity-50"><Pencil className="h-4 w-4" /></button>
-    {expense.purchaseLinked
+    {expense.salaryLinked
+      ? <LoadingLink href={`/dashboard/payroll?m=${expense.date.slice(0, 7)}`} aria-label={`Kelola gaji ${expense.note}`} title="Batalkan atau ubah dari halaman Gaji Pegawai" className="rounded-lg p-2 text-sky-700 hover:bg-sky-50"><Banknote className="h-4 w-4" /></LoadingLink>
+      : expense.purchaseLinked
       ? <button type="button" disabled={expense.fromDrawer || refreshing} onClick={() => setOpen('correct')} aria-label={`Koreksi pembelian ${expense.category}`} title={expense.fromDrawer ? 'Dibayar dari laci kasir; koreksi melalui aplikasi kasir.' : 'Koreksi pembelian'} className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"><RotateCcw className="h-4 w-4" /></button>
       : <button type="button" disabled={refreshing} onClick={() => setOpen('delete')} aria-label={`Hapus pengeluaran ${expense.category}`} title="Hapus pengeluaran" className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"><Trash2 className="h-4 w-4" /></button>}
     {open === 'edit' && <EditModal expense={expense} onClose={() => setOpen(null)} onSaved={saved} />}{open === 'delete' && <DeleteModal expense={expense} onClose={() => setOpen(null)} onSaved={saved} />}{open === 'correct' && <CorrectionModal expense={expense} onClose={() => setOpen(null)} onSaved={saved} />}
